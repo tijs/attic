@@ -2,3 +2,7 @@ node_modules/
 
 # User config (contains endpoint, bucket, keychain service names)
 ~/.attic/
+
+# Internal working docs
+docs/brainstorms/
+docs/plans/

@@ -197,10 +197,10 @@ exporter, so no external services or credentials are needed.
   boundaries
 - [Asset Metadata](docs/metadata.md) -- Schema reference for the per-asset JSON
   uploaded to S3
+- [Unattended Backups](docs/unattended-backups.md) -- Set up daily scheduled
+  backups via launchd on a dedicated Mac
 
 ## Future Plans
 
-- **Scheduled backups via launchd** -- A LaunchAgent plist to run backups daily
-  on a dedicated Mac
 - **Rendered edit backup** -- Detect and upload edited versions alongside
   originals (see `docs/plans/`)
