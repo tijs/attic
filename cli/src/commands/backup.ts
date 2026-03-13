@@ -57,6 +57,9 @@ interface AssetMetadata {
   albums: AlbumRef[];
   keywords: string[];
   people: PersonRef[];
+  hasEdit: boolean;
+  editedAt: string | null;
+  editor: string | null;
   s3Key: string;
   checksum: string;
   backedUpAt: string;
@@ -285,6 +288,9 @@ function buildMetadataJson(
     albums: asset.albums,
     keywords: asset.keywords,
     people: asset.people,
+    hasEdit: asset.hasEdit,
+    editedAt: asset.editedAt?.toISOString() ?? null,
+    editor: asset.editor,
     s3Key,
     checksum: `sha256:${sha256}`,
     backedUpAt: new Date().toISOString(),

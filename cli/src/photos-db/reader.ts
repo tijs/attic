@@ -104,11 +104,32 @@ function assertCloudLocalState(value: number): CloudLocalStateValue {
   return value as CloudLocalStateValue;
 }
 
+interface EditInfo {
+  editedAt: Date | null;
+  editor: string;
+}
+
 interface EnrichmentMaps {
   descriptions: Map<number, string>;
   albums: Map<number, AlbumRef[]>;
   keywords: Map<number, string[]>;
   people: Map<number, PersonRef[]>;
+  edits: Map<number, EditInfo>;
+  renderedAssets: Set<number>;
+}
+
+/** hasEdit requires both an adjustment record and a rendered resource. */
+function editFields(
+  enrichment: EnrichmentMaps,
+  pk: number,
+): Pick<PhotoAsset, "hasEdit" | "editedAt" | "editor"> {
+  const editInfo = enrichment.edits.get(pk);
+  const hasEdit = editInfo != null && enrichment.renderedAssets.has(pk);
+  return {
+    hasEdit,
+    editedAt: hasEdit ? editInfo.editedAt : null,
+    editor: hasEdit ? editInfo.editor : null,
+  };
 }
 
 function rowToAsset(row: RawRow, enrichment: EnrichmentMaps): PhotoAsset {
@@ -134,6 +155,7 @@ function rowToAsset(row: RawRow, enrichment: EnrichmentMaps): PhotoAsset {
     albums: enrichment.albums.get(pk) ?? [],
     keywords: enrichment.keywords.get(pk) ?? [],
     people: enrichment.people.get(pk) ?? [],
+    ...editFields(enrichment, pk),
   };
 }
 
@@ -202,6 +224,43 @@ function buildKeywordMap(db: Database): Map<number, string[]> {
   return map;
 }
 
+function buildEditMap(db: Database): Map<number, EditInfo> {
+  const rows = safeQuery<{
+    ZASSET: number;
+    ZADJUSTMENTTIMESTAMP: number | null;
+    ZADJUSTMENTFORMATIDENTIFIER: string;
+  }>(
+    db,
+    `SELECT aa.ZASSET, ua.ZADJUSTMENTTIMESTAMP, ua.ZADJUSTMENTFORMATIDENTIFIER
+     FROM ZADDITIONALASSETATTRIBUTES aa
+     JOIN ZUNMANAGEDADJUSTMENT ua ON aa.ZUNMANAGEDADJUSTMENT = ua.Z_PK
+     WHERE aa.ZUNMANAGEDADJUSTMENT IS NOT NULL
+       AND ua.ZADJUSTMENTFORMATIDENTIFIER IS NOT NULL`,
+    "edits",
+  );
+  const map = new Map<number, EditInfo>();
+  for (const r of rows) {
+    map.set(r.ZASSET, {
+      editedAt: coreDataTimestampToDate(r.ZADJUSTMENTTIMESTAMP),
+      editor: r.ZADJUSTMENTFORMATIDENTIFIER,
+    });
+  }
+  return map;
+}
+
+function buildRenderedAssetSet(db: Database): Set<number> {
+  const rows = safeQuery<{ ZASSET: number }>(
+    db,
+    `SELECT DISTINCT ir.ZASSET
+     FROM ZINTERNALRESOURCE ir
+     WHERE ir.ZRESOURCETYPE = 1
+       AND ir.ZTRASHEDSTATE = 0
+       AND ir.ZVERSION != 0`,
+    "rendered resources",
+  );
+  return new Set(rows.map((r) => r.ZASSET));
+}
+
 function buildPeopleMap(db: Database): Map<number, PersonRef[]> {
   const rows = safeQuery<
     { ZASSETFORFACE: number; ZPERSONUUID: string; ZDISPLAYNAME: string }
@@ -254,6 +313,8 @@ export function openPhotosDb(
         albums: buildAlbumMap(db),
         keywords: buildKeywordMap(db),
         people: buildPeopleMap(db),
+        edits: buildEditMap(db),
+        renderedAssets: buildRenderedAssetSet(db),
       };
 
       return (rows as unknown as RawRow[]).map((row) =>

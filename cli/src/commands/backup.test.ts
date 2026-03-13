@@ -31,6 +31,9 @@ function makeAsset(
     albums: [],
     keywords: [],
     people: [],
+    hasEdit: false,
+    editedAt: null,
+    editor: null,
     ...overrides,
   };
 }

@@ -31,7 +31,8 @@ function createTestDb(opts?: { withEnrichment?: boolean }): string {
       ZORIGINALFILESIZE INTEGER,
       ZORIGINALFILENAME TEXT,
       ZORIGINALSTABLEHASH TEXT,
-      ZTITLE TEXT
+      ZTITLE TEXT,
+      ZUNMANAGEDADJUSTMENT INTEGER
     );
   `);
 
@@ -102,6 +103,23 @@ function createTestDb(opts?: { withEnrichment?: boolean }): string {
         ZHIDDEN INTEGER DEFAULT 0,
         ZASSETVISIBLE INTEGER DEFAULT 1
       );
+
+      CREATE TABLE ZUNMANAGEDADJUSTMENT (
+        Z_PK INTEGER PRIMARY KEY,
+        ZADJUSTMENTTIMESTAMP REAL,
+        ZADJUSTMENTFORMATIDENTIFIER TEXT
+      );
+
+      CREATE TABLE ZINTERNALRESOURCE (
+        Z_PK INTEGER PRIMARY KEY,
+        ZASSET INTEGER,
+        ZRESOURCETYPE INTEGER,
+        ZTRASHEDSTATE INTEGER DEFAULT 0,
+        ZVERSION INTEGER DEFAULT 0,
+        ZDATALENGTH INTEGER,
+        ZCOMPACTUTI TEXT,
+        ZLOCALAVAILABILITY INTEGER DEFAULT 1
+      );
     `);
 
     if (opts?.withEnrichment) {
@@ -137,6 +155,18 @@ function createTestDb(opts?: { withEnrichment?: boolean }): string {
 
         INSERT INTO ZDETECTEDFACE (Z_PK, ZASSETFORFACE, ZPERSONFORFACE, ZHIDDEN, ZASSETVISIBLE)
         VALUES (1, 1, 1, 0, 1);
+      `);
+
+      // Edit data: photo asset (Z_PK=1) has an edit
+      const editTs = 727012800 + 7200; // 2 hours after creation
+      db.exec(`
+        INSERT INTO ZUNMANAGEDADJUSTMENT (Z_PK, ZADJUSTMENTTIMESTAMP, ZADJUSTMENTFORMATIDENTIFIER)
+        VALUES (1, ${editTs}, 'com.apple.photo');
+
+        UPDATE ZADDITIONALASSETATTRIBUTES SET ZUNMANAGEDADJUSTMENT = 1 WHERE Z_PK = 1;
+
+        INSERT INTO ZINTERNALRESOURCE (Z_PK, ZASSET, ZRESOURCETYPE, ZTRASHEDSTATE, ZVERSION, ZDATALENGTH, ZCOMPACTUTI, ZLOCALAVAILABILITY)
+        VALUES (1, 1, 1, 0, 1, 2048000, 'public.heic', 1);
       `);
     }
   }
@@ -192,6 +222,11 @@ Deno.test("readAssets returns non-trashed assets with correct fields", () => {
     assertEquals(photo.people.length, 1);
     assertEquals(photo.people[0].displayName, "Alice");
 
+    // Edit fields
+    assertEquals(photo.hasEdit, true);
+    assertEquals(photo.editedAt?.toISOString(), "2024-01-15T14:00:00.000Z");
+    assertEquals(photo.editor, "com.apple.photo");
+
     const video = assets.find((a) => a.uuid === "uuid-video-1")!;
     assertEquals(video.kind, AssetKind.VIDEO);
     assertEquals(video.latitude, null);
@@ -206,6 +241,11 @@ Deno.test("readAssets returns non-trashed assets with correct fields", () => {
     assertEquals(video.albums, []);
     assertEquals(video.keywords, []);
     assertEquals(video.people, []);
+
+    // Video has no edit
+    assertEquals(video.hasEdit, false);
+    assertEquals(video.editedAt, null);
+    assertEquals(video.editor, null);
   } finally {
     Deno.removeSync(dbPath);
   }
@@ -226,7 +266,60 @@ Deno.test("readAssets works without enrichment tables (schema resilience)", () =
     assertEquals(photo.albums, []);
     assertEquals(photo.keywords, []);
     assertEquals(photo.people, []);
+    assertEquals(photo.hasEdit, false);
+    assertEquals(photo.editedAt, null);
+    assertEquals(photo.editor, null);
   } finally {
     Deno.removeSync(dbPath);
+  }
+});
+
+Deno.test("readAssets: adjustment without rendered resource yields hasEdit false", () => {
+  const path = Deno.makeTempFileSync({ suffix: ".sqlite" });
+  const db = new Database(path);
+
+  const coreDataTs = 727012800;
+
+  db.exec(`
+    CREATE TABLE ZASSET (
+      Z_PK INTEGER PRIMARY KEY, ZUUID TEXT, ZFILENAME TEXT, ZDIRECTORY TEXT,
+      ZDATECREATED REAL, ZKIND INTEGER, ZUNIFORMTYPEIDENTIFIER TEXT,
+      ZWIDTH INTEGER, ZHEIGHT INTEGER, ZLATITUDE REAL, ZLONGITUDE REAL,
+      ZFAVORITE INTEGER, ZCLOUDLOCALSTATE INTEGER, ZTRASHEDSTATE INTEGER DEFAULT 0
+    );
+    CREATE TABLE ZADDITIONALASSETATTRIBUTES (
+      Z_PK INTEGER PRIMARY KEY, ZASSET INTEGER, ZORIGINALFILESIZE INTEGER,
+      ZORIGINALFILENAME TEXT, ZORIGINALSTABLEHASH TEXT, ZTITLE TEXT,
+      ZUNMANAGEDADJUSTMENT INTEGER
+    );
+    CREATE TABLE ZUNMANAGEDADJUSTMENT (
+      Z_PK INTEGER PRIMARY KEY, ZADJUSTMENTTIMESTAMP REAL,
+      ZADJUSTMENTFORMATIDENTIFIER TEXT
+    );
+    CREATE TABLE ZINTERNALRESOURCE (
+      Z_PK INTEGER PRIMARY KEY, ZASSET INTEGER, ZRESOURCETYPE INTEGER,
+      ZTRASHEDSTATE INTEGER DEFAULT 0, ZVERSION INTEGER DEFAULT 0,
+      ZDATALENGTH INTEGER, ZCOMPACTUTI TEXT, ZLOCALAVAILABILITY INTEGER DEFAULT 1
+    );
+
+    INSERT INTO ZASSET VALUES (1, 'uuid-adj-only', 'IMG.HEIC', '/dir', ${coreDataTs},
+      ${AssetKind.PHOTO}, 'public.heic', 4032, 3024, NULL, NULL, 0, ${CloudLocalState.LOCAL}, 0);
+    INSERT INTO ZADDITIONALASSETATTRIBUTES VALUES (1, 1, 1000, 'IMG.HEIC', 'hash', NULL, 1);
+    INSERT INTO ZUNMANAGEDADJUSTMENT VALUES (1, ${coreDataTs + 100}, 'com.apple.photo');
+  `);
+  // No ZINTERNALRESOURCE row — adjustment exists but no rendered file
+  db.close();
+
+  try {
+    const reader = openPhotosDb(path);
+    const assets = reader.readAssets();
+    reader.close();
+
+    assertEquals(assets.length, 1);
+    assertEquals(assets[0].hasEdit, false, "no rendered resource = hasEdit false");
+    assertEquals(assets[0].editedAt, null);
+    assertEquals(assets[0].editor, null);
+  } finally {
+    Deno.removeSync(path);
   }
 });

@@ -57,7 +57,9 @@ export function printScanReport(assets: PhotoAsset[]): void {
     `  iCloud only:     ${icloudOnly.length.toLocaleString()}\n`,
   );
 
-  console.log(`  Favorites:       ${favorites.length.toLocaleString()}\n`);
+  const edited = assets.filter((a) => a.hasEdit);
+  console.log(`  Favorites:       ${favorites.length.toLocaleString()}`);
+  console.log(`  Edited:          ${edited.length.toLocaleString()}\n`);
 
   console.log(`  Types:`);
   for (const [type, count] of sortedTypes.slice(0, 10)) {

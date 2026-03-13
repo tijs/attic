@@ -30,6 +30,9 @@ export interface PhotoAsset {
   albums: AlbumRef[];
   keywords: string[];
   people: PersonRef[];
+  hasEdit: boolean;
+  editedAt: Date | null;
+  editor: string | null;
 }
 
 /** Cloud local state values from Photos.sqlite */
