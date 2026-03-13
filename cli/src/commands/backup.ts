@@ -13,6 +13,9 @@ import { removeStagedFile } from "../export/exporter.ts";
 import type { S3Provider } from "../storage/s3-client.ts";
 import { formatBytes } from "../format.ts";
 import { startSpinner } from "../spinner.ts";
+import type { BackupLogger } from "../logger.ts";
+import { createNullLogger } from "../logger.ts";
+import { notify } from "../notify.ts";
 
 export interface BackupOptions {
   /** Maximum assets per ladder batch. */
@@ -25,6 +28,12 @@ export interface BackupOptions {
   dryRun: boolean;
   /** Save manifest every N assets. */
   saveInterval: number;
+  /** Suppress progress output (for unattended/scripted use). */
+  quiet: boolean;
+  /** Structured JSONL logger (null logger if --log not given). */
+  logger: BackupLogger;
+  /** Send macOS notification on completion. */
+  notifyOnComplete: boolean;
 }
 
 const DEFAULT_OPTIONS: BackupOptions = {
@@ -33,6 +42,9 @@ const DEFAULT_OPTIONS: BackupOptions = {
   type: null,
   dryRun: false,
   saveInterval: 50,
+  quiet: false,
+  logger: createNullLogger(),
+  notifyOnComplete: false,
 };
 
 export interface BackupReport {
@@ -54,6 +66,8 @@ export async function runBackup(
   stagingDir?: string,
 ): Promise<BackupReport> {
   const options = { ...DEFAULT_OPTIONS, ...opts };
+  const log = options.quiet ? () => {} : console.log.bind(console);
+  const logger = options.logger;
 
   // Filter to pending assets
   let pending = assets.filter((a) => !isBackedUp(manifest, a.uuid));
@@ -71,7 +85,7 @@ export async function runBackup(
   }
 
   if (pending.length === 0) {
-    console.log("\n  Nothing to back up — all assets are current.\n");
+    log("\n  Nothing to back up — all assets are current.\n");
     return { uploaded: 0, failed: 0, skipped: 0, totalBytes: 0, errors: [] };
   }
 
@@ -87,12 +101,14 @@ export async function runBackup(
     videoCount > 0 ? `${videoCount} videos` : "",
   ].filter(Boolean).join(", ");
 
-  console.log(`\n  Attic — Backup`);
-  console.log(`  ══════════════\n`);
-  console.log(`  Pending:     ${pending.length.toLocaleString()} assets (${typeSummary})`);
-  console.log(`  Est. size:   ${formatBytes(pendingSize)}`);
-  if (options.dryRun) console.log(`  Mode:        DRY RUN`);
-  console.log();
+  log(`\n  Attic — Backup`);
+  log(`  ══════════════\n`);
+  log(`  Pending:     ${pending.length.toLocaleString()} assets (${typeSummary})`);
+  log(`  Est. size:   ${formatBytes(pendingSize)}`);
+  if (options.dryRun) log(`  Mode:        DRY RUN`);
+  log();
+
+  logger.start(pending.length, photoCount, videoCount);
 
   if (options.dryRun) {
     return {
@@ -140,15 +156,13 @@ export async function runBackup(
     const totalBatches = Math.ceil(pending.length / options.batchSize);
 
     if (totalBatches > 1) {
-      console.log(
-        `  Batch ${batchNum}/${totalBatches}  (${batch.length} assets)`,
-      );
+      log(`  Batch ${batchNum}/${totalBatches}  (${batch.length} assets)`);
     }
 
     // 1. Export via ladder
-    const spinner = startSpinner(
-      `Exporting ${batch.length} assets from Photos library...`,
-    );
+    const spinner = options.quiet
+      ? { stop() {} }
+      : startSpinner(`Exporting ${batch.length} assets from Photos library...`);
     let batchResult;
     try {
       batchResult = await exporter.exportBatch(batchUuids);
@@ -161,6 +175,7 @@ export async function runBackup(
       for (const uuid of batchUuids) {
         report.errors.push({ uuid, message: msg });
         report.failed++;
+        logger.error(uuid, msg);
       }
       continue;
     }
@@ -171,6 +186,7 @@ export async function runBackup(
       console.error(`    Export error: ${err.uuid} — ${err.message}`);
       report.errors.push(err);
       report.failed++;
+      logger.error(err.uuid, err.message);
     }
 
     // 2. Upload each exported file to S3
@@ -212,14 +228,18 @@ export async function runBackup(
         report.uploaded++;
         report.totalBytes += exported.size;
 
-        // Per-asset progress
-        const done = report.uploaded + report.failed;
-        const pct = ((done / pending.length) * 100).toFixed(0);
         const name = asset.originalFilename ?? asset.filename ?? "unknown";
         const typeLabel = asset.kind === AssetKind.PHOTO ? "photo" : "video";
-        console.log(
-          `  [${done}/${pending.length}] ${pct}%  ${name}  (${typeLabel}, ${formatBytes(exported.size)})`,
-        );
+        logger.uploaded(asset.uuid, name, typeLabel, exported.size);
+
+        // Per-asset progress
+        if (!options.quiet) {
+          const done = report.uploaded + report.failed;
+          const pct = ((done / pending.length) * 100).toFixed(0);
+          log(
+            `  [${done}/${pending.length}] ${pct}%  ${name}  (${typeLabel}, ${formatBytes(exported.size)})`,
+          );
+        }
 
         // Save manifest periodically (checked per-asset, not per-batch)
         if (sinceLastSave >= options.saveInterval) {
@@ -236,6 +256,7 @@ export async function runBackup(
         console.error(`    Upload error: ${exported.uuid} — ${msg}`);
         report.errors.push({ uuid: exported.uuid, message: msg });
         report.failed++;
+        logger.error(exported.uuid, msg);
         // Still try to clean up staged file
         await removeStagedFile(exported.path, resolvedStagingDir);
       }
@@ -243,7 +264,7 @@ export async function runBackup(
 
     // Batch separator when multiple batches
     if (totalBatches > 1 && batchNum < totalBatches) {
-      console.log();
+      log();
     }
   }
 
@@ -256,15 +277,39 @@ export async function runBackup(
   Deno.removeSignalListener("SIGINT", onInterrupt);
 
   if (interrupted) {
-    console.log(`\n\n  ── Interrupted ──`);
-    console.log(`  Uploaded:  ${report.uploaded.toLocaleString()} of ${pending.length.toLocaleString()}`);
-    console.log(`  Total:     ${formatBytes(report.totalBytes)}`);
-    console.log(`  Manifest saved — will resume from here next run.\n`);
+    log(`\n\n  ── Interrupted ──`);
+    log(`  Uploaded:  ${report.uploaded.toLocaleString()} of ${pending.length.toLocaleString()}`);
+    log(`  Total:     ${formatBytes(report.totalBytes)}`);
+    log(`  Manifest saved — will resume from here next run.\n`);
+    logger.interrupted(report.uploaded, pending.length, report.totalBytes);
   } else {
-    console.log(`\n  ── Complete ──`);
-    console.log(`  Uploaded:  ${report.uploaded.toLocaleString()}`);
-    console.log(`  Failed:    ${report.failed.toLocaleString()}`);
-    console.log(`  Total:     ${formatBytes(report.totalBytes)}\n`);
+    log(`\n  ── Complete ──`);
+    log(`  Uploaded:  ${report.uploaded.toLocaleString()}`);
+    log(`  Failed:    ${report.failed.toLocaleString()}`);
+    log(`  Total:     ${formatBytes(report.totalBytes)}\n`);
+    logger.complete(report.uploaded, report.failed, report.totalBytes);
+  }
+
+  // macOS notification
+  if (options.notifyOnComplete) {
+    if (report.failed > 0) {
+      await notify(
+        "Attic Backup",
+        `Done with errors: ${report.uploaded} uploaded, ${report.failed} failed`,
+        "Basso",
+      );
+    } else if (interrupted) {
+      await notify(
+        "Attic Backup",
+        `Interrupted: ${report.uploaded} of ${pending.length} uploaded`,
+        "Basso",
+      );
+    } else {
+      await notify(
+        "Attic Backup",
+        `Complete: ${report.uploaded} assets (${formatBytes(report.totalBytes)})`,
+      );
+    }
   }
 
   return report;

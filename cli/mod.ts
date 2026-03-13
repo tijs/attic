@@ -63,6 +63,9 @@ main.command("backup", "Back up pending assets to S3")
   .option("--bucket <name:string>", "Override bucket from config")
   .option("--ladder <path:string>", "Path to ladder binary")
   .option("--db <path:string>", "Path to Photos.sqlite")
+  .option("-q, --quiet", "Suppress progress output (for unattended use)")
+  .option("--log <path:string>", "Append structured JSONL log to file")
+  .option("--notify", "Send macOS notification on completion")
   .action(async (options: {
     dryRun?: boolean;
     limit?: number;
@@ -71,6 +74,9 @@ main.command("backup", "Back up pending assets to S3")
     bucket?: string;
     ladder?: string;
     db?: string;
+    quiet?: boolean;
+    log?: string;
+    notify?: boolean;
   }) => {
     const { openPhotosDb } = await import("./src/photos-db/reader.ts");
     const { runBackup } = await import("./src/commands/backup.ts");
@@ -80,9 +86,15 @@ main.command("backup", "Back up pending assets to S3")
       "./src/keychain/keychain.ts"
     );
     const { createLadderExporter } = await import("./src/export/exporter.ts");
+    const { createFileLogger, createNullLogger } = await import(
+      "./src/logger.ts"
+    );
 
     const config = requireConfig();
     const reader = openPhotosDb(options.db);
+    const logger = options.log
+      ? createFileLogger(options.log)
+      : createNullLogger();
     try {
       const assets = reader.readAssets();
       const manifestStore = createManifestStore();
@@ -108,8 +120,12 @@ main.command("backup", "Back up pending assets to S3")
         limit: options.limit ?? 0,
         type: options.type ?? null,
         dryRun: options.dryRun ?? false,
+        quiet: options.quiet ?? false,
+        logger,
+        notifyOnComplete: options.notify ?? false,
       });
     } finally {
+      logger.close();
       reader.close();
     }
   });

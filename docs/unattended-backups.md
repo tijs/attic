@@ -44,6 +44,10 @@ cat > ~/Library/LaunchAgents/photos.attic.backup.plist << 'EOF'
   <array>
     <string>/opt/homebrew/bin/attic</string>
     <string>backup</string>
+    <string>--quiet</string>
+    <string>--log</string>
+    <string>/Users/YOU/.attic/logs/backup.jsonl</string>
+    <string>--notify</string>
   </array>
 
   <key>StartCalendarInterval</key>
@@ -66,7 +70,16 @@ cat > ~/Library/LaunchAgents/photos.attic.backup.plist << 'EOF'
 EOF
 ```
 
-Replace `YOU` with your macOS username, then load it:
+Replace `YOU` with your macOS username.
+
+The flags used:
+
+- `--quiet` suppresses interactive progress output (spinners, per-asset lines)
+- `--log` appends structured JSONL to a file — one JSON object per line with
+  events like `start`, `uploaded`, `error`, and `complete`
+- `--notify` sends a macOS notification when the backup finishes (or fails)
+
+Load the agent:
 
 ```bash
 launchctl load ~/Library/LaunchAgents/photos.attic.backup.plist
@@ -127,23 +140,34 @@ Same drill — replace `YOU`, then `launchctl load` it.
 
 ## Checking logs
 
-```bash
-# Most recent backup output
-cat ~/.attic/logs/backup.log
-
-# Errors only
-cat ~/.attic/logs/backup-error.log
-```
-
-Log files are overwritten each run by launchd. If you need history, consider
-redirecting through a script that appends with timestamps:
+The JSONL log (`backup.jsonl`) is the best way to review backup history. Each
+line is a self-contained JSON object:
 
 ```bash
-#!/bin/bash
-/opt/homebrew/bin/attic backup 2>&1 | while IFS= read -r line; do
-  echo "$(date '+%Y-%m-%d %H:%M:%S') $line"
-done >> ~/.attic/logs/backup.log
+# Last run summary
+tail -1 ~/.attic/logs/backup.jsonl | python3 -m json.tool
+
+# All errors
+grep '"event":"error"' ~/.attic/logs/backup.jsonl
+
+# Count uploads per run
+grep '"event":"complete"' ~/.attic/logs/backup.jsonl
 ```
+
+Example log entries:
+
+```jsonl
+{"event":"start","pending":100,"photos":94,"videos":6,"timestamp":"2025-03-13T03:00:01.000Z"}
+{"event":"uploaded","uuid":"ABC123","filename":"IMG_0001.HEIC","type":"photo","size":1048576,"timestamp":"..."}
+{"event":"error","uuid":"DEF456","message":"Upload failed","timestamp":"..."}
+{"event":"complete","uploaded":99,"failed":1,"totalBytes":52428800,"timestamp":"..."}
+```
+
+The JSONL file is appended to (not overwritten), so it accumulates history
+across runs.
+
+launchd also captures stdout/stderr to `backup.log` and `backup-error.log`,
+but these are overwritten each run.
 
 ## Checking status
 

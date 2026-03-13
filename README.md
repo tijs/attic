@@ -112,6 +112,9 @@ attic backup
 | `--bucket NAME`       | Override bucket from config                              |
 | `--ladder PATH`       | Path to the ladder binary (or set `LADDER_PATH` env var) |
 | `--db PATH`           | Path to Photos.sqlite                                    |
+| `-q, --quiet`         | Suppress progress output (for unattended use)            |
+| `--log PATH`          | Append structured JSONL log to file                      |
+| `--notify`            | Send macOS notification on completion                    |
 
 ### verify
 
