@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="attic-logo.png" width="128" alt="attic logo">
+</p>
+
 # Attic
 
 Back up your iCloud Photos library to Scaleway Object Storage (S3-compatible).
