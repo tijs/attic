@@ -45,7 +45,9 @@ export function validateConfig(raw: unknown): AtticConfig {
   const obj = raw as Record<string, unknown>;
 
   if (typeof obj.endpoint !== "string" || obj.endpoint === "") {
-    throw new Error('Config: "endpoint" is required (e.g. "https://s3.fr-par.scw.cloud")');
+    throw new Error(
+      'Config: "endpoint" is required (e.g. "https://s3.fr-par.scw.cloud")',
+    );
   }
   if (!obj.endpoint.startsWith("https://")) {
     throw new Error('Config: "endpoint" must start with https://');
@@ -67,7 +69,8 @@ export function validateConfig(raw: unknown): AtticConfig {
 
   const pathStyle = obj.pathStyle !== undefined ? Boolean(obj.pathStyle) : true;
 
-  const keychain = typeof obj.keychain === "object" && obj.keychain !== null
+  const keychain = typeof obj.keychain === "object" && obj.keychain !== null &&
+      !Array.isArray(obj.keychain)
     ? obj.keychain as Record<string, unknown>
     : {};
 
@@ -95,17 +98,13 @@ export function writeConfig(
   config: AtticConfig,
   dir: string = CONFIG_DIR,
 ): void {
-  Deno.mkdirSync(dir, { recursive: true });
+  Deno.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const path = join(dir, "config.json");
   Deno.writeTextFileSync(
     path,
     JSON.stringify(config, null, 2) + "\n",
+    { mode: 0o600 },
   );
-}
-
-/** Resolve the default config directory path. */
-export function configDir(): string {
-  return CONFIG_DIR;
 }
 
 /** Resolve the default config file path. */
@@ -120,8 +119,9 @@ export function configPath(): string {
 export function requireConfig(dir?: string): AtticConfig {
   const config = loadConfig(dir);
   if (config === null) {
+    const path = dir ? join(dir, "config.json") : configPath();
     throw new Error(
-      `No config file found at ${configPath()}\n` +
+      `No config file found at ${path}\n` +
         'Run "attic init" to set up your S3 connection, or create the file manually.',
     );
   }

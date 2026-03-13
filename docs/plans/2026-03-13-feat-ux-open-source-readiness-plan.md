@@ -9,11 +9,18 @@ date: 2026-03-13
 
 ## Overview
 
-Replace hardcoded Scaleway configuration with a generic S3-compatible config layer, add an interactive `attic init` command, migrate CLI to Cliffy, and improve error messages. Makes attic usable with any S3-compatible provider and ready to open source.
+Replace hardcoded Scaleway configuration with a generic S3-compatible config
+layer, add an interactive `attic init` command, migrate CLI to Cliffy, and
+improve error messages. Makes attic usable with any S3-compatible provider and
+ready to open source.
 
 ## Problem Statement
 
-Attic has Scaleway details baked into the code — endpoint, region, keychain service names, type names. A user who wants to use Hetzner, OVH, or AWS must fork and edit constants. The CLI uses hand-rolled arg parsing (130+ lines in `cli/mod.ts`) with no help generation, no colored output, and no shell completions. Error messages are raw exceptions in some paths.
+Attic has Scaleway details baked into the code — endpoint, region, keychain
+service names, type names. A user who wants to use Hetzner, OVH, or AWS must
+fork and edit constants. The CLI uses hand-rolled arg parsing (130+ lines in
+`cli/mod.ts`) with no help generation, no colored output, and no shell
+completions. Error messages are raw exceptions in some paths.
 
 ## Proposed Solution
 
@@ -32,6 +39,7 @@ Five phases, each independently shippable:
 Add config file support at `~/.attic/config.json`.
 
 **Files to modify:**
+
 - New: `cli/src/config/config.ts` (~80 lines)
 - New: `cli/src/config/config.test.ts` (~60 lines)
 
@@ -69,24 +77,27 @@ const CONFIG_DIR = join(homedir(), ".attic");
 const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 
 /** Load and validate config. Returns null if file doesn't exist. */
-export function loadConfig(): AtticConfig | null
+export function loadConfig(): AtticConfig | null;
 
 /** Validate config fields, throw with specific message on missing/invalid. */
-export function validateConfig(raw: unknown): AtticConfig
+export function validateConfig(raw: unknown): AtticConfig;
 
 /** Write config to disk, creating ~/.attic/ if needed. */
-export function writeConfig(config: AtticConfig): void
+export function writeConfig(config: AtticConfig): void;
 ```
 
 **Validation rules:**
+
 - `endpoint` — required, must start with `https://`
 - `region` — required, non-empty string
-- `bucket` — required, non-empty string, validated against `/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/`
+- `bucket` — required, non-empty string, validated against
+  `/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/`
 - `pathStyle` — optional, defaults to `true`
 - `keychain.accessKeyService` — optional, defaults to `"attic-s3-access-key"`
 - `keychain.secretKeyService` — optional, defaults to `"attic-s3-secret-key"`
 
 **Tests:**
+
 - Valid config round-trips through write/load
 - Missing required fields throw descriptive errors
 - Optional fields get defaults
@@ -99,9 +110,11 @@ export function writeConfig(config: AtticConfig): void
 Remove Scaleway-specific naming. Parameterize the S3 client.
 
 **Files to modify:**
+
 - `cli/src/storage/s3-client.ts` (~20 lines changed)
 - `cli/mod.ts` (~15 lines changed)
-- `deno.json` (~2 lines changed — remove `--allow-net=s3.fr-par.scw.cloud`, use broader net permission)
+- `deno.json` (~2 lines changed — remove `--allow-net=s3.fr-par.scw.cloud`, use
+  broader net permission)
 
 **Changes:**
 
@@ -131,12 +144,16 @@ export function createS3Provider(
 ): S3Provider
 ```
 
-- `loadKeychainCredentials()` accepts service names as parameters instead of hardcoding them
+- `loadKeychainCredentials()` accepts service names as parameters instead of
+  hardcoding them
 - Delete `SCALEWAY_ENDPOINT` and `SCALEWAY_REGION` constants
-- `cli/mod.ts` reads config and passes connection details to `createS3Provider()`
-- `deno.json` tasks: replace `--allow-net=s3.fr-par.scw.cloud` with `--allow-net` (endpoint is now configurable)
+- `cli/mod.ts` reads config and passes connection details to
+  `createS3Provider()`
+- `deno.json` tasks: replace `--allow-net=s3.fr-par.scw.cloud` with
+  `--allow-net` (endpoint is now configurable)
 
-**Migration for existing users:** scan/status continue working without config (they don't need S3). backup/verify check for config and fail fast:
+**Migration for existing users:** scan/status continue working without config
+(they don't need S3). backup/verify check for config and fail fast:
 
 ```
 Error: No config file found at ~/.attic/config.json
@@ -149,11 +166,13 @@ See: https://github.com/tijs/attic#setup
 Replace hand-rolled arg parsing with Cliffy.
 
 **Dependencies to add (JSR):**
+
 - `@cliffy/command@1.0.0`
 - `@cliffy/prompt@1.0.0`
 - `@cliffy/ansi@1.0.0`
 
 **Files to modify:**
+
 - `cli/mod.ts` — full rewrite (~120 lines, replaces 252 lines)
 - `cli/deno.json` — add Cliffy imports
 
@@ -201,13 +220,16 @@ await main.parse(Deno.args);
 ```
 
 **What this gives us:**
+
 - Auto-generated `--help` for every command
 - Typed flags with validation (`:integer`, `:string`)
 - Unknown flag detection
 - Version flag (`--version`)
-- Shell completions via `main.command("completions", ...).action(completeCommand)`
+- Shell completions via
+  `main.command("completions", ...).action(completeCommand)`
 
 **What we delete:**
+
 - `parseBackupFlags()` (~55 lines)
 - `parseVerifyFlags()` (~30 lines)
 - `requireArg()`, `parsePositiveInt()` (~15 lines)
@@ -218,6 +240,7 @@ await main.parse(Deno.args);
 Add `attic init` command with interactive prompts.
 
 **Files to modify:**
+
 - New: `cli/src/commands/init.ts` (~120 lines)
 - `cli/mod.ts` — wire up init command
 
@@ -261,7 +284,7 @@ $ attic init
 
 ```typescript
 // cli/src/commands/init.ts
-import { Input, Confirm, Secret } from "@cliffy/prompt";
+import { Confirm, Input, Secret } from "@cliffy/prompt";
 import { colors } from "@cliffy/ansi";
 
 export async function runInit(): Promise<void> {
@@ -275,44 +298,71 @@ export async function runInit(): Promise<void> {
   const endpoint = await Input.prompt({ message: "Endpoint URL", hint: "..." });
   const region = await Input.prompt({ message: "Region" });
   const bucket = await Input.prompt({ message: "Bucket name" });
-  const pathStyle = await Confirm.prompt({ message: "Use path-style URLs?", default: true });
+  const pathStyle = await Confirm.prompt({
+    message: "Use path-style URLs?",
+    default: true,
+  });
 
   const accessKey = await Input.prompt({ message: "Access key" });
   const secretKey = await Secret.prompt({ message: "Secret key" });
 
   // Write config
-  writeConfig({ endpoint, region, bucket, pathStyle, keychain: {
-    accessKeyService: "attic-s3-access-key",
-    secretKeyService: "attic-s3-secret-key",
-  }});
+  writeConfig({
+    endpoint,
+    region,
+    bucket,
+    pathStyle,
+    keychain: {
+      accessKeyService: "attic-s3-access-key",
+      secretKeyService: "attic-s3-secret-key",
+    },
+  });
 
   // Store credentials with -U flag (update if exists)
   await storeKeychainCredential("attic-s3-access-key", accessKey);
   await storeKeychainCredential("attic-s3-secret-key", secretKey);
 }
 
-async function storeKeychainCredential(service: string, value: string): Promise<void> {
+async function storeKeychainCredential(
+  service: string,
+  value: string,
+): Promise<void> {
   // Try update first, fall back to add
   const update = new Deno.Command("security", {
-    args: ["add-generic-password", "-U", "-s", service, "-a", "attic", "-w", value],
+    args: [
+      "add-generic-password",
+      "-U",
+      "-s",
+      service,
+      "-a",
+      "attic",
+      "-w",
+      value,
+    ],
     stderr: "piped",
   });
   const { code } = await update.output();
   if (code !== 0) {
-    throw new Error(`Failed to store credential in Keychain for service "${service}"`);
+    throw new Error(
+      `Failed to store credential in Keychain for service "${service}"`,
+    );
   }
 }
 ```
 
-**Keychain idempotency:** Use `security add-generic-password -U` which updates an existing entry or creates a new one. No need to delete-then-add.
+**Keychain idempotency:** Use `security add-generic-password -U` which updates
+an existing entry or creates a new one. No need to delete-then-add.
 
-**No test file for init** — it's pure I/O (prompts + Keychain + file writes). The config validation is tested in Phase 1. Keychain interaction is tested manually.
+**No test file for init** — it's pure I/O (prompts + Keychain + file writes).
+The config validation is tested in Phase 1. Keychain interaction is tested
+manually.
 
 ### Phase 5: Error Boundary
 
 Add a top-level error handler in `cli/mod.ts`.
 
 **Files to modify:**
+
 - `cli/mod.ts` (~40 lines added)
 
 **Implementation:**
@@ -335,7 +385,10 @@ function handleError(error: unknown): void {
   const msg = error.message;
 
   // Keychain not found
-  if (msg.includes("find-generic-password") || msg.includes("SecKeychainSearchCopyNext")) {
+  if (
+    msg.includes("find-generic-password") ||
+    msg.includes("SecKeychainSearchCopyNext")
+  ) {
     console.error("Could not read credentials from macOS Keychain.");
     console.error('Run "attic init" to set up your credentials.\n');
     return;
@@ -350,7 +403,9 @@ function handleError(error: unknown): void {
 
   // S3 access denied
   if (msg.includes("AccessDenied") || msg.includes("403")) {
-    console.error("S3 access denied. Check your credentials and bucket permissions.");
+    console.error(
+      "S3 access denied. Check your credentials and bucket permissions.",
+    );
     console.error("Your credentials are stored in macOS Keychain.");
     console.error('Run "attic init" to update them.\n');
     return;
@@ -358,20 +413,29 @@ function handleError(error: unknown): void {
 
   // S3 bucket not found
   if (msg.includes("NoSuchBucket") || msg.includes("404")) {
-    console.error(`S3 bucket not found. Check the bucket name in ~/.attic/config.json`);
+    console.error(
+      `S3 bucket not found. Check the bucket name in ~/.attic/config.json`,
+    );
     return;
   }
 
   // Network error
-  if (msg.includes("ECONNREFUSED") || msg.includes("ETIMEDOUT") || msg.includes("fetch failed")) {
-    console.error("Could not connect to S3 endpoint. Check your network and endpoint URL.");
+  if (
+    msg.includes("ECONNREFUSED") || msg.includes("ETIMEDOUT") ||
+    msg.includes("fetch failed")
+  ) {
+    console.error(
+      "Could not connect to S3 endpoint. Check your network and endpoint URL.",
+    );
     return;
   }
 
   // Photos.sqlite not found
   if (msg.includes("Photos.sqlite") || msg.includes("no such file")) {
     console.error("Could not open Photos database.");
-    console.error("Make sure Photos is set up on this Mac and the database exists.");
+    console.error(
+      "Make sure Photos is set up on this Mac and the database exists.",
+    );
     return;
   }
 
@@ -382,26 +446,28 @@ function handleError(error: unknown): void {
 
 ## Files Summary
 
-| Phase | File | Change |
-|-------|------|--------|
-| 1 | `cli/src/config/config.ts` | New — config load/validate/write |
-| 1 | `cli/src/config/config.test.ts` | New — config tests |
-| 2 | `cli/src/storage/s3-client.ts` | Rename types, parameterize |
-| 2 | `cli/mod.ts` | Read config, pass to S3 |
-| 2 | `deno.json` | Broader net permission |
-| 3 | `cli/mod.ts` | Rewrite with Cliffy |
-| 3 | `cli/deno.json` | Add Cliffy imports |
-| 4 | `cli/src/commands/init.ts` | New — interactive setup |
-| 5 | `cli/mod.ts` | Error boundary wrapper |
+| Phase | File                            | Change                           |
+| ----- | ------------------------------- | -------------------------------- |
+| 1     | `cli/src/config/config.ts`      | New — config load/validate/write |
+| 1     | `cli/src/config/config.test.ts` | New — config tests               |
+| 2     | `cli/src/storage/s3-client.ts`  | Rename types, parameterize       |
+| 2     | `cli/mod.ts`                    | Read config, pass to S3          |
+| 2     | `deno.json`                     | Broader net permission           |
+| 3     | `cli/mod.ts`                    | Rewrite with Cliffy              |
+| 3     | `cli/deno.json`                 | Add Cliffy imports               |
+| 4     | `cli/src/commands/init.ts`      | New — interactive setup          |
+| 5     | `cli/mod.ts`                    | Error boundary wrapper           |
 
 ## Verification
 
 After each phase:
+
 1. `deno task check` — type checking
 2. `deno task test` — all tests pass
 3. `deno task lint` — no lint errors
 
 Integration test (after all phases):
+
 1. Run `attic init` with a test bucket
 2. Run `attic scan` — works without config
 3. Run `attic backup --dry-run` — reads config, validates, shows plan

@@ -1,5 +1,16 @@
-import { Command } from "@cliffy/command";
-import { requireConfig } from "./src/config/config.ts";
+import { Command, EnumType } from "@cliffy/command";
+import { type AtticConfig, requireConfig } from "./src/config/config.ts";
+import type { S3ConnectionConfig } from "./src/storage/s3-client.ts";
+
+const assetType = new EnumType(["photo", "video"]);
+
+function s3ConnectionFromConfig(config: AtticConfig): S3ConnectionConfig {
+  return {
+    endpoint: config.endpoint,
+    region: config.region,
+    pathStyle: config.pathStyle,
+  };
+}
 
 const main = new Command()
   .name("attic")
@@ -47,7 +58,8 @@ main.command("backup", "Back up pending assets to S3")
   .option("--batch-size <n:integer>", "Assets per ladder batch", {
     default: 50,
   })
-  .option("--type <type:string>", "Only back up photos or videos")
+  .type("asset-type", assetType)
+  .option("--type <type:asset-type>", "Only back up photos or videos")
   .option("--bucket <name:string>", "Override bucket from config")
   .option("--ladder <path:string>", "Path to ladder binary")
   .option("--db <path:string>", "Path to Photos.sqlite")
@@ -55,7 +67,7 @@ main.command("backup", "Back up pending assets to S3")
     dryRun?: boolean;
     limit?: number;
     batchSize: number;
-    type?: string;
+    type?: "photo" | "video";
     bucket?: string;
     ladder?: string;
     db?: string;
@@ -63,8 +75,9 @@ main.command("backup", "Back up pending assets to S3")
     const { openPhotosDb } = await import("./src/photos-db/reader.ts");
     const { runBackup } = await import("./src/commands/backup.ts");
     const { createManifestStore } = await import("./src/manifest/manifest.ts");
-    const { createS3Provider, loadKeychainCredentials } = await import(
-      "./src/storage/s3-client.ts"
+    const { createS3Provider } = await import("./src/storage/s3-client.ts");
+    const { loadKeychainCredentials } = await import(
+      "./src/keychain/keychain.ts"
     );
     const { createLadderExporter } = await import("./src/export/exporter.ts");
 
@@ -82,11 +95,7 @@ main.command("backup", "Back up pending assets to S3")
       const s3 = createS3Provider(
         credentials,
         options.bucket ?? config.bucket,
-        {
-          endpoint: config.endpoint,
-          region: config.region,
-          pathStyle: config.pathStyle,
-        },
+        s3ConnectionFromConfig(config),
       );
 
       const ladderPath = options.ladder ??
@@ -94,12 +103,10 @@ main.command("backup", "Back up pending assets to S3")
         "ladder";
       const exporter = createLadderExporter(ladderPath);
 
-      const typeFilter = options.type as "photo" | "video" | undefined;
-
       await runBackup(assets, manifest, manifestStore, exporter, s3, {
         batchSize: options.batchSize,
         limit: options.limit ?? 0,
-        type: typeFilter ?? null,
+        type: options.type ?? null,
         dryRun: options.dryRun ?? false,
       });
     } finally {
@@ -125,8 +132,9 @@ main.command("verify", "Verify backup integrity against S3")
     const { runVerify } = await import("./src/commands/verify.ts");
     const { rebuildManifest } = await import("./src/commands/rebuild.ts");
     const { createManifestStore } = await import("./src/manifest/manifest.ts");
-    const { createS3Provider, loadKeychainCredentials } = await import(
-      "./src/storage/s3-client.ts"
+    const { createS3Provider } = await import("./src/storage/s3-client.ts");
+    const { loadKeychainCredentials } = await import(
+      "./src/keychain/keychain.ts"
     );
 
     const config = requireConfig();
@@ -138,11 +146,7 @@ main.command("verify", "Verify backup integrity against S3")
     const s3 = createS3Provider(
       credentials,
       options.bucket ?? config.bucket,
-      {
-        endpoint: config.endpoint,
-        region: config.region,
-        pathStyle: config.pathStyle,
-      },
+      s3ConnectionFromConfig(config),
     );
     const manifestStore = createManifestStore();
 
@@ -190,7 +194,9 @@ function handleError(error: unknown): void {
   // Config validation error
   if (msg.startsWith("Config:")) {
     console.error(msg);
-    console.error('Run "attic init" to reconfigure, or edit ~/.attic/config.json.\n');
+    console.error(
+      'Run "attic init" to reconfigure, or edit ~/.attic/config.json.\n',
+    );
     return;
   }
 
@@ -223,7 +229,9 @@ function handleError(error: unknown): void {
   }
 
   // Photos.sqlite not found
-  if (msg.includes("Photos.sqlite") || msg.includes("unable to open database")) {
+  if (
+    msg.includes("Photos.sqlite") || msg.includes("unable to open database")
+  ) {
     console.error("Could not open Photos database.");
     console.error(
       "Make sure Photos is set up on this Mac and the database exists.\n",

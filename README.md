@@ -6,14 +6,22 @@
 
 Back up your iCloud Photos library to S3-compatible storage.
 
-Attic reads the Photos.sqlite database directly, exports originals via a companion Swift tool called [ladder](https://github.com/tijs/ladder), and uploads them to an S3-compatible bucket. A local manifest tracks what has already been backed up so subsequent runs only upload new assets.
+Attic reads the Photos.sqlite database directly, exports originals via a
+companion Swift tool called [ladder](https://github.com/tijs/ladder), and
+uploads them to an S3-compatible bucket. A local manifest tracks what has
+already been backed up so subsequent runs only upload new assets.
 
-Works with any S3-compatible provider. EU-friendly options include [Scaleway](https://www.scaleway.com/en/object-storage/), [Hetzner](https://www.hetzner.com/storage/object-storage), and [OVH](https://www.ovhcloud.com/en/public-cloud/object-storage/).
+Works with any S3-compatible provider. EU-friendly options include
+[Scaleway](https://www.scaleway.com/en/object-storage/),
+[Hetzner](https://www.hetzner.com/storage/object-storage), and
+[OVH](https://www.ovhcloud.com/en/public-cloud/object-storage/).
 
 ## Prerequisites
 
 - [Deno](https://deno.land/) (v2+)
-- The [ladder](https://github.com/tijs/ladder) binary. Ladder is a separate Swift tool that uses PhotoKit to export original photo/video files from the Photos library.
+- The [ladder](https://github.com/tijs/ladder) binary. Ladder is a separate
+  Swift tool that uses PhotoKit to export original photo/video files from the
+  Photos library.
 - An S3-compatible storage bucket and API credentials
 - macOS (Photos.sqlite access and Keychain are macOS-only)
 
@@ -25,9 +33,12 @@ Run the interactive setup:
 deno task init
 ```
 
-This prompts for your S3 endpoint, region, bucket name, and credentials. Config is saved to `~/.attic/config.json` and credentials are stored in the macOS Keychain.
+This prompts for your S3 endpoint, region, bucket name, and credentials. Config
+is saved to `~/.attic/config.json` and credentials are stored in the macOS
+Keychain.
 
-Build the ladder binary (see [ladder](https://github.com/tijs/ladder) for details):
+Build the ladder binary (see [ladder](https://github.com/tijs/ladder) for
+details):
 
 ```bash
 git clone https://github.com/tijs/ladder.git
@@ -49,7 +60,8 @@ deno task init
 
 ### scan
 
-Scan the Photos library and print statistics (asset counts, sizes, types, local vs iCloud-only).
+Scan the Photos library and print statistics (asset counts, sizes, types, local
+vs iCloud-only).
 
 ```bash
 deno task scan
@@ -57,7 +69,8 @@ deno task scan
 
 ### status
 
-Compare the Photos database against the local backup manifest to show how many assets are backed up vs pending.
+Compare the Photos database against the local backup manifest to show how many
+assets are backed up vs pending.
 
 ```bash
 deno task status
@@ -71,15 +84,15 @@ Export pending assets via ladder and upload originals + metadata JSON to S3.
 deno task backup
 ```
 
-| Flag | Description |
-|---|---|
-| `--dry-run` | Show what would be uploaded without uploading |
-| `--limit N` | Back up at most N assets |
-| `--batch-size N` | Assets per ladder export batch (default: 50) |
-| `--type photo\|video` | Only back up photos or videos |
-| `--bucket NAME` | Override bucket from config |
-| `--ladder PATH` | Path to the ladder binary (or set `LADDER_PATH` env var) |
-| `--db PATH` | Path to Photos.sqlite |
+| Flag                  | Description                                              |
+| --------------------- | -------------------------------------------------------- |
+| `--dry-run`           | Show what would be uploaded without uploading            |
+| `--limit N`           | Back up at most N assets                                 |
+| `--batch-size N`      | Assets per ladder export batch (default: 50)             |
+| `--type photo\|video` | Only back up photos or videos                            |
+| `--bucket NAME`       | Override bucket from config                              |
+| `--ladder PATH`       | Path to the ladder binary (or set `LADDER_PATH` env var) |
+| `--db PATH`           | Path to Photos.sqlite                                    |
 
 ### verify
 
@@ -89,11 +102,11 @@ Verify backup integrity by checking S3 objects against the manifest.
 deno task verify
 ```
 
-| Flag | Description |
-|---|---|
-| `--deep` | Download each object and re-verify SHA-256 checksum (slow) |
-| `--rebuild-manifest` | Reconstruct the local manifest from S3 metadata files |
-| `--bucket NAME` | Override bucket from config |
+| Flag                 | Description                                                |
+| -------------------- | ---------------------------------------------------------- |
+| `--deep`             | Download each object and re-verify SHA-256 checksum (slow) |
+| `--rebuild-manifest` | Reconstruct the local manifest from S3 metadata files      |
+| `--bucket NAME`      | Override bucket from config                                |
 
 ## Configuration
 
@@ -112,9 +125,13 @@ Attic stores its configuration at `~/.attic/config.json`:
 }
 ```
 
-The `keychain` section is optional and defaults to the service names shown above. Credentials are always stored in the macOS Keychain, never in config files or environment variables.
+The `keychain` section is optional and defaults to the service names shown
+above. Credentials are always stored in the macOS Keychain, never in config
+files or environment variables.
 
-`scan` and `status` work without config (they only read Photos.sqlite). `backup` and `verify` require config and will tell you to run `attic init` if it's missing.
+`scan` and `status` work without config (they only read Photos.sqlite). `backup`
+and `verify` require config and will tell you to run `attic init` if it's
+missing.
 
 ## Testing
 
@@ -122,14 +139,20 @@ The `keychain` section is optional and defaults to the service names shown above
 deno task test
 ```
 
-Tests use dependency injection with mock implementations for the S3 client and exporter, so no external services or credentials are needed.
+Tests use dependency injection with mock implementations for the S3 client and
+exporter, so no external services or credentials are needed.
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) -- How attic works: the backup pipeline, Photos.sqlite reader, ladder protocol, manifest lifecycle, and design boundaries
-- [Asset Metadata](docs/metadata.md) -- Schema reference for the per-asset JSON uploaded to S3
+- [Architecture](docs/architecture.md) -- How attic works: the backup pipeline,
+  Photos.sqlite reader, ladder protocol, manifest lifecycle, and design
+  boundaries
+- [Asset Metadata](docs/metadata.md) -- Schema reference for the per-asset JSON
+  uploaded to S3
 
 ## Future Plans
 
-- **Scheduled backups via launchd** -- A LaunchAgent plist to run backups daily on a dedicated Mac
-- **Rendered edit backup** -- Detect and upload edited versions alongside originals (see `docs/plans/`)
+- **Scheduled backups via launchd** -- A LaunchAgent plist to run backups daily
+  on a dedicated Mac
+- **Rendered edit backup** -- Detect and upload edited versions alongside
+  originals (see `docs/plans/`)

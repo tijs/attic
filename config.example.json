@@ -1,0 +1,10 @@
+{
+  "endpoint": "https://s3.fr-par.scw.cloud",
+  "region": "fr-par",
+  "bucket": "my-photo-backup",
+  "pathStyle": true,
+  "keychain": {
+    "accessKeyService": "attic-s3-access-key",
+    "secretKeyService": "attic-s3-secret-key"
+  }
+}

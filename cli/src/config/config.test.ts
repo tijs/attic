@@ -57,8 +57,7 @@ Deno.test("validateConfig rejects non-https endpoint", () => {
 
 Deno.test("validateConfig rejects missing region", () => {
   assertThrows(
-    () =>
-      validateConfig({ endpoint: "https://s3.example.com", bucket: "bbb" }),
+    () => validateConfig({ endpoint: "https://s3.example.com", bucket: "bbb" }),
     Error,
     '"region" is required',
   );

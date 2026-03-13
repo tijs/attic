@@ -29,51 +29,14 @@ export interface S3Provider {
   listObjects(prefix: string): AsyncIterable<S3Object>;
 }
 
-export interface S3Credentials {
-  accessKeyId: string;
-  secretAccessKey: string;
-}
-
 export interface S3ConnectionConfig {
   endpoint: string;
   region: string;
   pathStyle: boolean;
 }
 
-/** Read S3 credentials from macOS Keychain. */
-export async function loadKeychainCredentials(
-  accessKeyService = "attic-s3-access-key",
-  secretKeyService = "attic-s3-secret-key",
-): Promise<S3Credentials> {
-  const accessKeyId = await keychainGet(accessKeyService);
-  const secretAccessKey = await keychainGet(secretKeyService);
-  return { accessKeyId, secretAccessKey };
-}
-
-async function keychainGet(service: string): Promise<string> {
-  const cmd = new Deno.Command("security", {
-    args: [
-      "find-generic-password",
-      "-s",
-      service,
-      "-w",
-    ],
-    stdout: "piped",
-    stderr: "piped",
-  });
-  const { code, stdout, stderr } = await cmd.output();
-  if (code !== 0) {
-    const err = new TextDecoder().decode(stderr);
-    throw new Error(
-      `Failed to read keychain item "${service}": ${err.trim()}. ` +
-        `Store it with: security add-generic-password -s ${service} -a attic -w "<value>"`,
-    );
-  }
-  return new TextDecoder().decode(stdout).trim();
-}
-
 export function createS3Provider(
-  credentials: S3Credentials,
+  credentials: { accessKeyId: string; secretAccessKey: string },
   bucket: string,
   connection: S3ConnectionConfig,
 ): S3Provider {
@@ -123,10 +86,7 @@ export function createS3Provider(
           etag: result.ETag ?? null,
         };
       } catch (error: unknown) {
-        if (
-          error instanceof Error && "name" in error &&
-          error.name === "NotFound"
-        ) {
+        if (error instanceof Error && error.name === "NotFound") {
           return null;
         }
         throw error;

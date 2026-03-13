@@ -5,6 +5,9 @@ import {
   loadConfig,
   writeConfig,
 } from "../config/config.ts";
+import { storeKeychainCredential } from "../keychain/keychain.ts";
+
+const BUCKET_PATTERN = /^[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9]$/;
 
 const EU_PROVIDER_EXAMPLES = [
   "  Scaleway (EU):  https://s3.fr-par.scw.cloud",
@@ -47,10 +50,21 @@ export async function runInit(): Promise<void> {
   const region = await Input.prompt({
     message: "Region",
     hint: "e.g. fr-par, eu-central-1, fsn1",
+    validate: (v) => {
+      if (v.trim() === "") return "Region is required";
+      return true;
+    },
   });
 
   const bucket = await Input.prompt({
     message: "Bucket name",
+    validate: (v) => {
+      if (v.trim() === "") return "Bucket name is required";
+      if (!BUCKET_PATTERN.test(v)) {
+        return "Use lowercase letters, numbers, dots, and hyphens (3-63 chars)";
+      }
+      return true;
+    },
   });
 
   const pathStyle = await Confirm.prompt({
@@ -100,30 +114,4 @@ export async function runInit(): Promise<void> {
   console.log(
     '\n  Setup complete. Run "attic scan" to see your Photos library.\n',
   );
-}
-
-async function storeKeychainCredential(
-  service: string,
-  value: string,
-): Promise<void> {
-  const cmd = new Deno.Command("security", {
-    args: [
-      "add-generic-password",
-      "-U",
-      "-s",
-      service,
-      "-a",
-      "attic",
-      "-w",
-      value,
-    ],
-    stderr: "piped",
-  });
-  const { code, stderr } = await cmd.output();
-  if (code !== 0) {
-    const err = new TextDecoder().decode(stderr);
-    throw new Error(
-      `Failed to store credential in Keychain for service "${service}": ${err.trim()}`,
-    );
-  }
 }
