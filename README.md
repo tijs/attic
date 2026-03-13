@@ -92,32 +92,6 @@ deno task verify
 | `--rebuild-manifest` | Reconstruct the local manifest from S3 metadata files |
 | `--bucket NAME` | S3 bucket name (default: `photo-cloud-storage`) |
 
-## S3 Bucket Structure
-
-```
-photo-cloud-storage/
-  originals/
-    2024/
-      01/
-        <uuid>.heic
-        <uuid>.mov
-      02/
-        ...
-  metadata/
-    assets/
-      <uuid>.json
-```
-
-- **originals/** -- Organized by year and month (UTC) from the asset's creation date. Each file is named by its Photos library UUID with the appropriate extension.
-- **metadata/** -- One JSON file per asset containing original filename, dimensions, GPS coordinates, file size, UTI type, favorite status, S3 key, SHA-256 checksum, and backup timestamp.
-
-## Local State
-
-Attic stores its state in `~/.attic/`:
-
-- `manifest.json` -- Tracks which assets have been backed up (UUID, S3 key, checksum, timestamp). The manifest is saved periodically during backup and can be rebuilt from S3 metadata via `verify --rebuild-manifest`.
-- `staging/` -- Temporary directory where ladder exports files before upload. Files are cleaned up after each successful upload.
-
 ## Testing
 
 ```bash
@@ -126,44 +100,12 @@ deno task test
 
 Tests use dependency injection with mock implementations for the S3 client and exporter, so no external services or credentials are needed.
 
+## Documentation
+
+- [Architecture](docs/architecture.md) -- How attic works: the backup pipeline, Photos.sqlite reader, ladder protocol, manifest lifecycle, and design boundaries
+- [Asset Metadata](docs/metadata.md) -- Schema reference for the per-asset JSON uploaded to S3
+
 ## Future Plans
 
-- **Scheduled backups via launchd** -- A LaunchAgent plist to run backups daily on a dedicated Mac. Includes an `--auto` flag (no prompts, file-based logging to `~/.attic/logs/`), macOS notifications on completion/failure, and `deno task install-schedule` / `deno task uninstall-schedule` commands.
-
-## Project Structure
-
-```
-attic/
-  deno.json              # Workspace config and task definitions
-  shared/                # Shared types and utilities
-    types.ts             # PhotoAsset, AssetKind, CloudLocalState
-    s3-paths.ts          # S3 key generation (originalKey, metadataKey)
-    s3-paths.test.ts
-  cli/                   # CLI application
-    mod.ts               # Entry point and argument parsing
-    src/
-      format.ts          # Byte formatting utility
-      photos-db/
-        reader.ts        # SQLite reader for Photos.sqlite
-        reader.test.ts
-      storage/
-        s3-client.ts     # Scaleway S3 client (AWS SDK)
-        s3-client.mock.ts
-        s3-client.test.ts
-      export/
-        exporter.ts      # Ladder binary wrapper
-        exporter.mock.ts
-        exporter.test.ts
-      manifest/
-        manifest.ts      # Local backup manifest (JSON)
-        manifest.test.ts
-      commands/
-        scan.ts          # Library scan report
-        status.ts        # Backup status report
-        backup.ts        # Backup pipeline
-        backup.test.ts
-        verify.ts        # Integrity verification
-        verify.test.ts
-        rebuild.ts       # Manifest reconstruction from S3
-        rebuild.test.ts
-```
+- **Scheduled backups via launchd** -- A LaunchAgent plist to run backups daily on a dedicated Mac
+- **Rendered edit backup** -- Detect and upload edited versions alongside originals (see `docs/plans/`)

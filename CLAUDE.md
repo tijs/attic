@@ -6,7 +6,7 @@ Deno/TypeScript CLI for backing up iCloud Photos to Scaleway S3. Part of the pho
 
 ```bash
 deno task check       # Type check
-deno task test        # Run tests (42 tests)
+deno task test        # Run tests (44 tests)
 deno task lint        # Lint
 deno task fmt         # Format
 deno task fmt:check   # Check formatting
@@ -23,21 +23,10 @@ cli/             # @attic/cli — commands, storage, manifest, export
   src/export/    # Exporter interface + ladder subprocess integration
 ```
 
-## Architecture
+## Reference Docs
 
-- **Interface-driven**: `S3Provider`, `ManifestStore`, `Exporter` — all injected for testability
-- **Mocks for testing**: `createMockS3Provider()`, `createMockExporter()` — tests never hit real services
-- **Runtime validation at trust boundaries**: Photos.sqlite schema, manifest JSON, ladder subprocess output, S3 metadata during rebuild
-- **Atomic manifest writes**: temp file + rename pattern in `ManifestStore.save()`
-- **Credentials**: macOS Keychain via `security find-generic-password` — never in env vars or config files
-- **Streaming uploads**: `putObject` accepts `ReadableStream<Uint8Array>` to avoid loading large files into memory
-
-## S3 Bucket Structure
-
-```
-originals/{year}/{month}/{uuid}.{ext}    # Original photo/video files
-metadata/assets/{uuid}.json              # Per-asset metadata JSON
-```
+- [Architecture](docs/architecture.md) — pipeline, reader, ladder protocol, manifest, interfaces, design boundaries
+- [Asset Metadata](docs/metadata.md) — per-asset JSON schema uploaded to S3
 
 ## Conventions
 
