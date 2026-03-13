@@ -16,9 +16,26 @@ Works with any S3-compatible provider. EU-friendly options include
 [Hetzner](https://www.hetzner.com/storage/object-storage), and
 [OVH](https://www.ovhcloud.com/en/public-cloud/object-storage/).
 
+## Install
+
+### Homebrew (recommended)
+
+```bash
+brew install tijs/tap/attic
+```
+
+### From source (requires Deno v2+)
+
+```bash
+git clone https://github.com/tijs/attic.git
+cd attic
+deno task install
+```
+
+This installs `attic` to `~/.deno/bin/`. Make sure that's on your PATH.
+
 ## Prerequisites
 
-- [Deno](https://deno.land/) (v2+)
 - The [ladder](https://github.com/tijs/ladder) binary. Ladder is a separate
   Swift tool that uses PhotoKit to export original photo/video files from the
   Photos library.
@@ -30,7 +47,7 @@ Works with any S3-compatible provider. EU-friendly options include
 Run the interactive setup:
 
 ```bash
-deno task init
+attic init
 ```
 
 This prompts for your S3 endpoint, region, bucket name, and credentials. Config
@@ -48,14 +65,12 @@ swift build -c release
 
 ## Commands
 
-All commands are run via `deno task`:
-
 ### init
 
 Interactive setup — configure S3 connection and store credentials.
 
 ```bash
-deno task init
+attic init
 ```
 
 ### scan
@@ -64,7 +79,7 @@ Scan the Photos library and print statistics (asset counts, sizes, types, local
 vs iCloud-only).
 
 ```bash
-deno task scan
+attic scan
 ```
 
 ### status
@@ -73,7 +88,7 @@ Compare the Photos database against the local backup manifest to show how many
 assets are backed up vs pending.
 
 ```bash
-deno task status
+attic status
 ```
 
 ### backup
@@ -81,7 +96,7 @@ deno task status
 Export pending assets via ladder and upload originals + metadata JSON to S3.
 
 ```bash
-deno task backup
+attic backup
 ```
 
 | Flag                  | Description                                              |
@@ -99,7 +114,7 @@ deno task backup
 Verify backup integrity by checking S3 objects against the manifest.
 
 ```bash
-deno task verify
+attic verify
 ```
 
 | Flag                 | Description                                                |
@@ -114,7 +129,7 @@ Re-upload metadata JSON for already backed-up assets without re-uploading the
 original files. Useful after adding new metadata fields or enrichments.
 
 ```bash
-deno task refresh-metadata
+attic refresh-metadata
 ```
 
 | Flag              | Description                      |
@@ -149,6 +164,18 @@ files or environment variables.
 `scan` and `status` work without config (they only read Photos.sqlite). `backup`
 and `verify` require config and will tell you to run `attic init` if it's
 missing.
+
+## Development
+
+If you're working on attic itself, use `deno task` to run commands from source:
+
+```bash
+deno task check       # Type check
+deno task test        # Run tests
+deno task lint        # Lint
+deno task fmt         # Format
+deno task compile     # Build standalone binary
+```
 
 ## Testing
 
