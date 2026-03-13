@@ -156,4 +156,81 @@ main.command("verify", "Verify backup integrity against S3")
     }
   });
 
-await main.parse(Deno.args);
+try {
+  await main.parse(Deno.args);
+} catch (error: unknown) {
+  handleError(error);
+  Deno.exit(1);
+}
+
+function handleError(error: unknown): void {
+  if (!(error instanceof Error)) {
+    console.error("An unexpected error occurred.");
+    return;
+  }
+
+  const msg = error.message;
+
+  // Keychain not found
+  if (
+    msg.includes("find-generic-password") ||
+    msg.includes("SecKeychainSearchCopyNext")
+  ) {
+    console.error("Could not read credentials from macOS Keychain.");
+    console.error('Run "attic init" to set up your credentials.\n');
+    return;
+  }
+
+  // Config missing (thrown by requireConfig)
+  if (msg.includes("No config file found")) {
+    console.error(msg);
+    return;
+  }
+
+  // Config validation error
+  if (msg.startsWith("Config:")) {
+    console.error(msg);
+    console.error('Run "attic init" to reconfigure, or edit ~/.attic/config.json.\n');
+    return;
+  }
+
+  // S3 access denied
+  if (msg.includes("AccessDenied") || msg.includes("403")) {
+    console.error(
+      "S3 access denied. Check your credentials and bucket permissions.",
+    );
+    console.error('Run "attic init" to update credentials.\n');
+    return;
+  }
+
+  // S3 bucket not found
+  if (msg.includes("NoSuchBucket")) {
+    console.error(
+      "S3 bucket not found. Check the bucket name in ~/.attic/config.json.",
+    );
+    return;
+  }
+
+  // Network error
+  if (
+    msg.includes("ECONNREFUSED") || msg.includes("ETIMEDOUT") ||
+    msg.includes("fetch failed")
+  ) {
+    console.error(
+      "Could not connect to S3 endpoint. Check your network and endpoint URL in ~/.attic/config.json.",
+    );
+    return;
+  }
+
+  // Photos.sqlite not found
+  if (msg.includes("Photos.sqlite") || msg.includes("unable to open database")) {
+    console.error("Could not open Photos database.");
+    console.error(
+      "Make sure Photos is set up on this Mac and the database exists.\n",
+    );
+    return;
+  }
+
+  // Fallback
+  console.error(`Error: ${msg}`);
+}
