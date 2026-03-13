@@ -123,9 +123,16 @@ export async function runBackup(
   };
 
   let sinceLastSave = 0;
+  let interrupted = false;
+
+  // Save manifest on SIGINT (Ctrl+C) before exiting
+  const onInterrupt = () => { interrupted = true; };
+  Deno.addSignalListener("SIGINT", onInterrupt);
 
   // Process in batches
   for (let i = 0; i < pending.length; i += options.batchSize) {
+    if (interrupted) break;
+
     const batch = pending.slice(i, i + options.batchSize);
     const batchUuids = batch.map((a) => a.uuid);
     const batchNum = Math.floor(i / options.batchSize) + 1;
@@ -162,6 +169,7 @@ export async function runBackup(
 
     // 2. Upload each exported file to S3
     for (const exported of batchResult.results) {
+      if (interrupted) break;
       const asset = assetByUuid.get(exported.uuid);
       if (!asset) continue;
 
@@ -239,10 +247,19 @@ export async function runBackup(
   }
 
   // Summary
-  console.log(`\n  ── Complete ──`);
-  console.log(`  Uploaded:  ${report.uploaded.toLocaleString()}`);
-  console.log(`  Failed:    ${report.failed.toLocaleString()}`);
-  console.log(`  Total:     ${formatBytes(report.totalBytes)}\n`);
+  Deno.removeSignalListener("SIGINT", onInterrupt);
+
+  if (interrupted) {
+    console.log(`\n\n  ── Interrupted ──`);
+    console.log(`  Uploaded:  ${report.uploaded.toLocaleString()} of ${pending.length.toLocaleString()}`);
+    console.log(`  Total:     ${formatBytes(report.totalBytes)}`);
+    console.log(`  Manifest saved — will resume from here next run.\n`);
+  } else {
+    console.log(`\n  ── Complete ──`);
+    console.log(`  Uploaded:  ${report.uploaded.toLocaleString()}`);
+    console.log(`  Failed:    ${report.failed.toLocaleString()}`);
+    console.log(`  Total:     ${formatBytes(report.totalBytes)}\n`);
+  }
 
   return report;
 }
