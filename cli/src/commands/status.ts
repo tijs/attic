@@ -1,7 +1,15 @@
 import type { PhotoAsset } from "@attic/shared";
-import type { ManifestStore } from "../manifest/manifest.ts";
+import type { Manifest, ManifestStore } from "../manifest/manifest.ts";
 import { isBackedUp } from "../manifest/manifest.ts";
 import { formatBytes } from "../format.ts";
+
+/** Get the best-known size for an asset: Photos DB first, manifest fallback. */
+function assetSize(asset: PhotoAsset, manifest: Manifest): number {
+  if (asset.originalFileSize && asset.originalFileSize > 0) {
+    return asset.originalFileSize;
+  }
+  return manifest.entries[asset.uuid]?.size ?? 0;
+}
 
 export async function printStatusReport(
   assets: PhotoAsset[],
@@ -13,15 +21,15 @@ export async function printStatusReport(
   const pending = assets.filter((a) => !isBackedUp(manifest, a.uuid));
 
   const totalSize = assets.reduce(
-    (sum, a) => sum + (a.originalFileSize ?? 0),
+    (sum, a) => sum + assetSize(a, manifest),
     0,
   );
   const backedUpSize = backedUp.reduce(
-    (sum, a) => sum + (a.originalFileSize ?? 0),
+    (sum, a) => sum + assetSize(a, manifest),
     0,
   );
   const pendingSize = pending.reduce(
-    (sum, a) => sum + (a.originalFileSize ?? 0),
+    (sum, a) => sum + assetSize(a, manifest),
     0,
   );
 

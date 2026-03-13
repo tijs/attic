@@ -5,6 +5,7 @@ export interface ManifestEntry {
   s3Key: string;
   checksum: string;
   backedUpAt: string;
+  size?: number;
 }
 
 export interface Manifest {
@@ -27,6 +28,7 @@ export function markBackedUp(
   uuid: string,
   checksum: string,
   s3Key: string,
+  size?: number,
   backedUpAt?: string,
 ): void {
   manifest.entries[uuid] = {
@@ -34,6 +36,7 @@ export function markBackedUp(
     s3Key,
     checksum,
     backedUpAt: backedUpAt ?? new Date().toISOString(),
+    ...(size != null ? { size } : {}),
   };
 }
 

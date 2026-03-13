@@ -36,6 +36,7 @@ export async function rebuildManifest(
           entry.uuid,
           entry.checksum,
           entry.s3Key,
+          entry.size,
           entry.backedUpAt,
         );
         count++;
@@ -82,5 +83,6 @@ function parseMetadataToEntry(
     backedUpAt: typeof obj.backedUpAt === "string"
       ? obj.backedUpAt
       : new Date().toISOString(),
+    size: typeof obj.fileSize === "number" ? obj.fileSize : undefined,
   };
 }

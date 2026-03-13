@@ -223,7 +223,7 @@ export async function runBackup(
         );
 
         // Update manifest
-        markBackedUp(manifest, asset.uuid, `sha256:${exported.sha256}`, s3Key);
+        markBackedUp(manifest, asset.uuid, `sha256:${exported.sha256}`, s3Key, exported.size);
         sinceLastSave++;
         report.uploaded++;
         report.totalBytes += exported.size;
