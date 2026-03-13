@@ -12,6 +12,7 @@ import type { Exporter } from "../export/exporter.ts";
 import { removeStagedFile } from "../export/exporter.ts";
 import type { S3Provider } from "../storage/s3-client.ts";
 import { formatBytes } from "../format.ts";
+import { startSpinner } from "../spinner.ts";
 
 export interface BackupOptions {
   /** Maximum assets per ladder batch. */
@@ -145,10 +146,14 @@ export async function runBackup(
     }
 
     // 1. Export via ladder
+    const spinner = startSpinner(
+      `Exporting ${batch.length} assets from Photos library...`,
+    );
     let batchResult;
     try {
       batchResult = await exporter.exportBatch(batchUuids);
     } catch (error: unknown) {
+      spinner.stop();
       const msg = error instanceof Error
         ? error.message
         : "Unknown export error";
@@ -159,6 +164,7 @@ export async function runBackup(
       }
       continue;
     }
+    spinner.stop();
 
     // Record export errors
     for (const err of batchResult.errors) {
