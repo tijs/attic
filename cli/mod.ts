@@ -14,7 +14,7 @@ function s3ConnectionFromConfig(config: AtticConfig): S3ConnectionConfig {
 
 const main = new Command()
   .name("attic")
-  .version("0.1.4")
+  .version("0.1.5")
   .description("Back up your iCloud Photos library to S3-compatible storage")
   .action(function (this: Command) {
     this.showHelp();
