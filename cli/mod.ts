@@ -1,4 +1,4 @@
-const DEFAULT_BUCKET = "photo-cloud-storage";
+import { requireConfig } from "./src/config/config.ts";
 
 const command = Deno.args[0];
 
@@ -43,16 +43,25 @@ switch (command) {
     const { createLadderExporter } = await import("./src/export/exporter.ts");
 
     const flags = parseBackupFlags(Deno.args.slice(1));
+    const config = requireConfig();
     const reader = openPhotosDb(flags.dbPath);
     try {
       const assets = reader.readAssets();
       const manifestStore = createManifestStore();
       const manifest = await manifestStore.load();
 
-      const credentials = await loadKeychainCredentials();
+      const credentials = await loadKeychainCredentials(
+        config.keychain.accessKeyService,
+        config.keychain.secretKeyService,
+      );
       const s3 = createS3Provider(
         credentials,
-        flags.bucket ?? DEFAULT_BUCKET,
+        flags.bucket ?? config.bucket,
+        {
+          endpoint: config.endpoint,
+          region: config.region,
+          pathStyle: config.pathStyle,
+        },
       );
 
       const ladderPath = flags.ladderPath ??
@@ -80,11 +89,20 @@ switch (command) {
     );
 
     const verifyFlags = parseVerifyFlags(Deno.args.slice(1));
+    const config = requireConfig();
 
-    const credentials = await loadKeychainCredentials();
+    const credentials = await loadKeychainCredentials(
+      config.keychain.accessKeyService,
+      config.keychain.secretKeyService,
+    );
     const s3 = createS3Provider(
       credentials,
-      verifyFlags.bucket ?? DEFAULT_BUCKET,
+      verifyFlags.bucket ?? config.bucket,
+      {
+        endpoint: config.endpoint,
+        region: config.region,
+        pathStyle: config.pathStyle,
+      },
     );
     const manifestStore = createManifestStore();
 
@@ -99,7 +117,7 @@ switch (command) {
     break;
   }
   default:
-    console.log(`attic — iCloud Photos backup to Scaleway S3\n`);
+    console.log(`attic — iCloud Photos backup to S3-compatible storage\n`);
     console.log(`Commands:`);
     console.log(`  scan      Scan Photos library and show statistics`);
     console.log(`  status    Compare Photos DB vs backup manifest`);
@@ -110,17 +128,13 @@ switch (command) {
     console.log(`  --limit N          Back up at most N assets`);
     console.log(`  --batch-size N     Assets per ladder batch (default: 50)`);
     console.log(`  --type photo|video Only back up photos or videos`);
-    console.log(
-      `  --bucket NAME      S3 bucket (default: ${DEFAULT_BUCKET})`,
-    );
+    console.log(`  --bucket NAME      S3 bucket (overrides config)`);
     console.log(`  --ladder PATH      Path to ladder binary`);
     console.log(`  --db PATH          Path to Photos.sqlite`);
     console.log(`\nVerify flags:`);
     console.log(`  --deep             Download and re-checksum each object`);
     console.log(`  --rebuild-manifest Reconstruct manifest from S3 metadata`);
-    console.log(
-      `  --bucket NAME      S3 bucket (default: ${DEFAULT_BUCKET})`,
-    );
+    console.log(`  --bucket NAME      S3 bucket (overrides config)`);
     console.log(`\nUsage: deno task <command>`);
     if (command) {
       console.error(`\nUnknown command: ${command}`);

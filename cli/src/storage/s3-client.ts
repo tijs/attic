@@ -29,15 +29,24 @@ export interface S3Provider {
   listObjects(prefix: string): AsyncIterable<S3Object>;
 }
 
-export interface ScalewayCredentials {
+export interface S3Credentials {
   accessKeyId: string;
   secretAccessKey: string;
 }
 
-/** Read Scaleway S3 credentials from macOS Keychain. */
-export async function loadKeychainCredentials(): Promise<ScalewayCredentials> {
-  const accessKeyId = await keychainGet("attic-s3-access-key");
-  const secretAccessKey = await keychainGet("attic-s3-secret-key");
+export interface S3ConnectionConfig {
+  endpoint: string;
+  region: string;
+  pathStyle: boolean;
+}
+
+/** Read S3 credentials from macOS Keychain. */
+export async function loadKeychainCredentials(
+  accessKeyService = "attic-s3-access-key",
+  secretKeyService = "attic-s3-secret-key",
+): Promise<S3Credentials> {
+  const accessKeyId = await keychainGet(accessKeyService);
+  const secretAccessKey = await keychainGet(secretKeyService);
   return { accessKeyId, secretAccessKey };
 }
 
@@ -63,21 +72,19 @@ async function keychainGet(service: string): Promise<string> {
   return new TextDecoder().decode(stdout).trim();
 }
 
-const SCALEWAY_ENDPOINT = "https://s3.fr-par.scw.cloud";
-const SCALEWAY_REGION = "fr-par";
-
 export function createS3Provider(
-  credentials: ScalewayCredentials,
+  credentials: S3Credentials,
   bucket: string,
+  connection: S3ConnectionConfig,
 ): S3Provider {
   const client = new S3Client({
-    endpoint: SCALEWAY_ENDPOINT,
-    region: SCALEWAY_REGION,
+    endpoint: connection.endpoint,
+    region: connection.region,
     credentials: {
       accessKeyId: credentials.accessKeyId,
       secretAccessKey: credentials.secretAccessKey,
     },
-    forcePathStyle: true,
+    forcePathStyle: connection.pathStyle,
   });
 
   return {
