@@ -1,3 +1,13 @@
+export interface AlbumRef {
+  uuid: string;
+  title: string;
+}
+
+export interface PersonRef {
+  uuid: string;
+  displayName: string;
+}
+
 /** Represents a single photo/video asset from the Photos library. */
 export interface PhotoAsset {
   uuid: string;
@@ -15,6 +25,11 @@ export interface PhotoAsset {
   cloudLocalState: CloudLocalStateValue;
   originalFileSize: number | null;
   originalStableHash: string | null;
+  title: string | null;
+  description: string | null;
+  albums: AlbumRef[];
+  keywords: string[];
+  people: PersonRef[];
 }
 
 /** Cloud local state values from Photos.sqlite */

@@ -26,6 +26,11 @@ function makeAsset(
     cloudLocalState: CloudLocalState.LOCAL,
     originalFileSize: 3000,
     originalStableHash: "abc123",
+    title: null,
+    description: null,
+    albums: [],
+    keywords: [],
+    people: [],
     ...overrides,
   };
 }

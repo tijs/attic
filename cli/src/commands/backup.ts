@@ -1,4 +1,4 @@
-import type { PhotoAsset } from "@attic/shared";
+import type { AlbumRef, PersonRef, PhotoAsset } from "@attic/shared";
 import {
   AssetKind,
   extensionFromUtiOrFilename,
@@ -52,6 +52,11 @@ interface AssetMetadata {
   fileSize: number | null;
   type: string | null;
   favorite: boolean;
+  title: string | null;
+  description: string | null;
+  albums: AlbumRef[];
+  keywords: string[];
+  people: PersonRef[];
   s3Key: string;
   checksum: string;
   backedUpAt: string;
@@ -275,6 +280,11 @@ function buildMetadataJson(
     fileSize: asset.originalFileSize,
     type: asset.uniformTypeIdentifier,
     favorite: asset.favorite,
+    title: asset.title,
+    description: asset.description,
+    albums: asset.albums,
+    keywords: asset.keywords,
+    people: asset.people,
     s3Key,
     checksum: `sha256:${sha256}`,
     backedUpAt: new Date().toISOString(),

@@ -1,6 +1,8 @@
 export type {
+  AlbumRef,
   AssetKindValue,
   CloudLocalStateValue,
+  PersonRef,
   PhotoAsset,
 } from "./types.ts";
 export { AssetKind, CloudLocalState } from "./types.ts";
