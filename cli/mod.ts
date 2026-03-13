@@ -1,20 +1,12 @@
-import { openPhotosDb } from "./src/photos-db/reader.ts";
-import { printScanReport } from "./src/commands/scan.ts";
-import { printStatusReport } from "./src/commands/status.ts";
-import { runBackup } from "./src/commands/backup.ts";
-import { runVerify } from "./src/commands/verify.ts";
-import { rebuildManifest } from "./src/commands/rebuild.ts";
-import { createManifestStore } from "./src/manifest/manifest.ts";
-import {
-  createS3Provider,
-  loadKeychainCredentials,
-} from "./src/storage/s3-client.ts";
-import { createLadderExporter } from "./src/export/exporter.ts";
+const DEFAULT_BUCKET = "photo-cloud-storage";
 
 const command = Deno.args[0];
 
 switch (command) {
   case "scan": {
+    const { openPhotosDb } = await import("./src/photos-db/reader.ts");
+    const { printScanReport } = await import("./src/commands/scan.ts");
+
     const dbPath = Deno.args[1]; // optional override
     const reader = openPhotosDb(dbPath);
     try {
@@ -26,6 +18,10 @@ switch (command) {
     break;
   }
   case "status": {
+    const { openPhotosDb } = await import("./src/photos-db/reader.ts");
+    const { printStatusReport } = await import("./src/commands/status.ts");
+    const { createManifestStore } = await import("./src/manifest/manifest.ts");
+
     const dbPath = Deno.args[1]; // optional override
     const reader = openPhotosDb(dbPath);
     try {
@@ -38,6 +34,14 @@ switch (command) {
     break;
   }
   case "backup": {
+    const { openPhotosDb } = await import("./src/photos-db/reader.ts");
+    const { runBackup } = await import("./src/commands/backup.ts");
+    const { createManifestStore } = await import("./src/manifest/manifest.ts");
+    const { createS3Provider, loadKeychainCredentials } = await import(
+      "./src/storage/s3-client.ts"
+    );
+    const { createLadderExporter } = await import("./src/export/exporter.ts");
+
     const flags = parseBackupFlags(Deno.args.slice(1));
     const reader = openPhotosDb(flags.dbPath);
     try {
@@ -48,7 +52,7 @@ switch (command) {
       const credentials = await loadKeychainCredentials();
       const s3 = createS3Provider(
         credentials,
-        flags.bucket ?? "photo-cloud-storage",
+        flags.bucket ?? DEFAULT_BUCKET,
       );
 
       const ladderPath = flags.ladderPath ??
@@ -67,12 +71,19 @@ switch (command) {
     break;
   }
   case "verify": {
+    const { runVerify } = await import("./src/commands/verify.ts");
+    const { rebuildManifest } = await import("./src/commands/rebuild.ts");
+    const { createManifestStore } = await import("./src/manifest/manifest.ts");
+    const { createS3Provider, loadKeychainCredentials } = await import(
+      "./src/storage/s3-client.ts"
+    );
+
     const verifyFlags = parseVerifyFlags(Deno.args.slice(1));
 
     const credentials = await loadKeychainCredentials();
     const s3 = createS3Provider(
       credentials,
-      verifyFlags.bucket ?? "photo-cloud-storage",
+      verifyFlags.bucket ?? DEFAULT_BUCKET,
     );
     const manifestStore = createManifestStore();
 
@@ -99,7 +110,7 @@ switch (command) {
     console.log(`  --batch-size N     Assets per ladder batch (default: 50)`);
     console.log(`  --type photo|video Only back up photos or videos`);
     console.log(
-      `  --bucket NAME      S3 bucket (default: photo-cloud-storage)`,
+      `  --bucket NAME      S3 bucket (default: ${DEFAULT_BUCKET})`,
     );
     console.log(`  --ladder PATH      Path to ladder binary`);
     console.log(`  --db PATH          Path to Photos.sqlite`);
@@ -107,7 +118,7 @@ switch (command) {
     console.log(`  --deep             Download and re-checksum each object`);
     console.log(`  --rebuild-manifest Reconstruct manifest from S3 metadata`);
     console.log(
-      `  --bucket NAME      S3 bucket (default: photo-cloud-storage)`,
+      `  --bucket NAME      S3 bucket (default: ${DEFAULT_BUCKET})`,
     );
     console.log(`\nUsage: deno task <command>`);
     if (command) {
