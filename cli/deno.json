@@ -1,0 +1,13 @@
+{
+  "name": "@attic/cli",
+  "version": "0.1.0",
+  "exports": "./mod.ts",
+  "imports": {
+    "@attic/shared": "../shared/mod.ts",
+    "@aws-sdk/client-s3": "npm:@aws-sdk/client-s3@^3",
+    "@db/sqlite": "jsr:@db/sqlite@^0.12",
+    "@std/assert": "jsr:@std/assert@^1.0",
+    "@std/crypto": "jsr:@std/crypto@^1.0",
+    "@std/path": "jsr:@std/path@^1.0"
+  }
+}

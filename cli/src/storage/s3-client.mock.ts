@@ -1,0 +1,64 @@
+import type { S3Object, S3ObjectMeta, S3Provider } from "./s3-client.ts";
+
+/** In-memory mock S3 provider for testing. */
+export function createMockS3Provider(): S3Provider & {
+  objects: Map<string, { body: Uint8Array; contentType?: string }>;
+} {
+  const objects = new Map<
+    string,
+    { body: Uint8Array; contentType?: string }
+  >();
+
+  return {
+    objects,
+
+    async putObject(
+      key: string,
+      body: Uint8Array | ReadableStream<Uint8Array>,
+      contentType?: string,
+    ): Promise<void> {
+      let bytes: Uint8Array;
+      if (body instanceof ReadableStream) {
+        const chunks: Uint8Array[] = [];
+        for await (const chunk of body) {
+          chunks.push(chunk);
+        }
+        let totalLength = 0;
+        for (const c of chunks) totalLength += c.length;
+        bytes = new Uint8Array(totalLength);
+        let offset = 0;
+        for (const c of chunks) {
+          bytes.set(c, offset);
+          offset += c.length;
+        }
+      } else {
+        bytes = body;
+      }
+      objects.set(key, { body: bytes, contentType });
+    },
+
+    getObject(key: string): Promise<Uint8Array> {
+      const obj = objects.get(key);
+      if (!obj) throw new Error(`Object not found: ${key}`);
+      return Promise.resolve(obj.body);
+    },
+
+    headObject(key: string): Promise<S3ObjectMeta | null> {
+      const obj = objects.get(key);
+      if (!obj) return Promise.resolve(null);
+      return Promise.resolve({
+        contentLength: obj.body.length,
+        contentType: obj.contentType ?? null,
+        etag: null,
+      });
+    },
+
+    async *listObjects(prefix: string): AsyncIterable<S3Object> {
+      for (const [key, obj] of objects) {
+        if (key.startsWith(prefix)) {
+          yield { key, size: obj.body.length, lastModified: null };
+        }
+      }
+    },
+  };
+}
