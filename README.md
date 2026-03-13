@@ -126,6 +126,10 @@ deno task test
 
 Tests use dependency injection with mock implementations for the S3 client and exporter, so no external services or credentials are needed.
 
+## Future Plans
+
+- **Scheduled backups via launchd** -- A LaunchAgent plist to run backups daily on a dedicated Mac. Includes an `--auto` flag (no prompts, file-based logging to `~/.attic/logs/`), macOS notifications on completion/failure, and `deno task install-schedule` / `deno task uninstall-schedule` commands.
+
 ## Project Structure
 
 ```
