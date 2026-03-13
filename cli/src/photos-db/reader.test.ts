@@ -305,7 +305,9 @@ Deno.test("readAssets: adjustment without rendered resource yields hasEdit false
     INSERT INTO ZASSET VALUES (1, 'uuid-adj-only', 'IMG.HEIC', '/dir', ${coreDataTs},
       ${AssetKind.PHOTO}, 'public.heic', 4032, 3024, NULL, NULL, 0, ${CloudLocalState.LOCAL}, 0);
     INSERT INTO ZADDITIONALASSETATTRIBUTES VALUES (1, 1, 1000, 'IMG.HEIC', 'hash', NULL, 1);
-    INSERT INTO ZUNMANAGEDADJUSTMENT VALUES (1, ${coreDataTs + 100}, 'com.apple.photo');
+    INSERT INTO ZUNMANAGEDADJUSTMENT VALUES (1, ${
+    coreDataTs + 100
+  }, 'com.apple.photo');
   `);
   // No ZINTERNALRESOURCE row — adjustment exists but no rendered file
   db.close();
@@ -316,7 +318,11 @@ Deno.test("readAssets: adjustment without rendered resource yields hasEdit false
     reader.close();
 
     assertEquals(assets.length, 1);
-    assertEquals(assets[0].hasEdit, false, "no rendered resource = hasEdit false");
+    assertEquals(
+      assets[0].hasEdit,
+      false,
+      "no rendered resource = hasEdit false",
+    );
     assertEquals(assets[0].editedAt, null);
     assertEquals(assets[0].editor, null);
   } finally {

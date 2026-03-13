@@ -1,29 +1,48 @@
-const DEFAULT_BUCKET = "photo-cloud-storage";
+import { Command, EnumType } from "@cliffy/command";
+import { type AtticConfig, requireConfig } from "./src/config/config.ts";
+import type { S3ConnectionConfig } from "./src/storage/s3-client.ts";
 
-const command = Deno.args[0];
+const assetType = new EnumType(["photo", "video"]);
 
-switch (command) {
-  case "scan": {
+function s3ConnectionFromConfig(config: AtticConfig): S3ConnectionConfig {
+  return {
+    endpoint: config.endpoint,
+    region: config.region,
+    pathStyle: config.pathStyle,
+  };
+}
+
+const main = new Command()
+  .name("attic")
+  .version("0.1.0")
+  .description("Back up your iCloud Photos library to S3-compatible storage")
+  .action(function (this: Command) {
+    this.showHelp();
+  });
+
+main.command("scan", "Scan Photos library and show statistics")
+  .option("--db <path:string>", "Path to Photos.sqlite")
+  .action(async ({ db }: { db?: string }) => {
     const { openPhotosDb } = await import("./src/photos-db/reader.ts");
     const { printScanReport } = await import("./src/commands/scan.ts");
 
-    const dbPath = Deno.args[1]; // optional override
-    const reader = openPhotosDb(dbPath);
+    const reader = openPhotosDb(db);
     try {
       const assets = reader.readAssets();
       printScanReport(assets);
     } finally {
       reader.close();
     }
-    break;
-  }
-  case "status": {
+  });
+
+main.command("status", "Compare Photos DB vs backup manifest")
+  .option("--db <path:string>", "Path to Photos.sqlite")
+  .action(async ({ db }: { db?: string }) => {
     const { openPhotosDb } = await import("./src/photos-db/reader.ts");
     const { printStatusReport } = await import("./src/commands/status.ts");
     const { createManifestStore } = await import("./src/manifest/manifest.ts");
 
-    const dbPath = Deno.args[1]; // optional override
-    const reader = openPhotosDb(dbPath);
+    const reader = openPhotosDb(db);
     try {
       const assets = reader.readAssets();
       const manifestStore = createManifestStore();
@@ -31,221 +50,195 @@ switch (command) {
     } finally {
       reader.close();
     }
-    break;
-  }
-  case "backup": {
+  });
+
+main.command("backup", "Back up pending assets to S3")
+  .option("--dry-run", "Show what would be uploaded")
+  .option("--limit <n:integer>", "Back up at most N assets")
+  .option("--batch-size <n:integer>", "Assets per ladder batch", {
+    default: 50,
+  })
+  .type("asset-type", assetType)
+  .option("--type <type:asset-type>", "Only back up photos or videos")
+  .option("--bucket <name:string>", "Override bucket from config")
+  .option("--ladder <path:string>", "Path to ladder binary")
+  .option("--db <path:string>", "Path to Photos.sqlite")
+  .action(async (options: {
+    dryRun?: boolean;
+    limit?: number;
+    batchSize: number;
+    type?: "photo" | "video";
+    bucket?: string;
+    ladder?: string;
+    db?: string;
+  }) => {
     const { openPhotosDb } = await import("./src/photos-db/reader.ts");
     const { runBackup } = await import("./src/commands/backup.ts");
     const { createManifestStore } = await import("./src/manifest/manifest.ts");
-    const { createS3Provider, loadKeychainCredentials } = await import(
-      "./src/storage/s3-client.ts"
+    const { createS3Provider } = await import("./src/storage/s3-client.ts");
+    const { loadKeychainCredentials } = await import(
+      "./src/keychain/keychain.ts"
     );
     const { createLadderExporter } = await import("./src/export/exporter.ts");
 
-    const flags = parseBackupFlags(Deno.args.slice(1));
-    const reader = openPhotosDb(flags.dbPath);
+    const config = requireConfig();
+    const reader = openPhotosDb(options.db);
     try {
       const assets = reader.readAssets();
       const manifestStore = createManifestStore();
       const manifest = await manifestStore.load();
 
-      const credentials = await loadKeychainCredentials();
+      const credentials = await loadKeychainCredentials(
+        config.keychain.accessKeyService,
+        config.keychain.secretKeyService,
+      );
       const s3 = createS3Provider(
         credentials,
-        flags.bucket ?? DEFAULT_BUCKET,
+        options.bucket ?? config.bucket,
+        s3ConnectionFromConfig(config),
       );
 
-      const ladderPath = flags.ladderPath ??
+      const ladderPath = options.ladder ??
         Deno.env.get("LADDER_PATH") ??
         "ladder";
       const exporter = createLadderExporter(ladderPath);
 
       await runBackup(assets, manifest, manifestStore, exporter, s3, {
-        batchSize: flags.batchSize,
-        limit: flags.limit,
-        type: flags.type,
-        dryRun: flags.dryRun,
+        batchSize: options.batchSize,
+        limit: options.limit ?? 0,
+        type: options.type ?? null,
+        dryRun: options.dryRun ?? false,
       });
     } finally {
       reader.close();
     }
-    break;
-  }
-  case "verify": {
+  });
+
+main.command("init", "Set up attic configuration")
+  .action(async () => {
+    const { runInit } = await import("./src/commands/init.ts");
+    await runInit();
+  });
+
+main.command("verify", "Verify backup integrity against S3")
+  .option("--deep", "Download and re-checksum each object")
+  .option("--rebuild-manifest", "Reconstruct manifest from S3 metadata")
+  .option("--bucket <name:string>", "Override bucket from config")
+  .action(async (options: {
+    deep?: boolean;
+    rebuildManifest?: boolean;
+    bucket?: string;
+  }) => {
     const { runVerify } = await import("./src/commands/verify.ts");
     const { rebuildManifest } = await import("./src/commands/rebuild.ts");
     const { createManifestStore } = await import("./src/manifest/manifest.ts");
-    const { createS3Provider, loadKeychainCredentials } = await import(
-      "./src/storage/s3-client.ts"
+    const { createS3Provider } = await import("./src/storage/s3-client.ts");
+    const { loadKeychainCredentials } = await import(
+      "./src/keychain/keychain.ts"
     );
 
-    const verifyFlags = parseVerifyFlags(Deno.args.slice(1));
+    const config = requireConfig();
 
-    const credentials = await loadKeychainCredentials();
+    const credentials = await loadKeychainCredentials(
+      config.keychain.accessKeyService,
+      config.keychain.secretKeyService,
+    );
     const s3 = createS3Provider(
       credentials,
-      verifyFlags.bucket ?? DEFAULT_BUCKET,
+      options.bucket ?? config.bucket,
+      s3ConnectionFromConfig(config),
     );
     const manifestStore = createManifestStore();
 
-    if (verifyFlags.rebuildManifest) {
+    if (options.rebuildManifest) {
       await rebuildManifest(s3, manifestStore);
     } else {
       const manifest = await manifestStore.load();
       await runVerify(manifest, s3, {
-        deep: verifyFlags.deep,
+        deep: options.deep ?? false,
       });
     }
-    break;
+  });
+
+try {
+  await main.parse(Deno.args);
+} catch (error: unknown) {
+  handleError(error);
+  Deno.exit(1);
+}
+
+function handleError(error: unknown): void {
+  if (!(error instanceof Error)) {
+    console.error("An unexpected error occurred.");
+    return;
   }
-  default:
-    console.log(`attic — iCloud Photos backup to Scaleway S3\n`);
-    console.log(`Commands:`);
-    console.log(`  scan      Scan Photos library and show statistics`);
-    console.log(`  status    Compare Photos DB vs backup manifest`);
-    console.log(`  backup    Back up pending assets to S3`);
-    console.log(`  verify    Verify backup integrity against S3`);
-    console.log(`\nBackup flags:`);
-    console.log(`  --dry-run          Show what would be uploaded`);
-    console.log(`  --limit N          Back up at most N assets`);
-    console.log(`  --batch-size N     Assets per ladder batch (default: 50)`);
-    console.log(`  --type photo|video Only back up photos or videos`);
-    console.log(
-      `  --bucket NAME      S3 bucket (default: ${DEFAULT_BUCKET})`,
+
+  const msg = error.message;
+
+  // Keychain not found
+  if (
+    msg.includes("find-generic-password") ||
+    msg.includes("SecKeychainSearchCopyNext")
+  ) {
+    console.error("Could not read credentials from macOS Keychain.");
+    console.error('Run "attic init" to set up your credentials.\n');
+    return;
+  }
+
+  // Config missing (thrown by requireConfig)
+  if (msg.includes("No config file found")) {
+    console.error(msg);
+    return;
+  }
+
+  // Config validation error
+  if (msg.startsWith("Config:")) {
+    console.error(msg);
+    console.error(
+      'Run "attic init" to reconfigure, or edit ~/.attic/config.json.\n',
     );
-    console.log(`  --ladder PATH      Path to ladder binary`);
-    console.log(`  --db PATH          Path to Photos.sqlite`);
-    console.log(`\nVerify flags:`);
-    console.log(`  --deep             Download and re-checksum each object`);
-    console.log(`  --rebuild-manifest Reconstruct manifest from S3 metadata`);
-    console.log(
-      `  --bucket NAME      S3 bucket (default: ${DEFAULT_BUCKET})`,
+    return;
+  }
+
+  // S3 access denied
+  if (msg.includes("AccessDenied") || msg.includes("403")) {
+    console.error(
+      "S3 access denied. Check your credentials and bucket permissions.",
     );
-    console.log(`\nUsage: deno task <command>`);
-    if (command) {
-      console.error(`\nUnknown command: ${command}`);
-      Deno.exit(1);
-    }
-}
-
-interface BackupFlags {
-  dryRun: boolean;
-  limit: number;
-  batchSize: number;
-  type: "photo" | "video" | null;
-  bucket: string | null;
-  ladderPath: string | null;
-  dbPath: string | undefined;
-}
-
-function requireArg(args: string[], i: number, flag: string): string {
-  const value = args[i];
-  if (value === undefined) {
-    console.error(`Missing value for ${flag}`);
-    Deno.exit(1);
-  }
-  return value;
-}
-
-function parsePositiveInt(value: string, flag: string): number {
-  const n = parseInt(value, 10);
-  if (!Number.isFinite(n) || n < 1) {
-    console.error(`${flag} must be a positive integer, got: ${value}`);
-    Deno.exit(1);
-  }
-  return n;
-}
-
-function parseBackupFlags(args: string[]): BackupFlags {
-  const flags: BackupFlags = {
-    dryRun: false,
-    limit: 0,
-    batchSize: 50,
-    type: null,
-    bucket: null,
-    ladderPath: null,
-    dbPath: undefined,
-  };
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    switch (arg) {
-      case "--dry-run":
-        flags.dryRun = true;
-        break;
-      case "--limit":
-        flags.limit = parsePositiveInt(
-          requireArg(args, ++i, "--limit"),
-          "--limit",
-        );
-        break;
-      case "--batch-size":
-        flags.batchSize = parsePositiveInt(
-          requireArg(args, ++i, "--batch-size"),
-          "--batch-size",
-        );
-        break;
-      case "--type": {
-        const typeVal = requireArg(args, ++i, "--type");
-        if (typeVal !== "photo" && typeVal !== "video") {
-          console.error(`--type must be "photo" or "video", got: ${typeVal}`);
-          Deno.exit(1);
-        }
-        flags.type = typeVal;
-        break;
-      }
-      case "--bucket":
-        flags.bucket = requireArg(args, ++i, "--bucket");
-        break;
-      case "--ladder":
-        flags.ladderPath = requireArg(args, ++i, "--ladder");
-        break;
-      case "--db":
-        flags.dbPath = requireArg(args, ++i, "--db");
-        break;
-      case "--":
-        break;
-      default:
-        console.error(`Unknown flag: ${arg}`);
-        Deno.exit(1);
-    }
+    console.error('Run "attic init" to update credentials.\n');
+    return;
   }
 
-  return flags;
-}
-
-interface VerifyFlags {
-  deep: boolean;
-  rebuildManifest: boolean;
-  bucket: string | null;
-}
-
-function parseVerifyFlags(args: string[]): VerifyFlags {
-  const flags: VerifyFlags = {
-    deep: false,
-    rebuildManifest: false,
-    bucket: null,
-  };
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    switch (arg) {
-      case "--deep":
-        flags.deep = true;
-        break;
-      case "--rebuild-manifest":
-        flags.rebuildManifest = true;
-        break;
-      case "--bucket":
-        flags.bucket = requireArg(args, ++i, "--bucket");
-        break;
-      case "--":
-        break;
-      default:
-        console.error(`Unknown flag: ${arg}`);
-        Deno.exit(1);
-    }
+  // S3 bucket not found
+  if (msg.includes("NoSuchBucket")) {
+    console.error(
+      "S3 bucket not found. Check the bucket name in ~/.attic/config.json.",
+    );
+    return;
   }
 
-  return flags;
+  // Network error
+  if (
+    msg.includes("ECONNREFUSED") || msg.includes("ETIMEDOUT") ||
+    msg.includes("fetch failed")
+  ) {
+    console.error(
+      "Could not connect to S3 endpoint. Check your network and endpoint URL in ~/.attic/config.json.",
+    );
+    return;
+  }
+
+  // Photos.sqlite not found
+  if (
+    msg.includes("Photos.sqlite") || msg.includes("unable to open database")
+  ) {
+    console.error("Could not open Photos database.");
+    console.error(
+      "Make sure Photos is set up on this Mac and the database exists.\n",
+    );
+    return;
+  }
+
+  // Fallback
+  console.error(`Error: ${msg}`);
 }
