@@ -1,6 +1,7 @@
-import type { AlbumRef, PersonRef, PhotoAsset } from "@attic/shared";
+import type { PhotoAsset } from "@attic/shared";
 import {
   AssetKind,
+  buildMetadataJson,
   extensionFromUtiOrFilename,
   metadataKey,
   originalKey,
@@ -39,30 +40,6 @@ export interface BackupReport {
   skipped: number;
   totalBytes: number;
   errors: Array<{ uuid: string; message: string }>;
-}
-
-interface AssetMetadata {
-  uuid: string;
-  originalFilename: string;
-  dateCreated: string | null;
-  width: number;
-  height: number;
-  latitude: number | null;
-  longitude: number | null;
-  fileSize: number | null;
-  type: string | null;
-  favorite: boolean;
-  title: string | null;
-  description: string | null;
-  albums: AlbumRef[];
-  keywords: string[];
-  people: PersonRef[];
-  hasEdit: boolean;
-  editedAt: string | null;
-  editor: string | null;
-  s3Key: string;
-  checksum: string;
-  backedUpAt: string;
 }
 
 /** Run the backup pipeline: scan -> filter -> export -> upload -> manifest. */
@@ -191,7 +168,12 @@ export async function runBackup(
         await s3.putObject(s3Key, fileData, contentTypeFor(ext));
 
         // Upload metadata JSON
-        const meta = buildMetadataJson(asset, s3Key, exported.sha256);
+        const meta = buildMetadataJson(
+          asset,
+          s3Key,
+          `sha256:${exported.sha256}`,
+          new Date().toISOString(),
+        );
         const metaData = new TextEncoder().encode(
           JSON.stringify(meta, null, 2),
         );
@@ -265,34 +247,4 @@ function contentTypeFor(ext: string): string {
     orf: "image/x-olympus-orf",
   };
   return map[ext] ?? "application/octet-stream";
-}
-
-function buildMetadataJson(
-  asset: PhotoAsset,
-  s3Key: string,
-  sha256: string,
-): AssetMetadata {
-  return {
-    uuid: asset.uuid,
-    originalFilename: asset.originalFilename ?? asset.filename,
-    dateCreated: asset.dateCreated?.toISOString() ?? null,
-    width: asset.width,
-    height: asset.height,
-    latitude: asset.latitude,
-    longitude: asset.longitude,
-    fileSize: asset.originalFileSize,
-    type: asset.uniformTypeIdentifier,
-    favorite: asset.favorite,
-    title: asset.title,
-    description: asset.description,
-    albums: asset.albums,
-    keywords: asset.keywords,
-    people: asset.people,
-    hasEdit: asset.hasEdit,
-    editedAt: asset.editedAt?.toISOString() ?? null,
-    editor: asset.editor,
-    s3Key,
-    checksum: `sha256:${sha256}`,
-    backedUpAt: new Date().toISOString(),
-  };
 }

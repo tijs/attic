@@ -7,7 +7,7 @@ of the photo-cloud system (companion: [ladder](https://github.com/tijs/ladder)).
 
 ```bash
 deno task check       # Type check
-deno task test        # Run tests (57 tests)
+deno task test        # Run tests (58 tests)
 deno task lint        # Lint
 deno task fmt         # Format
 deno task fmt:check   # Check formatting

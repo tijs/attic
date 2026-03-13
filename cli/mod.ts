@@ -153,10 +153,11 @@ main
         s3ConnectionFromConfig(config),
       );
 
-      await refreshMetadata(assets, manifest, s3, {
+      const report = await refreshMetadata(assets, manifest, s3, {
         concurrency: options.concurrency,
         dryRun: options.dryRun ?? false,
       });
+      if (report.failed > 0) Deno.exit(2);
     } finally {
       reader.close();
     }

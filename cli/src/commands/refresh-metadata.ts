@@ -1,5 +1,5 @@
-import type { AlbumRef, PersonRef, PhotoAsset } from "@attic/shared";
-import { metadataKey } from "@attic/shared";
+import type { PhotoAsset } from "@attic/shared";
+import { buildMetadataJson, metadataKey } from "@attic/shared";
 import type { Manifest } from "../manifest/manifest.ts";
 import type { S3Provider } from "../storage/s3-client.ts";
 import { formatBytes } from "../format.ts";
@@ -24,30 +24,6 @@ export interface RefreshMetadataReport {
   errors: Array<{ uuid: string; message: string }>;
 }
 
-interface AssetMetadata {
-  uuid: string;
-  originalFilename: string;
-  dateCreated: string | null;
-  width: number;
-  height: number;
-  latitude: number | null;
-  longitude: number | null;
-  fileSize: number | null;
-  type: string | null;
-  favorite: boolean;
-  title: string | null;
-  description: string | null;
-  albums: AlbumRef[];
-  keywords: string[];
-  people: PersonRef[];
-  hasEdit: boolean;
-  editedAt: string | null;
-  editor: string | null;
-  s3Key: string;
-  checksum: string;
-  backedUpAt: string;
-}
-
 /**
  * Re-upload metadata JSON for already-backed-up assets.
  * Original files and manifest are left untouched.
@@ -59,6 +35,7 @@ export async function refreshMetadata(
   opts: Partial<RefreshMetadataOptions> = {},
 ): Promise<RefreshMetadataReport> {
   const options = { ...DEFAULT_OPTIONS, ...opts };
+  options.concurrency = Math.max(1, options.concurrency);
 
   // Only refresh assets that are in the manifest
   const assetByUuid = new Map<string, PhotoAsset>();
@@ -112,13 +89,15 @@ export async function refreshMetadata(
     errors: [],
   };
 
-  // Process with bounded concurrency
-  const queue = [...toRefresh];
+  // Process with bounded concurrency using an index counter (O(1) per item).
+  // Mutations to `report` are safe: Deno is single-threaded, and all
+  // increments happen synchronously between await points.
+  let cursor = 0;
   const workers = Array.from(
-    { length: Math.min(options.concurrency, queue.length) },
+    { length: Math.min(options.concurrency, toRefresh.length) },
     async () => {
-      while (queue.length > 0) {
-        const item = queue.shift()!;
+      while (cursor < toRefresh.length) {
+        const item = toRefresh[cursor++];
         try {
           const meta = buildMetadataJson(
             item.asset,
@@ -162,35 +141,4 @@ export async function refreshMetadata(
   console.log(`  Total:     ${formatBytes(report.totalBytes)}\n`);
 
   return report;
-}
-
-function buildMetadataJson(
-  asset: PhotoAsset,
-  s3Key: string,
-  checksum: string,
-  backedUpAt: string,
-): AssetMetadata {
-  return {
-    uuid: asset.uuid,
-    originalFilename: asset.originalFilename ?? asset.filename,
-    dateCreated: asset.dateCreated?.toISOString() ?? null,
-    width: asset.width,
-    height: asset.height,
-    latitude: asset.latitude,
-    longitude: asset.longitude,
-    fileSize: asset.originalFileSize,
-    type: asset.uniformTypeIdentifier,
-    favorite: asset.favorite,
-    title: asset.title,
-    description: asset.description,
-    albums: asset.albums,
-    keywords: asset.keywords,
-    people: asset.people,
-    hasEdit: asset.hasEdit,
-    editedAt: asset.editedAt?.toISOString() ?? null,
-    editor: asset.editor,
-    s3Key,
-    checksum,
-    backedUpAt,
-  };
 }
