@@ -57,7 +57,7 @@ switch (command) {
 
       const ladderPath = flags.ladderPath ??
         Deno.env.get("LADDER_PATH") ??
-        "../ladder/.build/arm64-apple-macosx/release/ladder";
+        "ladder";
       const exporter = createLadderExporter(ladderPath);
 
       await runBackup(assets, manifest, manifestStore, exporter, s3, {
