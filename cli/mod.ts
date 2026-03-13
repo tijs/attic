@@ -56,6 +56,7 @@ switch (command) {
       );
 
       const ladderPath = flags.ladderPath ??
+        Deno.env.get("LADDER_PATH") ??
         "../ladder/.build/arm64-apple-macosx/release/ladder";
       const exporter = createLadderExporter(ladderPath);
 

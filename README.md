@@ -75,7 +75,7 @@ Flags (append after `--`):
 | `--batch-size N` | Assets per ladder export batch (default: 50) |
 | `--type photo\|video` | Only back up photos or videos |
 | `--bucket NAME` | S3 bucket name (default: `photo-cloud-storage`) |
-| `--ladder PATH` | Path to the ladder binary |
+| `--ladder PATH` | Path to the ladder binary (or set `LADDER_PATH` env var) |
 | `--db PATH` | Path to Photos.sqlite |
 
 ### verify
