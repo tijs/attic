@@ -7,7 +7,7 @@ of the photo-cloud system (companion: [ladder](https://github.com/tijs/ladder)).
 
 ```bash
 deno task check       # Type check
-deno task test        # Run tests (54 tests)
+deno task test        # Run tests (57 tests)
 deno task lint        # Lint
 deno task fmt         # Format
 deno task fmt:check   # Check formatting
@@ -18,7 +18,7 @@ deno task fmt:check   # Check formatting
 ```
 shared/          # @attic/shared — PhotoAsset type, S3 path helpers
 cli/             # @attic/cli — commands, config, storage, manifest, export
-  src/commands/  # init, scan, status, backup, verify, rebuild
+  src/commands/  # init, scan, status, backup, verify, rebuild, refresh-metadata
   src/config/    # Config file (load, validate, write)
   src/keychain/  # macOS Keychain credential load/store
   src/storage/   # Generic S3 client (provider interface + AWS SDK)

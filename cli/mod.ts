@@ -114,6 +114,54 @@ main.command("backup", "Back up pending assets to S3")
     }
   });
 
+main
+  .command("refresh-metadata", "Re-upload metadata JSON for backed-up assets")
+  .option("--dry-run", "Show what would be uploaded")
+  .option("--concurrency <n:integer>", "Concurrent uploads", { default: 20 })
+  .option("--bucket <name:string>", "Override bucket from config")
+  .option("--db <path:string>", "Path to Photos.sqlite")
+  .action(async (options: {
+    dryRun?: boolean;
+    concurrency: number;
+    bucket?: string;
+    db?: string;
+  }) => {
+    const { openPhotosDb } = await import("./src/photos-db/reader.ts");
+    const { refreshMetadata } = await import(
+      "./src/commands/refresh-metadata.ts"
+    );
+    const { createManifestStore } = await import("./src/manifest/manifest.ts");
+    const { createS3Provider } = await import("./src/storage/s3-client.ts");
+    const { loadKeychainCredentials } = await import(
+      "./src/keychain/keychain.ts"
+    );
+
+    const config = requireConfig();
+    const reader = openPhotosDb(options.db);
+    try {
+      const assets = reader.readAssets();
+      const manifestStore = createManifestStore();
+      const manifest = await manifestStore.load();
+
+      const credentials = await loadKeychainCredentials(
+        config.keychain.accessKeyService,
+        config.keychain.secretKeyService,
+      );
+      const s3 = createS3Provider(
+        credentials,
+        options.bucket ?? config.bucket,
+        s3ConnectionFromConfig(config),
+      );
+
+      await refreshMetadata(assets, manifest, s3, {
+        concurrency: options.concurrency,
+        dryRun: options.dryRun ?? false,
+      });
+    } finally {
+      reader.close();
+    }
+  });
+
 main.command("init", "Set up attic configuration")
   .action(async () => {
     const { runInit } = await import("./src/commands/init.ts");

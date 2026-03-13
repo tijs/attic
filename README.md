@@ -108,6 +108,22 @@ deno task verify
 | `--rebuild-manifest` | Reconstruct the local manifest from S3 metadata files      |
 | `--bucket NAME`      | Override bucket from config                                |
 
+### refresh-metadata
+
+Re-upload metadata JSON for already backed-up assets without re-uploading the
+original files. Useful after adding new metadata fields or enrichments.
+
+```bash
+deno task refresh-metadata
+```
+
+| Flag              | Description                      |
+| ----------------- | -------------------------------- |
+| `--dry-run`       | Show what would be uploaded      |
+| `--concurrency N` | Concurrent uploads (default: 20) |
+| `--bucket NAME`   | Override bucket from config      |
+| `--db PATH`       | Path to Photos.sqlite            |
+
 ## Configuration
 
 Attic stores its configuration at `~/.attic/config.json` (see

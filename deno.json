@@ -10,6 +10,7 @@
     "scan": "deno run --allow-read --allow-env --allow-ffi cli/mod.ts scan",
     "status": "deno run --allow-read --allow-write --allow-env --allow-ffi cli/mod.ts status",
     "backup": "deno run --allow-read --allow-write --allow-env --allow-sys --allow-ffi --allow-net --allow-run cli/mod.ts backup",
-    "verify": "deno run --allow-read --allow-write --allow-env --allow-sys --allow-net --allow-run=security cli/mod.ts verify"
+    "verify": "deno run --allow-read --allow-write --allow-env --allow-sys --allow-net --allow-run=security cli/mod.ts verify",
+    "refresh-metadata": "deno run --allow-read --allow-write --allow-env --allow-sys --allow-ffi --allow-net --allow-run=security cli/mod.ts refresh-metadata"
   }
 }
