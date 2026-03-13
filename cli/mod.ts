@@ -107,6 +107,12 @@ main.command("backup", "Back up pending assets to S3")
     }
   });
 
+main.command("init", "Set up attic configuration")
+  .action(async () => {
+    const { runInit } = await import("./src/commands/init.ts");
+    await runInit();
+  });
+
 main.command("verify", "Verify backup integrity against S3")
   .option("--deep", "Download and re-checksum each object")
   .option("--rebuild-manifest", "Reconstruct manifest from S3 metadata")

@@ -1,26 +1,41 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@cliffy/ansi@1.0.0": "1.0.0",
     "jsr:@cliffy/command@1": "1.0.0",
     "jsr:@cliffy/flags@1.0.0": "1.0.0",
     "jsr:@cliffy/internal@1.0.0": "1.0.0",
+    "jsr:@cliffy/keycode@1.0.0": "1.0.0",
+    "jsr:@cliffy/prompt@1": "1.0.0",
     "jsr:@cliffy/table@1.0.0": "1.0.0",
     "jsr:@db/sqlite@0.12": "0.12.0",
     "jsr:@denosaurs/plug@1": "1.1.0",
     "jsr:@std/assert@0.217": "0.217.0",
     "jsr:@std/assert@1": "1.0.18",
+    "jsr:@std/assert@^1.0.18": "1.0.18",
     "jsr:@std/encoding@1": "1.0.10",
+    "jsr:@std/encoding@^1.0.10": "1.0.10",
     "jsr:@std/fmt@1": "1.0.9",
     "jsr:@std/fmt@^1.0.9": "1.0.9",
     "jsr:@std/fs@1": "1.0.22",
     "jsr:@std/internal@^1.0.12": "1.0.12",
+    "jsr:@std/io@~0.225.3": "0.225.3",
     "jsr:@std/path@0.217": "0.217.0",
     "jsr:@std/path@1": "1.1.4",
     "jsr:@std/path@^1.1.4": "1.1.4",
     "jsr:@std/text@^1.0.17": "1.0.17",
-    "npm:@aws-sdk/client-s3@3": "3.1008.0"
+    "npm:@aws-sdk/client-s3@3": "3.1008.0",
+    "npm:@types/node@*": "24.2.0"
   },
   "jsr": {
+    "@cliffy/ansi@1.0.0": {
+      "integrity": "987008f74e50aa72cc1517ffccc769711734a14927bc4599e052efe1b9a840e2",
+      "dependencies": [
+        "jsr:@cliffy/internal",
+        "jsr:@std/encoding@^1.0.10",
+        "jsr:@std/io"
+      ]
+    },
     "@cliffy/command@1.0.0": {
       "integrity": "c52a241ea68857fcdaff4f3173eb404f8017d7bc35553b6f533c592b89dde7d2",
       "dependencies": [
@@ -41,6 +56,22 @@
     "@cliffy/internal@1.0.0": {
       "integrity": "1e17ccbcd5420093c0a93e5b3827bbdc9abac5195bacf187edc44665e54bdde6"
     },
+    "@cliffy/keycode@1.0.0": {
+      "integrity": "755dbf007be110dcb5625f87eb61b362b6a0ca6835453af03ebd3b34d399cf14"
+    },
+    "@cliffy/prompt@1.0.0": {
+      "integrity": "48b4cd35199fda7832f35e1fe0a3e8bc2b1ea49ba57b4ec0e29e22db44e8ca9f",
+      "dependencies": [
+        "jsr:@cliffy/ansi",
+        "jsr:@cliffy/internal",
+        "jsr:@cliffy/keycode",
+        "jsr:@std/assert@^1.0.18",
+        "jsr:@std/fmt@^1.0.9",
+        "jsr:@std/io",
+        "jsr:@std/path@^1.1.4",
+        "jsr:@std/text"
+      ]
+    },
     "@cliffy/table@1.0.0": {
       "integrity": "3fdaa9e1ef1ea62022108adabd826932bdea8dd05497079896febcd41322907f",
       "dependencies": [
@@ -57,7 +88,7 @@
     "@denosaurs/plug@1.1.0": {
       "integrity": "eb2f0b7546c7bca2000d8b0282c54d50d91cf6d75cb26a80df25a6de8c4bc044",
       "dependencies": [
-        "jsr:@std/encoding",
+        "jsr:@std/encoding@1",
         "jsr:@std/fmt@1",
         "jsr:@std/fs",
         "jsr:@std/path@1"
@@ -87,6 +118,9 @@
     },
     "@std/internal@1.0.12": {
       "integrity": "972a634fd5bc34b242024402972cd5143eac68d8dffaca5eaa4dba30ce17b027"
+    },
+    "@std/io@0.225.3": {
+      "integrity": "27b07b591384d12d7b568f39e61dff966b8230559122df1e9fd11cc068f7ddd1"
     },
     "@std/path@0.217.0": {
       "integrity": "1217cc25534bca9a2f672d7fe7c6f356e4027df400c0e85c0ef3e4343bc67d11",
@@ -1059,6 +1093,12 @@
         "tslib"
       ]
     },
+    "@types/node@24.2.0": {
+      "integrity": "sha512-3xyG3pMCq3oYCNg7/ZP+E1ooTaGB4cG8JWRsqqOYQdbWNY4zbaV0Ennrd7stjiJEFZCaybcIgpTjJWHRfBSIDw==",
+      "dependencies": [
+        "undici-types"
+      ]
+    },
     "bowser@2.14.1": {
       "integrity": "sha512-tzPjzCxygAKWFOJP011oxFHs57HzIhOEracIgAePE4pqB3LikALKnSzUyU4MGs9/iCEUuHlAJTjTc5M+u7YEGg=="
     },
@@ -1084,6 +1124,9 @@
     },
     "tslib@2.8.1": {
       "integrity": "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="
+    },
+    "undici-types@7.10.0": {
+      "integrity": "sha512-t5Fy/nfn+14LuOc2KNYg75vZqClpAiqscVvMygNnlsHBFpSXdJaYtXMcdNLpl/Qvc3P2cB3s6lOV51nqsFq4ag=="
     }
   },
   "workspace": {
