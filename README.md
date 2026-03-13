@@ -6,12 +6,12 @@
 
 Back up your iCloud Photos library to Scaleway Object Storage (S3-compatible).
 
-Attic reads the Photos.sqlite database directly, exports originals via a companion Swift tool called [ladder](../ladder), and uploads them to a Scaleway S3 bucket. A local manifest tracks what has already been backed up so subsequent runs only upload new assets.
+Attic reads the Photos.sqlite database directly, exports originals via a companion Swift tool called [ladder](https://github.com/tijs/ladder), and uploads them to a Scaleway S3 bucket. A local manifest tracks what has already been backed up so subsequent runs only upload new assets.
 
 ## Prerequisites
 
 - [Deno](https://deno.land/) (v2+)
-- The `ladder` binary, built from the sibling `../ladder` Swift project. Ladder uses PhotoKit to export original photo/video files from the Photos library.
+- The [ladder](https://github.com/tijs/ladder) binary. Ladder is a separate Swift tool that uses PhotoKit to export original photo/video files from the Photos library.
 - A Scaleway Object Storage bucket and API credentials
 - macOS (Photos.sqlite access and Keychain are macOS-only)
 
@@ -24,10 +24,11 @@ security add-generic-password -s attic-s3-access-key -a attic -w "<your-access-k
 security add-generic-password -s attic-s3-secret-key -a attic -w "<your-secret-key>"
 ```
 
-Build the ladder binary:
+Build the ladder binary (see [ladder](https://github.com/tijs/ladder) for details):
 
 ```bash
-cd ../ladder
+git clone https://github.com/tijs/ladder.git
+cd ladder
 swift build -c release
 ```
 
