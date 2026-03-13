@@ -4,7 +4,9 @@
 
 set -euo pipefail
 
+# Strip leading 'v' if present — version field in formula should be bare (e.g. "0.1.4")
 VERSION="${1:?Usage: $0 <version>}"
+VERSION="${VERSION#v}"
 REPO="tijs/attic"
 TAP_REPO="tijs/homebrew-tap"
 FORMULA="Formula/attic.rb"
