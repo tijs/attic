@@ -54,14 +54,18 @@ This prompts for your S3 endpoint, region, bucket name, and credentials. Config
 is saved to `~/.attic/config.json` and credentials are stored in the macOS
 Keychain.
 
-Build the ladder binary (see [ladder](https://github.com/tijs/ladder) for
-details):
+Build the ladder binary and add it to your PATH (see
+[ladder](https://github.com/tijs/ladder) for details):
 
 ```bash
 git clone https://github.com/tijs/ladder.git
 cd ladder
 swift build -c release
+sudo cp .build/release/ladder /usr/local/bin/
 ```
+
+Alternatively, pass `--ladder <path>` to the backup command or set the
+`LADDER_PATH` environment variable.
 
 ## Commands
 
@@ -102,8 +106,8 @@ attic backup
 | Flag                  | Description                                              |
 | --------------------- | -------------------------------------------------------- |
 | `--dry-run`           | Show what would be uploaded without uploading            |
-| `--limit N`           | Back up at most N assets                                 |
-| `--batch-size N`      | Assets per ladder export batch (default: 50)             |
+| `--limit N`           | Stop after N assets (useful for test runs)               |
+| `--batch-size N`      | Assets per export batch (default: 50)                    |
 | `--type photo\|video` | Only back up photos or videos                            |
 | `--bucket NAME`       | Override bucket from config                              |
 | `--ladder PATH`       | Path to the ladder binary (or set `LADDER_PATH` env var) |

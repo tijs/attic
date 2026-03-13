@@ -79,9 +79,16 @@ export async function runBackup(
     0,
   );
 
+  const photoCount = pending.filter((a) => a.kind === AssetKind.PHOTO).length;
+  const videoCount = pending.filter((a) => a.kind === AssetKind.VIDEO).length;
+  const typeSummary = [
+    photoCount > 0 ? `${photoCount} photos` : "",
+    videoCount > 0 ? `${videoCount} videos` : "",
+  ].filter(Boolean).join(", ");
+
   console.log(`\n  Attic — Backup`);
   console.log(`  ══════════════\n`);
-  console.log(`  Pending:     ${pending.length.toLocaleString()} assets`);
+  console.log(`  Pending:     ${pending.length.toLocaleString()} assets (${typeSummary})`);
   console.log(`  Est. size:   ${formatBytes(pendingSize)}`);
   if (options.dryRun) console.log(`  Mode:        DRY RUN`);
   console.log();
@@ -124,9 +131,11 @@ export async function runBackup(
     const batchNum = Math.floor(i / options.batchSize) + 1;
     const totalBatches = Math.ceil(pending.length / options.batchSize);
 
-    console.log(
-      `  Batch ${batchNum}/${totalBatches}  (${batch.length} assets)`,
-    );
+    if (totalBatches > 1) {
+      console.log(
+        `  Batch ${batchNum}/${totalBatches}  (${batch.length} assets)`,
+      );
+    }
 
     // 1. Export via ladder
     let batchResult;
@@ -189,6 +198,15 @@ export async function runBackup(
         report.uploaded++;
         report.totalBytes += exported.size;
 
+        // Per-asset progress
+        const done = report.uploaded + report.failed;
+        const pct = ((done / pending.length) * 100).toFixed(0);
+        const name = asset.originalFilename ?? asset.filename ?? "unknown";
+        const typeLabel = asset.kind === AssetKind.PHOTO ? "photo" : "video";
+        console.log(
+          `  [${done}/${pending.length}] ${pct}%  ${name}  (${typeLabel}, ${formatBytes(exported.size)})`,
+        );
+
         // Save manifest periodically (checked per-asset, not per-batch)
         if (sinceLastSave >= options.saveInterval) {
           await manifestStore.save(manifest);
@@ -209,13 +227,10 @@ export async function runBackup(
       }
     }
 
-    // Progress
-    const done = report.uploaded + report.failed;
-    const pct = ((done / pending.length) * 100).toFixed(1);
-    console.log(
-      `    Progress: ${done}/${pending.length} (${pct}%)  ` +
-        `Uploaded: ${formatBytes(report.totalBytes)}`,
-    );
+    // Batch separator when multiple batches
+    if (totalBatches > 1 && batchNum < totalBatches) {
+      console.log();
+    }
   }
 
   // Final save

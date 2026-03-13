@@ -54,8 +54,8 @@ main.command("status", "Compare Photos DB vs backup manifest")
 
 main.command("backup", "Back up pending assets to S3")
   .option("--dry-run", "Show what would be uploaded")
-  .option("--limit <n:integer>", "Back up at most N assets")
-  .option("--batch-size <n:integer>", "Assets per ladder batch", {
+  .option("--limit <n:integer>", "Stop after N assets (useful for test runs)")
+  .option("--batch-size <n:integer>", "Assets per export batch", {
     default: 50,
   })
   .type("asset-type", assetType)
