@@ -110,7 +110,8 @@ deno task verify
 
 ## Configuration
 
-Attic stores its configuration at `~/.attic/config.json`:
+Attic stores its configuration at `~/.attic/config.json` (see
+`config.example.json` for a template):
 
 ```json
 {

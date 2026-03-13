@@ -20,7 +20,8 @@ shared/          # @attic/shared — PhotoAsset type, S3 path helpers
 cli/             # @attic/cli — commands, config, storage, manifest, export
   src/commands/  # init, scan, status, backup, verify, rebuild
   src/config/    # Config file (load, validate, write)
-  src/storage/   # Generic S3 client + Keychain credential loading
+  src/keychain/  # macOS Keychain credential load/store
+  src/storage/   # Generic S3 client (provider interface + AWS SDK)
   src/manifest/  # Local JSON manifest with atomic writes
   src/export/    # Exporter interface + ladder subprocess integration
 ```
