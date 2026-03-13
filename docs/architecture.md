@@ -93,9 +93,15 @@ The manifest can be reconstructed from S3 via `verify --rebuild-manifest`, which
 
 Both modes use a bounded concurrency pool (default 50 workers). Errors are capped at 1,000 to prevent unbounded memory growth.
 
+## Configuration
+
+Attic reads its configuration from `~/.attic/config.json`. The config file specifies the S3 endpoint, region, bucket, path-style preference, and Keychain service names. It's created by `attic init` or manually.
+
+`scan` and `status` work without config (they only read Photos.sqlite). `backup` and `verify` require config and fail fast with a clear message if it's missing or invalid.
+
 ## Credentials
 
-S3 credentials are stored in the macOS Keychain under service names `attic-s3-access-key` and `attic-s3-secret-key`. They are read at runtime via `security find-generic-password` — never stored in env vars, config files, or code.
+S3 credentials are stored in the macOS Keychain under configurable service names (defaults: `attic-s3-access-key` and `attic-s3-secret-key`). They are read at runtime via `security find-generic-password` — never stored in env vars, config files, or code.
 
 ## Interfaces and testability
 
@@ -103,7 +109,7 @@ All external dependencies are behind interfaces:
 
 | Interface | Real implementation | Mock |
 |-----------|-------------------|------|
-| `S3Provider` | AWS SDK client for Scaleway | In-memory `Map<string, Uint8Array>` |
+| `S3Provider` | AWS SDK client for any S3-compatible endpoint | In-memory `Map<string, Uint8Array>` |
 | `Exporter` | Ladder subprocess | Returns pre-configured assets from a `Map` |
 | `ManifestStore` | File-based JSON with atomic writes | Same implementation, pointed at a temp dir |
 | `PhotosDbReader` | SQLite reader for Photos.sqlite | In-memory SQLite with test fixtures |

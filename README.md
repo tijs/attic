@@ -4,25 +4,28 @@
 
 # Attic
 
-Back up your iCloud Photos library to Scaleway Object Storage (S3-compatible).
+Back up your iCloud Photos library to S3-compatible storage.
 
-Attic reads the Photos.sqlite database directly, exports originals via a companion Swift tool called [ladder](https://github.com/tijs/ladder), and uploads them to a Scaleway S3 bucket. A local manifest tracks what has already been backed up so subsequent runs only upload new assets.
+Attic reads the Photos.sqlite database directly, exports originals via a companion Swift tool called [ladder](https://github.com/tijs/ladder), and uploads them to an S3-compatible bucket. A local manifest tracks what has already been backed up so subsequent runs only upload new assets.
+
+Works with any S3-compatible provider. EU-friendly options include [Scaleway](https://www.scaleway.com/en/object-storage/), [Hetzner](https://www.hetzner.com/storage/object-storage), and [OVH](https://www.ovhcloud.com/en/public-cloud/object-storage/).
 
 ## Prerequisites
 
 - [Deno](https://deno.land/) (v2+)
 - The [ladder](https://github.com/tijs/ladder) binary. Ladder is a separate Swift tool that uses PhotoKit to export original photo/video files from the Photos library.
-- A Scaleway Object Storage bucket and API credentials
+- An S3-compatible storage bucket and API credentials
 - macOS (Photos.sqlite access and Keychain are macOS-only)
 
 ## Setup
 
-Store your Scaleway S3 credentials in the macOS Keychain:
+Run the interactive setup:
 
 ```bash
-security add-generic-password -s attic-s3-access-key -a attic -w "<your-access-key>"
-security add-generic-password -s attic-s3-secret-key -a attic -w "<your-secret-key>"
+deno task init
 ```
+
+This prompts for your S3 endpoint, region, bucket name, and credentials. Config is saved to `~/.attic/config.json` and credentials are stored in the macOS Keychain.
 
 Build the ladder binary (see [ladder](https://github.com/tijs/ladder) for details):
 
@@ -36,18 +39,20 @@ swift build -c release
 
 All commands are run via `deno task`:
 
+### init
+
+Interactive setup — configure S3 connection and store credentials.
+
+```bash
+deno task init
+```
+
 ### scan
 
 Scan the Photos library and print statistics (asset counts, sizes, types, local vs iCloud-only).
 
 ```bash
 deno task scan
-```
-
-Optionally pass a custom database path:
-
-```bash
-deno task scan /path/to/Photos.sqlite
 ```
 
 ### status
@@ -66,15 +71,13 @@ Export pending assets via ladder and upload originals + metadata JSON to S3.
 deno task backup
 ```
 
-Flags (append after `--`):
-
 | Flag | Description |
 |---|---|
 | `--dry-run` | Show what would be uploaded without uploading |
 | `--limit N` | Back up at most N assets |
 | `--batch-size N` | Assets per ladder export batch (default: 50) |
 | `--type photo\|video` | Only back up photos or videos |
-| `--bucket NAME` | S3 bucket name (default: `photo-cloud-storage`) |
+| `--bucket NAME` | Override bucket from config |
 | `--ladder PATH` | Path to the ladder binary (or set `LADDER_PATH` env var) |
 | `--db PATH` | Path to Photos.sqlite |
 
@@ -90,7 +93,28 @@ deno task verify
 |---|---|
 | `--deep` | Download each object and re-verify SHA-256 checksum (slow) |
 | `--rebuild-manifest` | Reconstruct the local manifest from S3 metadata files |
-| `--bucket NAME` | S3 bucket name (default: `photo-cloud-storage`) |
+| `--bucket NAME` | Override bucket from config |
+
+## Configuration
+
+Attic stores its configuration at `~/.attic/config.json`:
+
+```json
+{
+  "endpoint": "https://s3.fr-par.scw.cloud",
+  "region": "fr-par",
+  "bucket": "my-photo-backup",
+  "pathStyle": true,
+  "keychain": {
+    "accessKeyService": "attic-s3-access-key",
+    "secretKeyService": "attic-s3-secret-key"
+  }
+}
+```
+
+The `keychain` section is optional and defaults to the service names shown above. Credentials are always stored in the macOS Keychain, never in config files or environment variables.
+
+`scan` and `status` work without config (they only read Photos.sqlite). `backup` and `verify` require config and will tell you to run `attic init` if it's missing.
 
 ## Testing
 

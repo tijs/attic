@@ -1,12 +1,12 @@
 # Attic
 
-Deno/TypeScript CLI for backing up iCloud Photos to Scaleway S3. Part of the photo-cloud system (companion: [ladder](https://github.com/tijs/ladder)).
+Deno/TypeScript CLI for backing up iCloud Photos to S3-compatible storage. Part of the photo-cloud system (companion: [ladder](https://github.com/tijs/ladder)).
 
 ## Commands
 
 ```bash
 deno task check       # Type check
-deno task test        # Run tests (44 tests)
+deno task test        # Run tests (54 tests)
 deno task lint        # Lint
 deno task fmt         # Format
 deno task fmt:check   # Check formatting
@@ -16,9 +16,10 @@ deno task fmt:check   # Check formatting
 
 ```
 shared/          # @attic/shared — PhotoAsset type, S3 path helpers
-cli/             # @attic/cli — commands, storage, manifest, export
-  src/commands/  # scan, status, backup, verify, rebuild
-  src/storage/   # S3 client + Keychain credential loading
+cli/             # @attic/cli — commands, config, storage, manifest, export
+  src/commands/  # init, scan, status, backup, verify, rebuild
+  src/config/    # Config file (load, validate, write)
+  src/storage/   # Generic S3 client + Keychain credential loading
   src/manifest/  # Local JSON manifest with atomic writes
   src/export/    # Exporter interface + ladder subprocess integration
 ```
