@@ -12,29 +12,13 @@ export function createMockS3Provider(): S3Provider & {
   return {
     objects,
 
-    async putObject(
+    putObject(
       key: string,
-      body: Uint8Array | ReadableStream<Uint8Array>,
+      body: Uint8Array,
       contentType?: string,
     ): Promise<void> {
-      let bytes: Uint8Array;
-      if (body instanceof ReadableStream) {
-        const chunks: Uint8Array[] = [];
-        for await (const chunk of body) {
-          chunks.push(chunk);
-        }
-        let totalLength = 0;
-        for (const c of chunks) totalLength += c.length;
-        bytes = new Uint8Array(totalLength);
-        let offset = 0;
-        for (const c of chunks) {
-          bytes.set(c, offset);
-          offset += c.length;
-        }
-      } else {
-        bytes = body;
-      }
-      objects.set(key, { body: bytes, contentType });
+      objects.set(key, { body, contentType });
+      return Promise.resolve();
     },
 
     getObject(key: string): Promise<Uint8Array> {

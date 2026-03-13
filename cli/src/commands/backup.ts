@@ -178,14 +178,9 @@ export async function runBackup(
       const s3Key = originalKey(asset.uuid, asset.dateCreated, ext);
 
       try {
-        // Stream original file to S3 (avoids loading entire file into memory)
-        const file = await Deno.open(exported.path, { read: true });
-        try {
-          await s3.putObject(s3Key, file.readable, contentTypeFor(ext));
-        } catch (uploadErr) {
-          // file.readable auto-closes on error, but rethrow
-          throw uploadErr;
-        }
+        // Read file and upload to S3
+        const fileData = await Deno.readFile(exported.path);
+        await s3.putObject(s3Key, fileData, contentTypeFor(ext));
 
         // Upload metadata JSON
         const meta = buildMetadataJson(asset, s3Key, exported.sha256);

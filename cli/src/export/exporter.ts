@@ -100,6 +100,12 @@ function assertExportBatchResult(
   }
 }
 
+/** Strip the "/L0/001" suffix from a PhotoKit local identifier, returning the bare UUID. */
+function stripLocalIdSuffix(id: string): string {
+  const slashIndex = id.indexOf("/");
+  return slashIndex === -1 ? id : id.substring(0, slashIndex);
+}
+
 /** Create an exporter that shells out to the ladder binary. */
 export function createLadderExporter(
   ladderPath: string,
@@ -111,8 +117,11 @@ export function createLadderExporter(
     async exportBatch(uuids: string[]): Promise<ExportBatchResult> {
       await Deno.mkdir(stagingDir, { recursive: true });
 
+      // PhotoKit expects local identifiers in "UUID/L0/001" format
+      const photoKitIds = uuids.map((uuid) => `${uuid}/L0/001`);
+
       const request = JSON.stringify({
-        uuids,
+        uuids: photoKitIds,
         stagingDir,
       });
 
@@ -138,6 +147,15 @@ export function createLadderExporter(
       const output = new TextDecoder().decode(stdout);
       const parsed: unknown = JSON.parse(output);
       assertExportBatchResult(parsed);
+
+      // Map PhotoKit identifiers ("UUID/L0/001") back to bare UUIDs
+      for (const r of parsed.results) {
+        r.uuid = stripLocalIdSuffix(r.uuid);
+      }
+      for (const e of parsed.errors) {
+        e.uuid = stripLocalIdSuffix(e.uuid);
+      }
+
       return parsed;
     },
   };

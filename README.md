@@ -74,7 +74,7 @@ Flags (append after `--`):
 | `--limit N` | Back up at most N assets |
 | `--batch-size N` | Assets per ladder export batch (default: 50) |
 | `--type photo\|video` | Only back up photos or videos |
-| `--bucket NAME` | S3 bucket name (default: `photo-cloud-originals`) |
+| `--bucket NAME` | S3 bucket name (default: `photo-cloud-storage`) |
 | `--ladder PATH` | Path to the ladder binary |
 | `--db PATH` | Path to Photos.sqlite |
 
@@ -90,12 +90,12 @@ deno task verify
 |---|---|
 | `--deep` | Download each object and re-verify SHA-256 checksum (slow) |
 | `--rebuild-manifest` | Reconstruct the local manifest from S3 metadata files |
-| `--bucket NAME` | S3 bucket name (default: `photo-cloud-originals`) |
+| `--bucket NAME` | S3 bucket name (default: `photo-cloud-storage`) |
 
 ## S3 Bucket Structure
 
 ```
-photo-cloud-originals/
+photo-cloud-storage/
   originals/
     2024/
       01/

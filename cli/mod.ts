@@ -48,7 +48,7 @@ switch (command) {
       const credentials = await loadKeychainCredentials();
       const s3 = createS3Provider(
         credentials,
-        flags.bucket ?? "photo-cloud-originals",
+        flags.bucket ?? "photo-cloud-storage",
       );
 
       const ladderPath = flags.ladderPath ??
@@ -72,7 +72,7 @@ switch (command) {
     const credentials = await loadKeychainCredentials();
     const s3 = createS3Provider(
       credentials,
-      verifyFlags.bucket ?? "photo-cloud-originals",
+      verifyFlags.bucket ?? "photo-cloud-storage",
     );
     const manifestStore = createManifestStore();
 
@@ -99,7 +99,7 @@ switch (command) {
     console.log(`  --batch-size N     Assets per ladder batch (default: 50)`);
     console.log(`  --type photo|video Only back up photos or videos`);
     console.log(
-      `  --bucket NAME      S3 bucket (default: photo-cloud-originals)`,
+      `  --bucket NAME      S3 bucket (default: photo-cloud-storage)`,
     );
     console.log(`  --ladder PATH      Path to ladder binary`);
     console.log(`  --db PATH          Path to Photos.sqlite`);
@@ -107,7 +107,7 @@ switch (command) {
     console.log(`  --deep             Download and re-checksum each object`);
     console.log(`  --rebuild-manifest Reconstruct manifest from S3 metadata`);
     console.log(
-      `  --bucket NAME      S3 bucket (default: photo-cloud-originals)`,
+      `  --bucket NAME      S3 bucket (default: photo-cloud-storage)`,
     );
     console.log(`\nUsage: deno task <command>`);
     if (command) {
@@ -191,6 +191,8 @@ function parseBackupFlags(args: string[]): BackupFlags {
       case "--db":
         flags.dbPath = requireArg(args, ++i, "--db");
         break;
+      case "--":
+        break;
       default:
         console.error(`Unknown flag: ${arg}`);
         Deno.exit(1);
@@ -224,6 +226,8 @@ function parseVerifyFlags(args: string[]): VerifyFlags {
         break;
       case "--bucket":
         flags.bucket = requireArg(args, ++i, "--bucket");
+        break;
+      case "--":
         break;
       default:
         console.error(`Unknown flag: ${arg}`);

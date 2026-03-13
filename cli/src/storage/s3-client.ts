@@ -21,7 +21,7 @@ export interface S3ObjectMeta {
 export interface S3Provider {
   putObject(
     key: string,
-    body: Uint8Array | ReadableStream<Uint8Array>,
+    body: Uint8Array,
     contentType?: string,
   ): Promise<void>;
   getObject(key: string): Promise<Uint8Array>;
@@ -83,7 +83,7 @@ export function createS3Provider(
   return {
     async putObject(
       key: string,
-      body: Uint8Array | ReadableStream<Uint8Array>,
+      body: Uint8Array,
       contentType?: string,
     ): Promise<void> {
       await client.send(
