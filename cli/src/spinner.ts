@@ -15,7 +15,9 @@ export function startSpinner(message: string): Spinner {
     // Non-interactive: just print the message once
     console.log(`  ${message}`);
     return {
-      update(msg: string) { console.log(`  ${msg}`); },
+      update(msg: string) {
+        console.log(`  ${msg}`);
+      },
       stop() {},
     };
   }

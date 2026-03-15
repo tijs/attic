@@ -12,7 +12,9 @@ export async function notify(
     const cmd = new Deno.Command("osascript", {
       args: [
         "-e",
-        `display notification "${escapeAppleScript(message)}" with title "${escapeAppleScript(title)}" sound name "${escapeAppleScript(sound)}"`,
+        `display notification "${escapeAppleScript(message)}" with title "${
+          escapeAppleScript(title)
+        }" sound name "${escapeAppleScript(sound)}"`,
       ],
       stdout: "null",
       stderr: "null",

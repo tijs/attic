@@ -35,6 +35,13 @@ export interface S3ConnectionConfig {
   pathStyle: boolean;
 }
 
+/** Base timeout for S3 requests (2 minutes).
+ *  For putObject, this is extended based on body size to allow large uploads. */
+const BASE_TIMEOUT_MS = 120_000;
+
+/** Minimum assumed upload speed for timeout calculation (~500 KB/s). */
+const MIN_BYTES_PER_MS = 500;
+
 export function createS3Provider(
   credentials: { accessKeyId: string; secretAccessKey: string },
   bucket: string,
@@ -56,6 +63,9 @@ export function createS3Provider(
       body: Uint8Array,
       contentType?: string,
     ): Promise<void> {
+      // Scale timeout with body size: base + time at ~500KB/s
+      const timeoutMs = BASE_TIMEOUT_MS +
+        Math.ceil(body.byteLength / MIN_BYTES_PER_MS);
       await client.send(
         new PutObjectCommand({
           Bucket: bucket,
@@ -63,12 +73,14 @@ export function createS3Provider(
           Body: body,
           ContentType: contentType,
         }),
+        { abortSignal: AbortSignal.timeout(timeoutMs) },
       );
     },
 
     async getObject(key: string): Promise<Uint8Array> {
       const result = await client.send(
         new GetObjectCommand({ Bucket: bucket, Key: key }),
+        { abortSignal: AbortSignal.timeout(BASE_TIMEOUT_MS) },
       );
       const stream = result.Body;
       if (!stream) throw new Error(`Empty response for ${key}`);
@@ -79,6 +91,7 @@ export function createS3Provider(
       try {
         const result = await client.send(
           new HeadObjectCommand({ Bucket: bucket, Key: key }),
+          { abortSignal: AbortSignal.timeout(BASE_TIMEOUT_MS) },
         );
         return {
           contentLength: result.ContentLength ?? 0,
@@ -102,6 +115,7 @@ export function createS3Provider(
             Prefix: prefix,
             ContinuationToken: continuationToken,
           }),
+          { abortSignal: AbortSignal.timeout(BASE_TIMEOUT_MS) },
         );
         for (const obj of result.Contents ?? []) {
           if (obj.Key) {

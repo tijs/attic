@@ -13,7 +13,11 @@ export interface BackupLogger {
 }
 
 function makeEntry(event: string, data: Record<string, unknown>): string {
-  return JSON.stringify({ event, ...data, timestamp: new Date().toISOString() });
+  return JSON.stringify({
+    event,
+    ...data,
+    timestamp: new Date().toISOString(),
+  });
 }
 
 /** Create a logger that appends JSONL to the given file path. */

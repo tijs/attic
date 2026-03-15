@@ -1,5 +1,6 @@
 import type { Manifest, ManifestEntry } from "../manifest/manifest.ts";
 import type { S3Provider } from "../storage/s3-client.ts";
+import { withRetry } from "../retry.ts";
 
 export interface VerifyOptions {
   /** Download each object and re-checksum (slow but thorough). */
@@ -149,7 +150,7 @@ async function verifyQuick(
   s3: S3Provider,
 ): Promise<VerifyResult> {
   try {
-    const meta = await s3.headObject(entry.s3Key);
+    const meta = await withRetry(() => s3.headObject(entry.s3Key));
     if (!meta) {
       return { status: "missing", message: `Not found: ${entry.s3Key}` };
     }
@@ -168,7 +169,7 @@ async function verifyDeep(
   try {
     let data: Uint8Array;
     try {
-      data = await s3.getObject(entry.s3Key);
+      data = await withRetry(() => s3.getObject(entry.s3Key));
     } catch (error: unknown) {
       if (
         error instanceof Error && error.message.includes("not found") ||

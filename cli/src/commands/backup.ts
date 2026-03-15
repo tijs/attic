@@ -16,6 +16,7 @@ import { startSpinner } from "../spinner.ts";
 import type { BackupLogger } from "../logger.ts";
 import { createNullLogger } from "../logger.ts";
 import { notify } from "../notify.ts";
+import { withRetry } from "../retry.ts";
 
 export interface BackupOptions {
   /** Maximum assets per ladder batch. */
@@ -103,7 +104,9 @@ export async function runBackup(
 
   log(`\n  Attic — Backup`);
   log(`  ══════════════\n`);
-  log(`  Pending:     ${pending.length.toLocaleString()} assets (${typeSummary})`);
+  log(
+    `  Pending:     ${pending.length.toLocaleString()} assets (${typeSummary})`,
+  );
   log(`  Est. size:   ${formatBytes(pendingSize)}`);
   if (options.dryRun) log(`  Mode:        DRY RUN`);
   log();
@@ -140,15 +143,35 @@ export async function runBackup(
   };
 
   let sinceLastSave = 0;
-  let interrupted = false;
 
-  // Save manifest on SIGINT (Ctrl+C) before exiting
-  const onInterrupt = () => { interrupted = true; };
+  // AbortController for cancelling in-flight operations (subprocess, S3 uploads)
+  const abortController = new AbortController();
+  const { signal } = abortController;
+
+  let interruptCount = 0;
+  const onInterrupt = () => {
+    interruptCount++;
+
+    if (interruptCount === 1) {
+      // First Ctrl+C: graceful — cancel in-flight operations, save manifest
+      abortController.abort();
+    } else {
+      // Second Ctrl+C: force exit (the "I really mean it" escape hatch)
+      console.error("\n  Force quit — saving manifest...");
+      try {
+        const data = JSON.stringify(manifest, null, 2) + "\n";
+        Deno.writeTextFileSync(manifestStore.filePath, data);
+      } catch {
+        // Best effort
+      }
+      Deno.exit(130);
+    }
+  };
   Deno.addSignalListener("SIGINT", onInterrupt);
 
   // Process in batches
   for (let i = 0; i < pending.length; i += options.batchSize) {
-    if (interrupted) break;
+    if (signal.aborted) break;
 
     const batch = pending.slice(i, i + options.batchSize);
     const batchUuids = batch.map((a) => a.uuid);
@@ -165,12 +188,11 @@ export async function runBackup(
       : startSpinner(`Exporting ${batch.length} assets from Photos library...`);
     let batchResult;
     try {
-      batchResult = await exporter.exportBatch(batchUuids);
+      batchResult = await exporter.exportBatch(batchUuids, signal);
     } catch (error: unknown) {
       spinner.stop();
-      const msg = error instanceof Error
-        ? error.message
-        : "Unknown export error";
+      if (signal.aborted) break;
+      const msg = error instanceof Error ? error.message : String(error);
       console.error(`    Export failed: ${msg}`);
       for (const uuid of batchUuids) {
         report.errors.push({ uuid, message: msg });
@@ -191,7 +213,7 @@ export async function runBackup(
 
     // 2. Upload each exported file to S3
     for (const exported of batchResult.results) {
-      if (interrupted) break;
+      if (signal.aborted) break;
       const asset = assetByUuid.get(exported.uuid);
       if (!asset) continue;
 
@@ -202,11 +224,15 @@ export async function runBackup(
       const s3Key = originalKey(asset.uuid, asset.dateCreated, ext);
 
       try {
-        // Read file and upload to S3
-        const fileData = await Deno.readFile(exported.path);
-        await s3.putObject(s3Key, fileData, contentTypeFor(ext));
+        // Read file and upload to S3 (with retry for transient failures)
+        let fileData: Uint8Array | null = await Deno.readFile(exported.path);
+        await withRetry(
+          () => s3.putObject(s3Key, fileData!, contentTypeFor(ext)),
+          { signal },
+        );
+        fileData = null; // Allow GC before metadata upload
 
-        // Upload metadata JSON
+        // Upload metadata JSON (with retry)
         const meta = buildMetadataJson(
           asset,
           s3Key,
@@ -216,14 +242,24 @@ export async function runBackup(
         const metaData = new TextEncoder().encode(
           JSON.stringify(meta, null, 2),
         );
-        await s3.putObject(
-          metadataKey(asset.uuid),
-          metaData,
-          "application/json",
+        await withRetry(
+          () =>
+            s3.putObject(
+              metadataKey(asset.uuid),
+              metaData,
+              "application/json",
+            ),
+          { signal },
         );
 
         // Update manifest
-        markBackedUp(manifest, asset.uuid, `sha256:${exported.sha256}`, s3Key, exported.size);
+        markBackedUp(
+          manifest,
+          asset.uuid,
+          `sha256:${exported.sha256}`,
+          s3Key,
+          exported.size,
+        );
         sinceLastSave++;
         report.uploaded++;
         report.totalBytes += exported.size;
@@ -237,7 +273,9 @@ export async function runBackup(
           const done = report.uploaded + report.failed;
           const pct = ((done / pending.length) * 100).toFixed(0);
           log(
-            `  [${done}/${pending.length}] ${pct}%  ${name}  (${typeLabel}, ${formatBytes(exported.size)})`,
+            `  [${done}/${pending.length}] ${pct}%  ${name}  (${typeLabel}, ${
+              formatBytes(exported.size)
+            })`,
           );
         }
 
@@ -246,18 +284,15 @@ export async function runBackup(
           await manifestStore.save(manifest);
           sinceLastSave = 0;
         }
-
-        // Clean up staged file
-        await removeStagedFile(exported.path, resolvedStagingDir);
       } catch (error: unknown) {
-        const msg = error instanceof Error
-          ? error.message
-          : "Unknown upload error";
+        if (signal.aborted) break;
+        const msg = error instanceof Error ? error.message : String(error);
         console.error(`    Upload error: ${exported.uuid} — ${msg}`);
         report.errors.push({ uuid: exported.uuid, message: msg });
         report.failed++;
         logger.error(exported.uuid, msg);
-        // Still try to clean up staged file
+      } finally {
+        // Always clean up staged file, even on interruption or error
         await removeStagedFile(exported.path, resolvedStagingDir);
       }
     }
@@ -276,9 +311,11 @@ export async function runBackup(
   // Summary
   Deno.removeSignalListener("SIGINT", onInterrupt);
 
-  if (interrupted) {
+  if (signal.aborted) {
     log(`\n\n  ── Interrupted ──`);
-    log(`  Uploaded:  ${report.uploaded.toLocaleString()} of ${pending.length.toLocaleString()}`);
+    log(
+      `  Uploaded:  ${report.uploaded.toLocaleString()} of ${pending.length.toLocaleString()}`,
+    );
     log(`  Total:     ${formatBytes(report.totalBytes)}`);
     log(`  Manifest saved — will resume from here next run.\n`);
     logger.interrupted(report.uploaded, pending.length, report.totalBytes);
@@ -298,7 +335,7 @@ export async function runBackup(
         `Done with errors: ${report.uploaded} uploaded, ${report.failed} failed`,
         "Basso",
       );
-    } else if (interrupted) {
+    } else if (signal.aborted) {
       await notify(
         "Attic Backup",
         `Interrupted: ${report.uploaded} of ${pending.length} uploaded`,
@@ -307,7 +344,9 @@ export async function runBackup(
     } else {
       await notify(
         "Attic Backup",
-        `Complete: ${report.uploaded} assets (${formatBytes(report.totalBytes)})`,
+        `Complete: ${report.uploaded} assets (${
+          formatBytes(report.totalBytes)
+        })`,
       );
     }
   }

@@ -1,4 +1,5 @@
 import { join } from "@std/path/join";
+import { AbortError } from "../abort-error.ts";
 
 /** Result of exporting a single asset via ladder. */
 export interface ExportedAsset {
@@ -23,7 +24,10 @@ export interface ExportBatchResult {
 /** Abstraction over the ladder binary for testability. */
 export interface Exporter {
   /** Export a batch of assets by UUID to the staging directory. */
-  exportBatch(uuids: string[]): Promise<ExportBatchResult>;
+  exportBatch(
+    uuids: string[],
+    signal?: AbortSignal,
+  ): Promise<ExportBatchResult>;
 }
 
 const DEFAULT_STAGING_DIR = join(
@@ -106,15 +110,22 @@ function stripLocalIdSuffix(id: string): string {
   return slashIndex === -1 ? id : id.substring(0, slashIndex);
 }
 
+/** Default timeout for the ladder subprocess (5 minutes). */
+const LADDER_TIMEOUT_MS = 5 * 60 * 1000;
+
 /** Create an exporter that shells out to the ladder binary. */
 export function createLadderExporter(
   ladderPath: string,
   stagingDir: string = DEFAULT_STAGING_DIR,
+  timeoutMs: number = LADDER_TIMEOUT_MS,
 ): Exporter & { stagingDir: string } {
   return {
     stagingDir,
 
-    async exportBatch(uuids: string[]): Promise<ExportBatchResult> {
+    async exportBatch(
+      uuids: string[],
+      signal?: AbortSignal,
+    ): Promise<ExportBatchResult> {
       await Deno.mkdir(stagingDir, { recursive: true });
 
       // PhotoKit expects local identifiers in "UUID/L0/001" format
@@ -137,14 +148,17 @@ export function createLadderExporter(
       await writer.write(new TextEncoder().encode(request));
       await writer.close();
 
-      const { code, stdout, stderr } = await process.output();
+      // Race the subprocess against timeout and abort signal
+      const result = await raceSubprocess(process, timeoutMs, signal);
 
-      if (code !== 0) {
-        const err = new TextDecoder().decode(stderr);
-        throw new Error(`ladder exited with code ${code}: ${err.trim()}`);
+      if (result.code !== 0) {
+        const err = new TextDecoder().decode(result.stderr);
+        throw new Error(
+          `ladder exited with code ${result.code}: ${err.trim()}`,
+        );
       }
 
-      const output = new TextDecoder().decode(stdout);
+      const output = new TextDecoder().decode(result.stdout);
       const parsed: unknown = JSON.parse(output);
       assertExportBatchResult(parsed);
 
@@ -159,4 +173,58 @@ export function createLadderExporter(
       return parsed;
     },
   };
+}
+
+/** Race a subprocess against a timeout and optional abort signal.
+ *  Kills the process on timeout or abort.
+ *  Cleans up timer and listeners on completion to prevent leaks. */
+export async function raceSubprocess(
+  process: Deno.ChildProcess,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<Deno.CommandOutput> {
+  signal?.throwIfAborted();
+
+  const outputPromise = process.output();
+
+  let removeAbortListener: (() => void) | undefined;
+  const abortPromise = signal
+    ? new Promise<never>((_resolve, reject) => {
+      const onAbort = () => reject(new AbortError("Backup interrupted"));
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener("abort", onAbort, { once: true });
+      removeAbortListener = () => signal.removeEventListener("abort", onAbort);
+    })
+    : null;
+
+  let timeoutId: number | undefined;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(
+        new Error(`Ladder subprocess timed out after ${timeoutMs / 1000}s`),
+      );
+    }, timeoutMs);
+    Deno.unrefTimer(timeoutId);
+  });
+
+  const racers: Promise<Deno.CommandOutput>[] = [outputPromise, timeoutPromise];
+  if (abortPromise) racers.push(abortPromise);
+
+  try {
+    return await Promise.race(racers);
+  } catch (err) {
+    // Kill the subprocess on timeout or abort
+    try {
+      process.kill("SIGTERM");
+    } catch {
+      // Process may have already exited
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+    removeAbortListener?.();
+  }
 }

@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.1.6
+
+Resilient backup pipeline — fixes Ctrl+C not working and adds sleep/wake
+recovery.
+
+### Signal handling
+
+- **AbortController-based cancellation** — first Ctrl+C gracefully cancels
+  in-flight operations (ladder subprocess, S3 uploads), saves manifest, and
+  exits. Second Ctrl+C force-quits immediately with emergency manifest save.
+- **Subprocess timeout** — ladder process killed after 5 minutes if stuck.
+- **Abort-aware retry** — backoff delays interrupted immediately on Ctrl+C.
+
+### Network resilience
+
+- **Retry with exponential backoff** on transient S3 failures (timeout,
+  ECONNRESET, etc.) — handles sleep/wake recovery automatically.
+- **Per-request S3 timeouts** scaled by body size (2 min base + ~500 KB/s) so
+  large video uploads don't time out while dead connections still get caught.
+- **Retry added to verify and refresh-metadata** commands too.
+
+### Cleanup
+
+- Staged files now cleaned up via `finally` block — no more orphans on
+  interruption.
+- Shared `withRetry` utility and `AbortError` class extracted for reuse.
+- `ManifestStore` exposes `filePath` for reliable emergency saves.
+- 11 new tests (retry, subprocess racing).
+
 ## 0.1.0
 
 Initial release.

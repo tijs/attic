@@ -9,7 +9,10 @@ export function createMockExporter(
   return {
     stagingDir,
 
-    async exportBatch(uuids: string[]): Promise<ExportBatchResult> {
+    async exportBatch(
+      uuids: string[],
+      _signal?: AbortSignal,
+    ): Promise<ExportBatchResult> {
       await Deno.mkdir(stagingDir, { recursive: true });
 
       const results: ExportedAsset[] = [];

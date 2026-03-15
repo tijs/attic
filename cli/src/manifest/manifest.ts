@@ -13,6 +13,8 @@ export interface Manifest {
 }
 
 export interface ManifestStore {
+  /** Path to the manifest file on disk. */
+  readonly filePath: string;
   load(): Promise<Manifest>;
   save(manifest: Manifest): Promise<void>;
 }
@@ -61,6 +63,8 @@ export function createManifestStore(
   const filePath = join(dir, "manifest.json");
 
   return {
+    filePath,
+
     async load(): Promise<Manifest> {
       try {
         const text = await Deno.readTextFile(filePath);

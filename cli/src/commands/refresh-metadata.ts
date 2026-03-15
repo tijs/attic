@@ -3,6 +3,7 @@ import { buildMetadataJson, metadataKey } from "@attic/shared";
 import type { Manifest } from "../manifest/manifest.ts";
 import type { S3Provider } from "../storage/s3-client.ts";
 import { formatBytes } from "../format.ts";
+import { withRetry } from "../retry.ts";
 
 export interface RefreshMetadataOptions {
   /** Maximum concurrent uploads. */
@@ -108,10 +109,12 @@ export async function refreshMetadata(
           const data = new TextEncoder().encode(
             JSON.stringify(meta, null, 2),
           );
-          await s3.putObject(
-            metadataKey(item.asset.uuid),
-            data,
-            "application/json",
+          await withRetry(() =>
+            s3.putObject(
+              metadataKey(item.asset.uuid),
+              data,
+              "application/json",
+            )
           );
           report.updated++;
           report.totalBytes += data.byteLength;
