@@ -156,14 +156,10 @@ export async function runBackup(
       // First Ctrl+C: graceful — cancel in-flight operations, save manifest
       abortController.abort();
     } else {
-      // Second Ctrl+C: force exit (the "I really mean it" escape hatch)
-      console.error("\n  Force quit — saving manifest...");
-      try {
-        const data = JSON.stringify(manifest, null, 2) + "\n";
-        Deno.writeTextFileSync(manifestStore.filePath, data);
-      } catch {
-        // Best effort
-      }
+      // Second Ctrl+C: force exit. Manifest was last saved to S3
+      // at most saveInterval assets ago. Any unsaved progress will
+      // be re-uploaded on the next run (uploads are idempotent).
+      console.error("\n  Force quit — progress saved up to last checkpoint.");
       Deno.exit(130);
     }
   };

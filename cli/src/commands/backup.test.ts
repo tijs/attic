@@ -2,7 +2,7 @@ import { assertEquals } from "@std/assert";
 import type { PhotoAsset } from "@attic/shared";
 import { AssetKind, CloudLocalState } from "@attic/shared";
 import { runBackup } from "./backup.ts";
-import { createManifestStore, isBackedUp } from "../manifest/manifest.ts";
+import { createS3ManifestStore, isBackedUp } from "../manifest/manifest.ts";
 import { createMockExporter } from "../export/exporter.mock.ts";
 import { createMockS3Provider } from "../storage/s3-client.mock.ts";
 
@@ -38,10 +38,15 @@ function makeAsset(
   };
 }
 
+function createTestContext() {
+  const s3 = createMockS3Provider();
+  const manifestStore = createS3ManifestStore(s3);
+  return { s3, manifestStore };
+}
+
 Deno.test("backup: uploads pending assets and updates manifest", async () => {
   const tmpDir = await Deno.makeTempDir();
   const stagingDir = `${tmpDir}/staging`;
-  const manifestDir = `${tmpDir}/manifest`;
   try {
     const assets = [makeAsset("uuid-1"), makeAsset("uuid-2")];
 
@@ -57,8 +62,7 @@ Deno.test("backup: uploads pending assets and updates manifest", async () => {
     ]);
 
     const exporter = createMockExporter(mockAssets, stagingDir);
-    const s3 = createMockS3Provider();
-    const manifestStore = createManifestStore(manifestDir);
+    const { s3, manifestStore } = createTestContext();
     const manifest = await manifestStore.load();
 
     const report = await runBackup(
@@ -79,8 +83,9 @@ Deno.test("backup: uploads pending assets and updates manifest", async () => {
     assertEquals(isBackedUp(manifest, "uuid-1"), true);
     assertEquals(isBackedUp(manifest, "uuid-2"), true);
 
-    // S3 should have originals + metadata
-    assertEquals(s3.objects.size, 4); // 2 originals + 2 metadata
+    // S3 should have originals + metadata + manifest
+    // 2 originals + 2 metadata + 1 manifest.json
+    assertEquals(s3.objects.has("manifest.json"), true);
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }
@@ -89,7 +94,6 @@ Deno.test("backup: uploads pending assets and updates manifest", async () => {
 Deno.test("backup: skips already backed-up assets", async () => {
   const tmpDir = await Deno.makeTempDir();
   const stagingDir = `${tmpDir}/staging`;
-  const manifestDir = `${tmpDir}/manifest`;
   try {
     const assets = [makeAsset("uuid-1"), makeAsset("uuid-2")];
 
@@ -101,8 +105,7 @@ Deno.test("backup: skips already backed-up assets", async () => {
     ]);
 
     const exporter = createMockExporter(mockAssets, stagingDir);
-    const s3 = createMockS3Provider();
-    const manifestStore = createManifestStore(manifestDir);
+    const { s3, manifestStore } = createTestContext();
     const manifest = await manifestStore.load();
 
     // Pre-mark uuid-1 as backed up
@@ -126,8 +129,8 @@ Deno.test("backup: skips already backed-up assets", async () => {
     assertEquals(report.uploaded, 1);
     assertEquals(report.failed, 0);
 
-    // Only uuid-2's files should be in S3
-    assertEquals(s3.objects.size, 2); // 1 original + 1 metadata
+    // Only uuid-2's files should be in S3 (plus manifest)
+    assertEquals(s3.objects.has("manifest.json"), true);
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }
@@ -136,7 +139,6 @@ Deno.test("backup: skips already backed-up assets", async () => {
 Deno.test("backup: respects --limit flag", async () => {
   const tmpDir = await Deno.makeTempDir();
   const stagingDir = `${tmpDir}/staging`;
-  const manifestDir = `${tmpDir}/manifest`;
   try {
     const assets = [
       makeAsset("uuid-1"),
@@ -152,8 +154,7 @@ Deno.test("backup: respects --limit flag", async () => {
     ]);
 
     const exporter = createMockExporter(mockAssets, stagingDir);
-    const s3 = createMockS3Provider();
-    const manifestStore = createManifestStore(manifestDir);
+    const { s3, manifestStore } = createTestContext();
     const manifest = await manifestStore.load();
 
     const report = await runBackup(
@@ -174,13 +175,12 @@ Deno.test("backup: respects --limit flag", async () => {
 
 Deno.test("backup: dry run skips uploads", async () => {
   const tmpDir = await Deno.makeTempDir();
-  const manifestDir = `${tmpDir}/manifest`;
+  const stagingDir = `${tmpDir}/staging`;
   try {
     const assets = [makeAsset("uuid-1")];
 
-    const exporter = createMockExporter(new Map(), `${tmpDir}/staging`);
-    const s3 = createMockS3Provider();
-    const manifestStore = createManifestStore(manifestDir);
+    const exporter = createMockExporter(new Map(), stagingDir);
+    const { s3, manifestStore } = createTestContext();
     const manifest = await manifestStore.load();
 
     const report = await runBackup(
@@ -190,7 +190,7 @@ Deno.test("backup: dry run skips uploads", async () => {
       exporter,
       s3,
       { dryRun: true },
-      `${tmpDir}/staging`,
+      stagingDir,
     );
 
     assertEquals(report.uploaded, 0);
@@ -205,7 +205,6 @@ Deno.test("backup: dry run skips uploads", async () => {
 Deno.test("backup: handles export errors gracefully", async () => {
   const tmpDir = await Deno.makeTempDir();
   const stagingDir = `${tmpDir}/staging`;
-  const manifestDir = `${tmpDir}/manifest`;
   try {
     const assets = [makeAsset("uuid-1"), makeAsset("uuid-missing")];
 
@@ -218,8 +217,7 @@ Deno.test("backup: handles export errors gracefully", async () => {
     ]);
 
     const exporter = createMockExporter(mockAssets, stagingDir);
-    const s3 = createMockS3Provider();
-    const manifestStore = createManifestStore(manifestDir);
+    const { s3, manifestStore } = createTestContext();
     const manifest = await manifestStore.load();
 
     const report = await runBackup(
@@ -244,7 +242,6 @@ Deno.test("backup: handles export errors gracefully", async () => {
 Deno.test("backup: filters by type", async () => {
   const tmpDir = await Deno.makeTempDir();
   const stagingDir = `${tmpDir}/staging`;
-  const manifestDir = `${tmpDir}/manifest`;
   try {
     const assets = [
       makeAsset("photo-1", { kind: AssetKind.PHOTO }),
@@ -264,8 +261,7 @@ Deno.test("backup: filters by type", async () => {
     ]);
 
     const exporter = createMockExporter(mockAssets, stagingDir);
-    const s3 = createMockS3Provider();
-    const manifestStore = createManifestStore(manifestDir);
+    const { s3, manifestStore } = createTestContext();
     const manifest = await manifestStore.load();
 
     const report = await runBackup(
@@ -286,10 +282,9 @@ Deno.test("backup: filters by type", async () => {
   }
 });
 
-Deno.test("backup: saves manifest to disk", async () => {
+Deno.test("backup: saves manifest to S3", async () => {
   const tmpDir = await Deno.makeTempDir();
   const stagingDir = `${tmpDir}/staging`;
-  const manifestDir = `${tmpDir}/manifest`;
   try {
     const assets = [makeAsset("uuid-1")];
 
@@ -301,8 +296,7 @@ Deno.test("backup: saves manifest to disk", async () => {
     ]);
 
     const exporter = createMockExporter(mockAssets, stagingDir);
-    const s3 = createMockS3Provider();
-    const manifestStore = createManifestStore(manifestDir);
+    const { s3, manifestStore } = createTestContext();
     const manifest = await manifestStore.load();
 
     await runBackup(
@@ -315,7 +309,7 @@ Deno.test("backup: saves manifest to disk", async () => {
       stagingDir,
     );
 
-    // Load from disk — should persist
+    // Load from S3 — should persist
     const loaded = await manifestStore.load();
     assertEquals(isBackedUp(loaded, "uuid-1"), true);
   } finally {

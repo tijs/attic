@@ -14,7 +14,7 @@ function s3ConnectionFromConfig(config: AtticConfig): S3ConnectionConfig {
 
 const main = new Command()
   .name("attic")
-  .version("0.1.6")
+  .version("0.2.0")
   .description("Back up your iCloud Photos library to S3-compatible storage")
   .action(function (this: Command) {
     this.showHelp();
@@ -37,16 +37,34 @@ main.command("scan", "Scan Photos library and show statistics")
 
 main.command("status", "Compare Photos DB vs backup manifest")
   .option("--db <path:string>", "Path to Photos.sqlite")
-  .action(async ({ db }: { db?: string }) => {
+  .option("--bucket <name:string>", "Override bucket from config")
+  .action(async ({ db, bucket }: { db?: string; bucket?: string }) => {
     const { openPhotosDb } = await import("./src/photos-db/reader.ts");
     const { printStatusReport } = await import("./src/commands/status.ts");
-    const { createManifestStore } = await import("./src/manifest/manifest.ts");
+    const { createS3ManifestStore } = await import(
+      "./src/manifest/manifest.ts"
+    );
+    const { createS3Provider } = await import("./src/storage/s3-client.ts");
+    const { loadKeychainCredentials } = await import(
+      "./src/keychain/keychain.ts"
+    );
 
+    const config = requireConfig();
     const reader = openPhotosDb(db);
     try {
       const assets = reader.readAssets();
-      const manifestStore = createManifestStore();
-      await printStatusReport(assets, manifestStore);
+      const credentials = await loadKeychainCredentials(
+        config.keychain.accessKeyService,
+        config.keychain.secretKeyService,
+      );
+      const s3 = createS3Provider(
+        credentials,
+        bucket ?? config.bucket,
+        s3ConnectionFromConfig(config),
+      );
+      const manifestStore = createS3ManifestStore(s3);
+      const manifest = await manifestStore.load();
+      printStatusReport(assets, manifest);
     } finally {
       reader.close();
     }
@@ -80,7 +98,10 @@ main.command("backup", "Back up pending assets to S3")
   }) => {
     const { openPhotosDb } = await import("./src/photos-db/reader.ts");
     const { runBackup } = await import("./src/commands/backup.ts");
-    const { createManifestStore } = await import("./src/manifest/manifest.ts");
+    const {
+      createS3ManifestStore,
+      loadManifestWithMigration,
+    } = await import("./src/manifest/manifest.ts");
     const { createS3Provider } = await import("./src/storage/s3-client.ts");
     const { loadKeychainCredentials } = await import(
       "./src/keychain/keychain.ts"
@@ -97,8 +118,6 @@ main.command("backup", "Back up pending assets to S3")
       : createNullLogger();
     try {
       const assets = reader.readAssets();
-      const manifestStore = createManifestStore();
-      const manifest = await manifestStore.load();
 
       const credentials = await loadKeychainCredentials(
         config.keychain.accessKeyService,
@@ -109,6 +128,9 @@ main.command("backup", "Back up pending assets to S3")
         options.bucket ?? config.bucket,
         s3ConnectionFromConfig(config),
       );
+
+      const manifestStore = createS3ManifestStore(s3);
+      const manifest = await loadManifestWithMigration(manifestStore);
 
       const ladderPath = options.ladder ??
         Deno.env.get("LADDER_PATH") ??
@@ -146,7 +168,9 @@ main
     const { refreshMetadata } = await import(
       "./src/commands/refresh-metadata.ts"
     );
-    const { createManifestStore } = await import("./src/manifest/manifest.ts");
+    const { createS3ManifestStore } = await import(
+      "./src/manifest/manifest.ts"
+    );
     const { createS3Provider } = await import("./src/storage/s3-client.ts");
     const { loadKeychainCredentials } = await import(
       "./src/keychain/keychain.ts"
@@ -156,8 +180,6 @@ main
     const reader = openPhotosDb(options.db);
     try {
       const assets = reader.readAssets();
-      const manifestStore = createManifestStore();
-      const manifest = await manifestStore.load();
 
       const credentials = await loadKeychainCredentials(
         config.keychain.accessKeyService,
@@ -168,6 +190,9 @@ main
         options.bucket ?? config.bucket,
         s3ConnectionFromConfig(config),
       );
+
+      const manifestStore = createS3ManifestStore(s3);
+      const manifest = await manifestStore.load();
 
       const report = await refreshMetadata(assets, manifest, s3, {
         concurrency: options.concurrency,
@@ -196,7 +221,9 @@ main.command("verify", "Verify backup integrity against S3")
   }) => {
     const { runVerify } = await import("./src/commands/verify.ts");
     const { rebuildManifest } = await import("./src/commands/rebuild.ts");
-    const { createManifestStore } = await import("./src/manifest/manifest.ts");
+    const { createS3ManifestStore } = await import(
+      "./src/manifest/manifest.ts"
+    );
     const { createS3Provider } = await import("./src/storage/s3-client.ts");
     const { loadKeychainCredentials } = await import(
       "./src/keychain/keychain.ts"
@@ -213,7 +240,7 @@ main.command("verify", "Verify backup integrity against S3")
       options.bucket ?? config.bucket,
       s3ConnectionFromConfig(config),
     );
-    const manifestStore = createManifestStore();
+    const manifestStore = createS3ManifestStore(s3);
 
     if (options.rebuildManifest) {
       await rebuildManifest(s3, manifestStore);

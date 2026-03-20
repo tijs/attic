@@ -1,5 +1,5 @@
 import type { PhotoAsset } from "@attic/shared";
-import type { Manifest, ManifestStore } from "../manifest/manifest.ts";
+import type { Manifest } from "../manifest/manifest.ts";
 import { isBackedUp } from "../manifest/manifest.ts";
 import { formatBytes } from "../format.ts";
 
@@ -11,12 +11,10 @@ function assetSize(asset: PhotoAsset, manifest: Manifest): number {
   return manifest.entries[asset.uuid]?.size ?? 0;
 }
 
-export async function printStatusReport(
+export function printStatusReport(
   assets: PhotoAsset[],
-  manifestStore: ManifestStore,
-): Promise<void> {
-  const manifest = await manifestStore.load();
-
+  manifest: Manifest,
+): void {
   const backedUp = assets.filter((a) => isBackedUp(manifest, a.uuid));
   const pending = assets.filter((a) => !isBackedUp(manifest, a.uuid));
 

@@ -8,7 +8,8 @@ without manual intervention. This guide covers setup using macOS launchd.
 Before setting up unattended backups, make sure:
 
 1. `attic init` has been run and works interactively (`attic backup --limit 1`)
-2. Both `attic` and `ladder` are installed via Homebrew (`brew install tijs/tap/attic`)
+2. Both `attic` and `ladder` are installed via Homebrew
+   (`brew install tijs/tap/attic`)
 3. The Mac is signed into iCloud with Photos enabled
 
 ## Full Disk Access
@@ -166,8 +167,8 @@ Example log entries:
 The JSONL file is appended to (not overwritten), so it accumulates history
 across runs.
 
-launchd also captures stdout/stderr to `backup.log` and `backup-error.log`,
-but these are overwritten each run.
+launchd also captures stdout/stderr to `backup.log` and `backup-error.log`, but
+these are overwritten each run.
 
 ## Checking status
 
@@ -192,9 +193,9 @@ rm ~/Library/LaunchAgents/photos.attic.verify.plist
 
 ## Tips
 
-- **Dedicated Mac**: A Mac mini signed into iCloud Photos makes a good
-  always-on backup machine. Enable "Prevent automatic sleeping" in System
-  Settings > Energy.
+- **Dedicated Mac**: A Mac mini signed into iCloud Photos makes a good always-on
+  backup machine. Enable "Prevent automatic sleeping" in System Settings >
+  Energy.
 - **Network**: Backups need a stable internet connection. If uploads fail, the
   next run picks up where it left off.
 - **Disk space**: Attic stages files temporarily in `~/.attic/staging/` during
