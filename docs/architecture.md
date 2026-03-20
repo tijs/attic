@@ -14,7 +14,7 @@ Photos.sqlite ──→ reader.ts ──→ PhotoAsset[] ──→ backup pipeli
                                                       │
                                                       ├─→ S3 upload (original + metadata JSON)
                                                       │
-                                                      └─→ manifest.json (local progress tracker)
+                                                      └─→ manifest.json (on S3, shared across machines)
 ```
 
 Attic never modifies Photos.sqlite. The database is opened read-only.
@@ -106,10 +106,17 @@ the filename extension.
 
 ### 4. Manifest
 
-The manifest is a JSON file at `~/.attic/manifest.json` mapping UUID to
-`{ s3Key, checksum, backedUpAt }`. It's saved periodically during backup (every
-50 assets by default) and always at the end. Writes are atomic: write to `.tmp`,
-then rename.
+The manifest is stored on S3 at `manifest.json` in the bucket root, mapping UUID
+to `{ s3Key, checksum, backedUpAt }`. S3 is the single source of truth — there
+is no local manifest file. This enables cross-machine and cross-app (CLI ↔ menu
+bar app) continuity.
+
+On backup start, the manifest is downloaded from S3. It's saved back to S3
+periodically (every 50 assets by default) for crash resilience, and always at
+the end of a run.
+
+**Migration**: existing local manifests at `~/.attic/manifest.json` are
+automatically uploaded to S3 on first run via `loadManifestWithMigration()`.
 
 The manifest can be reconstructed from S3 via `verify --rebuild-manifest`, which
 reads every `metadata/assets/*.json` file and validates UUID format, S3 key
@@ -132,9 +139,9 @@ Attic reads its configuration from `~/.attic/config.json`. The config file
 specifies the S3 endpoint, region, bucket, path-style preference, and Keychain
 service names. It's created by `attic init` or manually.
 
-`scan` and `status` work without config (they only read Photos.sqlite). `backup`
-and `verify` require config and fail fast with a clear message if it's missing
-or invalid.
+`scan` works without config (it only reads Photos.sqlite). All other commands
+(`status`, `backup`, `verify`, `refresh-metadata`) require config and S3
+credentials since the manifest is stored on S3.
 
 ## Credentials
 
@@ -151,7 +158,7 @@ All external dependencies are behind interfaces:
 | ---------------- | --------------------------------------------- | ------------------------------------------ |
 | `S3Provider`     | AWS SDK client for any S3-compatible endpoint | In-memory `Map<string, Uint8Array>`        |
 | `Exporter`       | Ladder subprocess                             | Returns pre-configured assets from a `Map` |
-| `ManifestStore`  | File-based JSON with atomic writes            | Same implementation, pointed at a temp dir |
+| `ManifestStore`  | S3-backed JSON (`manifest.json` in bucket)    | Same S3 mock used for uploads              |
 | `PhotosDbReader` | SQLite reader for Photos.sqlite               | In-memory SQLite with test fixtures        |
 
 Tests never hit external services, credentials, or the real Photos library.
