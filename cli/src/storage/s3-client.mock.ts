@@ -23,7 +23,11 @@ export function createMockS3Provider(): S3Provider & {
 
     getObject(key: string): Promise<Uint8Array> {
       const obj = objects.get(key);
-      if (!obj) throw new Error(`Object not found: ${key}`);
+      if (!obj) {
+        const err = new Error(`NoSuchKey: ${key}`);
+        err.name = "NoSuchKey";
+        throw err;
+      }
       return Promise.resolve(obj.body);
     },
 

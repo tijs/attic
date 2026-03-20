@@ -155,6 +155,7 @@ export async function runBackup(
     if (interruptCount === 1) {
       // First Ctrl+C: graceful — cancel in-flight operations, save manifest
       abortController.abort();
+      manifestStore.save(manifest).catch(() => {});
     } else {
       // Second Ctrl+C: force exit. Manifest was last saved to S3
       // at most saveInterval assets ago. Any unsaved progress will

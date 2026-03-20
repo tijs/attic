@@ -85,9 +85,7 @@ export function createS3ManifestStore(
 
 function isNotFoundError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  const msg = error.message.toLowerCase();
-  return msg.includes("not found") || msg.includes("nosuchkey") ||
-    error.name === "NoSuchKey";
+  return error.name === "NoSuchKey" || error.name === "NotFound";
 }
 
 /** Load manifest from S3, migrating from local file if needed.
@@ -133,45 +131,4 @@ export async function loadManifestWithMigration(
   }
 
   return s3Manifest;
-}
-
-// --- Local file store (kept for migration only) ---
-
-const DEFAULT_DIR = join(
-  Deno.env.get("HOME") ?? "~",
-  ".attic",
-);
-
-/** Create a local file-based manifest store.
- *  Used only for migration from local to S3. */
-export function createManifestStore(
-  dir: string = DEFAULT_DIR,
-): ManifestStore {
-  const filePath = join(dir, "manifest.json");
-
-  return {
-    async load(): Promise<Manifest> {
-      try {
-        const text = await Deno.readTextFile(filePath);
-        const data: unknown = JSON.parse(text);
-        assertManifest(data);
-        return data;
-      } catch (error: unknown) {
-        if (error instanceof Deno.errors.NotFound) {
-          return { entries: {} };
-        }
-        throw error;
-      }
-    },
-
-    async save(manifest: Manifest): Promise<void> {
-      await Deno.mkdir(dir, { recursive: true });
-      const tmpPath = filePath + ".tmp";
-      await Deno.writeTextFile(
-        tmpPath,
-        JSON.stringify(manifest, null, 2) + "\n",
-      );
-      await Deno.rename(tmpPath, filePath);
-    },
-  };
 }
