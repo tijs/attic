@@ -1,6 +1,6 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import type { ExportBatchResult } from "./exporter.ts";
-import { exportWithSubdivision } from "./exporter.ts";
+import { exportWithSubdivision, timeoutForBytes } from "./exporter.ts";
 
 /** A spawn function that always succeeds, returning one result per UUID. */
 function succeedingSpawn(
@@ -52,6 +52,15 @@ function crashingSpawn(
   return Promise.reject(new Error("ladder exited with code 1: segfault"));
 }
 
+Deno.test("timeoutForBytes: scales with size", () => {
+  // Small batch: base timeout (5 min) + 1 min for < 100 MB
+  assertEquals(timeoutForBytes(50 * 1024 * 1024), 5 * 60_000 + 60_000);
+  // 500 MB batch: base + 5 min
+  assertEquals(timeoutForBytes(500 * 1024 * 1024), 5 * 60_000 + 5 * 60_000);
+  // 0 bytes: just base
+  assertEquals(timeoutForBytes(0), 5 * 60_000);
+});
+
 Deno.test("exportWithSubdivision: passes through on success", async () => {
   const result = await exportWithSubdivision(
     succeedingSpawn,
@@ -62,7 +71,7 @@ Deno.test("exportWithSubdivision: passes through on success", async () => {
 });
 
 Deno.test("exportWithSubdivision: subdivides on timeout", async () => {
-  const subdivisions: Array<{ size: number; parts: number }> = [];
+  const subdivisions: Array<{ uuids: string[]; parts: number }> = [];
   // Times out once (full batch of 10), then succeeds on both halves
   const spawn = timeoutThenSucceed(1);
 
@@ -70,24 +79,24 @@ Deno.test("exportWithSubdivision: subdivides on timeout", async () => {
     spawn,
     ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"],
     undefined,
-    (size, parts) => subdivisions.push({ size, parts }),
+    (uuids, parts) => subdivisions.push({ uuids: [...uuids], parts }),
   );
 
   assertEquals(result.results.length, 10);
   assertEquals(result.errors.length, 0);
   assertEquals(subdivisions.length, 1);
-  assertEquals(subdivisions[0].size, 10);
+  assertEquals(subdivisions[0].uuids.length, 10);
   assertEquals(subdivisions[0].parts, 2);
 });
 
 Deno.test("exportWithSubdivision: stops at max depth and reports failures", async () => {
-  const subdivisions: Array<{ size: number; parts: number }> = [];
+  const subdivisions: Array<{ uuids: string[]; parts: number }> = [];
 
   const result = await exportWithSubdivision(
     alwaysTimeout,
     ["a", "b", "c", "d"],
     undefined,
-    (size, parts) => subdivisions.push({ size, parts }),
+    (uuids, parts) => subdivisions.push({ uuids: [...uuids], parts }),
   );
 
   // All should be reported as failed after exhausting subdivision depth

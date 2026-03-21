@@ -80,6 +80,13 @@ export async function runBackup(
     pending = pending.filter((a) => a.kind === AssetKind.VIDEO);
   }
 
+  // Sort: photos first, then videos; within each group by size ascending.
+  // This keeps fast-to-export photos together and large videos at the end.
+  pending.sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind - b.kind; // PHOTO=0 before VIDEO=1
+    return (a.originalFileSize ?? 0) - (b.originalFileSize ?? 0);
+  });
+
   // Apply limit
   if (options.limit > 0) {
     pending = pending.slice(0, options.limit);
@@ -175,8 +182,29 @@ export async function runBackup(
     const batchNum = Math.floor(i / options.batchSize) + 1;
     const totalBatches = Math.ceil(pending.length / options.batchSize);
 
+    const batchPhotos = batch.filter((a) => a.kind === AssetKind.PHOTO).length;
+    const batchVideos = batch.length - batchPhotos;
+    const batchBytes = batch.reduce(
+      (sum, a) => sum + (a.originalFileSize ?? 0),
+      0,
+    );
+
     if (totalBatches > 1) {
-      log(`  Batch ${batchNum}/${totalBatches}  (${batch.length} assets)`);
+      const parts = [
+        batchPhotos > 0 ? `${batchPhotos} photos` : "",
+        batchVideos > 0 ? `${batchVideos} videos` : "",
+      ].filter(Boolean).join(", ");
+      log(
+        `  Batch ${batchNum}/${totalBatches}  (${parts}, ~${
+          formatBytes(batchBytes)
+        })`,
+      );
+    }
+
+    // Scale timeout based on estimated batch size
+    if ("setEstimatedBatchBytes" in exporter) {
+      (exporter as { setEstimatedBatchBytes(n: number): void })
+        .setEstimatedBatchBytes(batchBytes);
     }
 
     // 1. Export via ladder

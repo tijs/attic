@@ -10,7 +10,8 @@ entire batches.
 - **Automatic retry on timeout** — when a ladder batch times out (e.g. due to
   iCloud downloads), the batch is split in half and each half retried
   recursively (max depth 3). Only the truly stuck assets end up as failures.
-- **Retry hint** — summary now shows `Run attic backup again to retry failed
+- **Retry hint** — summary now shows
+  `Run attic backup again to retry failed
   assets.` when there are failures.
 
 ## 0.2.0

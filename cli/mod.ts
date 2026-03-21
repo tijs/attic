@@ -135,14 +135,34 @@ main.command("backup", "Back up pending assets to S3")
       const ladderPath = options.ladder ??
         Deno.env.get("LADDER_PATH") ??
         "ladder";
+
+      // Build UUID lookup so subdivision messages can show filenames
+      const assetByUuid = new Map<string, (typeof assets)[0]>();
+      for (const a of assets) {
+        assetByUuid.set(a.uuid, a);
+      }
+
+      const { formatBytes } = await import("./src/format.ts");
       const exporter = createLadderExporter(ladderPath, {
-        onSubdivide: (size, parts) => {
-          if (!options.quiet) {
-            console.log(
-              `    Export timed out (${size} assets) — retrying as ${parts}x${
-                Math.ceil(size / parts)
-              }...`,
+        onSubdivide: (uuids, parts) => {
+          if (options.quiet) return;
+          const names = uuids.map((uuid) => {
+            const a = assetByUuid.get(uuid);
+            if (!a) return uuid.substring(0, 8);
+            const name = a.originalFilename ?? a.filename ?? uuid.substring(
+              0,
+              8,
             );
+            const size = a.originalFileSize
+              ? formatBytes(a.originalFileSize)
+              : "?";
+            return `${name} (${size})`;
+          });
+          console.log(
+            `    Export timed out — retrying ${uuids.length} assets as ${parts} sub-batches:`,
+          );
+          for (const name of names) {
+            console.log(`      · ${name}`);
           }
         },
       });
