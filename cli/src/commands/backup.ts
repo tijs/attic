@@ -510,7 +510,7 @@ export async function runBackup(
 function exportErrorDetail(asset: PhotoAsset, message: string): string {
   const hints: string[] = [];
   if (asset.cloudLocalState === CloudLocalState.ICLOUD_ONLY) {
-    hints.push("iCloud-only asset (AppleScript fallback attempted)");
+    hints.push("iCloud-only asset");
   }
   if (!asset.originalFileSize) {
     hints.push("no original file size recorded");
