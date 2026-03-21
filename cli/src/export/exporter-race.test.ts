@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects } from "@std/assert";
-import { raceSubprocess } from "./exporter.ts";
+import { LadderTimeoutError, raceSubprocess } from "./exporter.ts";
 import { AbortError } from "../abort-error.ts";
 
 /** Create a fake ChildProcess that resolves/rejects after a delay. */
@@ -62,12 +62,11 @@ Deno.test("raceSubprocess: returns output when subprocess completes before timeo
   assertEquals(result.code, 0);
 });
 
-Deno.test("raceSubprocess: rejects on timeout", async () => {
+Deno.test("raceSubprocess: rejects on timeout with LadderTimeoutError", async () => {
   const process = fakeProcess(5000);
   await assertRejects(
     () => raceSubprocess(process, 50),
-    Error,
-    "timed out",
+    LadderTimeoutError,
   );
 });
 

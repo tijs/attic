@@ -28,6 +28,16 @@ export interface Exporter {
     uuids: string[],
     signal?: AbortSignal,
   ): Promise<ExportBatchResult>;
+  /** Hint to scale timeout for the next exportBatch call. Implementations may ignore. */
+  setEstimatedBatchBytes?(estimatedBytes: number): void;
+}
+
+/** Thrown when the ladder subprocess exceeds its timeout. */
+export class LadderTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Ladder subprocess timed out after ${timeoutMs / 1000}s`);
+    this.name = "LadderTimeoutError";
+  }
 }
 
 const DEFAULT_STAGING_DIR = join(
@@ -118,8 +128,8 @@ const TIMEOUT_PER_100MB_MS = 60 * 1000;
 
 /** Calculate timeout based on estimated batch size in bytes. */
 export function timeoutForBytes(estimatedBytes: number): number {
-  const extra = Math.ceil(estimatedBytes / (100 * 1024 * 1024)) *
-    TIMEOUT_PER_100MB_MS;
+  const bytes = Math.max(0, estimatedBytes);
+  const extra = Math.ceil(bytes / (100 * 1024 * 1024)) * TIMEOUT_PER_100MB_MS;
   return LADDER_BASE_TIMEOUT_MS + extra;
 }
 
@@ -138,8 +148,6 @@ async function spawnLadder(
   timeoutMs: number,
   signal?: AbortSignal,
 ): Promise<ExportBatchResult> {
-  await Deno.mkdir(stagingDir, { recursive: true });
-
   // PhotoKit expects local identifiers in "UUID/L0/001" format
   const photoKitIds = uuids.map((uuid) => `${uuid}/L0/001`);
 
@@ -187,7 +195,7 @@ async function spawnLadder(
 
 /** Check whether an error is a ladder timeout. */
 export function isTimeoutError(error: unknown): boolean {
-  return error instanceof Error && /timed out/i.test(error.message);
+  return error instanceof LadderTimeoutError;
 }
 
 /** Create an exporter that shells out to the ladder binary. */
@@ -197,14 +205,12 @@ export function createLadderExporter(
 ): Exporter & { stagingDir: string; setEstimatedBatchBytes(n: number): void } {
   const stagingDir = opts.stagingDir ?? DEFAULT_STAGING_DIR;
   const baseTimeoutMs = opts.baseTimeoutMs ?? LADDER_BASE_TIMEOUT_MS;
-
-  // Updated by backup.ts before each batch to scale the timeout
   let currentTimeoutMs = baseTimeoutMs;
+  let stagingDirCreated = false;
 
   return {
     stagingDir,
 
-    /** Set the estimated byte size so the timeout scales accordingly. */
     setEstimatedBatchBytes(estimatedBytes: number) {
       currentTimeoutMs = Math.max(
         baseTimeoutMs,
@@ -212,10 +218,14 @@ export function createLadderExporter(
       );
     },
 
-    exportBatch(
+    async exportBatch(
       uuids: string[],
       signal?: AbortSignal,
     ): Promise<ExportBatchResult> {
+      if (!stagingDirCreated) {
+        await Deno.mkdir(stagingDir, { recursive: true });
+        stagingDirCreated = true;
+      }
       return spawnLadder(
         ladderPath,
         uuids,
@@ -255,9 +265,7 @@ export async function raceSubprocess(
   let timeoutId: number | undefined;
   const timeoutPromise = new Promise<never>((_resolve, reject) => {
     timeoutId = setTimeout(() => {
-      reject(
-        new Error(`Ladder subprocess timed out after ${timeoutMs / 1000}s`),
-      );
+      reject(new LadderTimeoutError(timeoutMs));
     }, timeoutMs);
     Deno.unrefTimer(timeoutId);
   });

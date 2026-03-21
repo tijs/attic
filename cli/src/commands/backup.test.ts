@@ -5,7 +5,11 @@ import { runBackup } from "./backup.ts";
 import { createS3ManifestStore, isBackedUp } from "../manifest/manifest.ts";
 import { createMockExporter } from "../export/exporter.mock.ts";
 import { createMockS3Provider } from "../storage/s3-client.mock.ts";
-import type { ExportBatchResult, Exporter } from "../export/exporter.ts";
+import {
+  type ExportBatchResult,
+  type Exporter,
+  LadderTimeoutError,
+} from "../export/exporter.ts";
 
 function makeAsset(
   uuid: string,
@@ -320,13 +324,13 @@ Deno.test("backup: defers timed-out assets and retries after remaining batches",
       ): Promise<ExportBatchResult> {
         if (uuids.includes("slow-1") && uuids.length > 1) {
           // Batch with slow asset: timeout
-          throw new Error("Ladder subprocess timed out after 300s");
+          throw new LadderTimeoutError(300_000);
         }
         if (uuids.length === 1 && uuids[0] === "slow-1") {
           slowRetryCount++;
           if (slowRetryCount === 1) {
             // First individual retry: also times out (gets deferred)
-            throw new Error("Ladder subprocess timed out after 300s");
+            throw new LadderTimeoutError(300_000);
           }
           // Second retry (deferred): succeeds
         }

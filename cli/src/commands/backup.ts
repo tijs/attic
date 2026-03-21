@@ -173,6 +173,16 @@ export async function runBackup(
   };
   Deno.addSignalListener("SIGINT", onInterrupt);
 
+  // Helper: format asset name for log messages
+  function assetLabel(uuid: string): string {
+    const a = assetByUuid.get(uuid);
+    if (!a) return uuid.substring(0, 8);
+    const name = a.originalFilename ?? a.filename ?? uuid.substring(0, 8);
+    const size = a.originalFileSize ? formatBytes(a.originalFileSize) : "?";
+    const type = a.kind === AssetKind.PHOTO ? "photo" : "video";
+    return `${name} (${type}, ${size})`;
+  }
+
   // Helper: upload exported assets to S3, update manifest and report
   async function uploadExported(
     batchResult: ExportBatchResult,
@@ -265,16 +275,6 @@ export async function runBackup(
     }
   }
 
-  // Helper: format asset name for log messages
-  function assetLabel(uuid: string): string {
-    const a = assetByUuid.get(uuid);
-    if (!a) return uuid.substring(0, 8);
-    const name = a.originalFilename ?? a.filename ?? uuid.substring(0, 8);
-    const size = a.originalFileSize ? formatBytes(a.originalFileSize) : "?";
-    const type = a.kind === AssetKind.PHOTO ? "photo" : "video";
-    return `${name} (${type}, ${size})`;
-  }
-
   // Assets deferred due to individual timeout — retried after all batches
   const deferred: string[] = [];
 
@@ -306,11 +306,7 @@ export async function runBackup(
       );
     }
 
-    // Scale timeout based on estimated batch size
-    if ("setEstimatedBatchBytes" in exporter) {
-      (exporter as { setEstimatedBatchBytes(n: number): void })
-        .setEstimatedBatchBytes(batchBytes);
-    }
+    exporter.setEstimatedBatchBytes?.(batchBytes);
 
     // 1. Export via ladder
     const spinner = options.quiet
@@ -333,10 +329,7 @@ export async function runBackup(
         for (const uuid of batchUuids) {
           if (signal.aborted) break;
           const assetBytes = assetByUuid.get(uuid)?.originalFileSize ?? 0;
-          if ("setEstimatedBatchBytes" in exporter) {
-            (exporter as { setEstimatedBatchBytes(n: number): void })
-              .setEstimatedBatchBytes(assetBytes);
-          }
+          exporter.setEstimatedBatchBytes?.(assetBytes);
           try {
             const result = await exporter.exportBatch([uuid], signal);
             combined.results.push(...result.results);
@@ -387,17 +380,14 @@ export async function runBackup(
     }
   }
 
-  // Retry deferred assets with double timeout
+  // Retry deferred assets
   if (deferred.length > 0 && !signal.aborted) {
     log();
     log(`  Retrying ${deferred.length} deferred assets...`);
     for (const uuid of deferred) {
       if (signal.aborted) break;
       const assetBytes = assetByUuid.get(uuid)?.originalFileSize ?? 0;
-      if ("setEstimatedBatchBytes" in exporter) {
-        (exporter as { setEstimatedBatchBytes(n: number): void })
-          .setEstimatedBatchBytes(assetBytes * 2);
-      }
+      exporter.setEstimatedBatchBytes?.(assetBytes);
       try {
         const result = await exporter.exportBatch([uuid], signal);
         await uploadExported(result);
