@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.6
+
+Hardened error detection and timeout handling.
+
+- **Structured permission detection** — detect ladder permission errors via exit
+  code 77 instead of string-matching stderr text
+- **Increased base timeout** — subprocess timeout raised from 5 to 10 minutes to
+  match ladder's per-asset AppleScript timeout, preventing premature kills during
+  iCloud downloads
+
+Compatible with ladder v0.3.3.
+
 ## 0.2.5
 
 Support for ladder v0.3.0 — iCloud-only asset export via AppleScript fallback.
