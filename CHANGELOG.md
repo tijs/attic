@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.2
+
+Better debugging and smarter timeouts for large batches.
+
+### Export feedback
+
+- **Batch detail logging** — each batch now shows photo/video count and
+  estimated size before export starts.
+- **Timeout asset listing** — when a batch times out and subdivides, every
+  asset in the timed-out batch is listed by filename and size so you can see
+  exactly what's slow.
+- **Size-scaled timeouts** — timeout now scales with estimated batch size
+  (5 min base + 1 min per 100 MB) so large video batches get enough time.
+- **Sorted batches** — pending assets are sorted photos-first then videos,
+  by size ascending. This keeps fast photo batches together and pushes large
+  videos to the end.
+
 ## 0.2.1
 
 Resilient batch exports — isolates slow iCloud downloads instead of failing
@@ -11,8 +28,7 @@ entire batches.
   iCloud downloads), the batch is split in half and each half retried
   recursively (max depth 3). Only the truly stuck assets end up as failures.
 - **Retry hint** — summary now shows
-  `Run attic backup again to retry failed
-  assets.` when there are failures.
+  `Run attic backup again to retry failed assets.` when there are failures.
 
 ## 0.2.0
 
