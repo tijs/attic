@@ -116,9 +116,6 @@ const LADDER_BASE_TIMEOUT_MS = 5 * 60 * 1000;
 /** Extra timeout per 100 MB of estimated batch size (~1 min per 100 MB). */
 const TIMEOUT_PER_100MB_MS = 60 * 1000;
 
-/** Maximum subdivision depth when retrying timed-out batches. */
-const MAX_SUBDIVIDE_DEPTH = 3;
-
 /** Calculate timeout based on estimated batch size in bytes. */
 export function timeoutForBytes(estimatedBytes: number): number {
   const extra = Math.ceil(estimatedBytes / (100 * 1024 * 1024)) *
@@ -131,8 +128,6 @@ export interface LadderExporterOptions {
   stagingDir?: string;
   /** Base timeout in ms (before size scaling). Defaults to 5 min. */
   baseTimeoutMs?: number;
-  /** Called when a timed-out batch is subdivided for retry. */
-  onSubdivide?: (uuids: string[], parts: number) => void;
 }
 
 /** Spawn a single ladder process and return the parsed result. */
@@ -190,57 +185,9 @@ async function spawnLadder(
   return parsed;
 }
 
-function isTimeoutError(error: unknown): boolean {
+/** Check whether an error is a ladder timeout. */
+export function isTimeoutError(error: unknown): boolean {
   return error instanceof Error && /timed out/i.test(error.message);
-}
-
-/** Try a batch; on timeout, split in half and retry each half recursively.
- *  Stops at MAX_SUBDIVIDE_DEPTH and reports remaining UUIDs as failed. */
-export async function exportWithSubdivision(
-  spawn: (uuids: string[], signal?: AbortSignal) => Promise<ExportBatchResult>,
-  uuids: string[],
-  signal?: AbortSignal,
-  onSubdivide?: (uuids: string[], parts: number) => void,
-  depth: number = 0,
-): Promise<ExportBatchResult> {
-  try {
-    return await spawn(uuids, signal);
-  } catch (error: unknown) {
-    if (!isTimeoutError(error)) throw error;
-    if (depth >= MAX_SUBDIVIDE_DEPTH) {
-      // Give up — report all UUIDs in this chunk as failed
-      return {
-        results: [],
-        errors: uuids.map((uuid) => ({
-          uuid,
-          message: "Export timed out after subdivision retries",
-        })),
-      };
-    }
-
-    const mid = Math.ceil(uuids.length / 2);
-    const parts = uuids.length <= mid ? 1 : 2;
-    onSubdivide?.(uuids, parts);
-
-    const left = uuids.slice(0, mid);
-    const right = uuids.slice(mid);
-    const chunks = right.length > 0 ? [left, right] : [left];
-
-    const combined: ExportBatchResult = { results: [], errors: [] };
-    for (const chunk of chunks) {
-      if (signal?.aborted) break;
-      const result = await exportWithSubdivision(
-        spawn,
-        chunk,
-        signal,
-        onSubdivide,
-        depth + 1,
-      );
-      combined.results.push(...result.results);
-      combined.errors.push(...result.errors);
-    }
-    return combined;
-  }
 }
 
 /** Create an exporter that shells out to the ladder binary. */
@@ -250,13 +197,9 @@ export function createLadderExporter(
 ): Exporter & { stagingDir: string; setEstimatedBatchBytes(n: number): void } {
   const stagingDir = opts.stagingDir ?? DEFAULT_STAGING_DIR;
   const baseTimeoutMs = opts.baseTimeoutMs ?? LADDER_BASE_TIMEOUT_MS;
-  const onSubdivide = opts.onSubdivide;
 
   // Updated by backup.ts before each batch to scale the timeout
   let currentTimeoutMs = baseTimeoutMs;
-
-  const spawn = (uuids: string[], signal?: AbortSignal) =>
-    spawnLadder(ladderPath, uuids, stagingDir, currentTimeoutMs, signal);
 
   return {
     stagingDir,
@@ -273,7 +216,13 @@ export function createLadderExporter(
       uuids: string[],
       signal?: AbortSignal,
     ): Promise<ExportBatchResult> {
-      return exportWithSubdivision(spawn, uuids, signal, onSubdivide);
+      return spawnLadder(
+        ladderPath,
+        uuids,
+        stagingDir,
+        currentTimeoutMs,
+        signal,
+      );
     },
   };
 }

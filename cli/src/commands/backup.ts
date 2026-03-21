@@ -8,8 +8,8 @@ import {
 } from "@attic/shared";
 import type { Manifest, ManifestStore } from "../manifest/manifest.ts";
 import { isBackedUp, markBackedUp } from "../manifest/manifest.ts";
-import type { Exporter } from "../export/exporter.ts";
-import { removeStagedFile } from "../export/exporter.ts";
+import type { ExportBatchResult, Exporter } from "../export/exporter.ts";
+import { isTimeoutError, removeStagedFile } from "../export/exporter.ts";
 import type { S3Provider } from "../storage/s3-client.ts";
 import { formatBytes } from "../format.ts";
 import { startSpinner } from "../spinner.ts";
@@ -173,6 +173,111 @@ export async function runBackup(
   };
   Deno.addSignalListener("SIGINT", onInterrupt);
 
+  // Helper: upload exported assets to S3, update manifest and report
+  async function uploadExported(
+    batchResult: ExportBatchResult,
+  ): Promise<void> {
+    // Record export errors
+    for (const err of batchResult.errors) {
+      console.error(`    Export error: ${err.uuid} — ${err.message}`);
+      report.errors.push(err);
+      report.failed++;
+      logger.error(err.uuid, err.message);
+    }
+
+    for (const exported of batchResult.results) {
+      if (signal.aborted) break;
+      const asset = assetByUuid.get(exported.uuid);
+      if (!asset) continue;
+
+      const ext = extensionFromUtiOrFilename(
+        asset.uniformTypeIdentifier,
+        asset.originalFilename ?? asset.filename,
+      );
+      const s3Key = originalKey(asset.uuid, asset.dateCreated, ext);
+
+      try {
+        let fileData: Uint8Array | null = await Deno.readFile(exported.path);
+        await withRetry(
+          () => s3.putObject(s3Key, fileData!, contentTypeFor(ext)),
+          { signal },
+        );
+        fileData = null;
+
+        const meta = buildMetadataJson(
+          asset,
+          s3Key,
+          `sha256:${exported.sha256}`,
+          new Date().toISOString(),
+        );
+        const metaData = new TextEncoder().encode(
+          JSON.stringify(meta, null, 2),
+        );
+        await withRetry(
+          () =>
+            s3.putObject(
+              metadataKey(asset.uuid),
+              metaData,
+              "application/json",
+            ),
+          { signal },
+        );
+
+        markBackedUp(
+          manifest,
+          asset.uuid,
+          `sha256:${exported.sha256}`,
+          s3Key,
+          exported.size,
+        );
+        sinceLastSave++;
+        report.uploaded++;
+        report.totalBytes += exported.size;
+
+        const name = asset.originalFilename ?? asset.filename ?? "unknown";
+        const typeLabel = asset.kind === AssetKind.PHOTO ? "photo" : "video";
+        logger.uploaded(asset.uuid, name, typeLabel, exported.size);
+
+        if (!options.quiet) {
+          const done = report.uploaded + report.failed;
+          const pct = ((done / pending.length) * 100).toFixed(0);
+          log(
+            `  [${done}/${pending.length}] ${pct}%  ${name}  (${typeLabel}, ${
+              formatBytes(exported.size)
+            })`,
+          );
+        }
+
+        if (sinceLastSave >= options.saveInterval) {
+          await manifestStore.save(manifest);
+          sinceLastSave = 0;
+        }
+      } catch (error: unknown) {
+        if (signal.aborted) break;
+        const msg = error instanceof Error ? error.message : String(error);
+        console.error(`    Upload error: ${exported.uuid} — ${msg}`);
+        report.errors.push({ uuid: exported.uuid, message: msg });
+        report.failed++;
+        logger.error(exported.uuid, msg);
+      } finally {
+        await removeStagedFile(exported.path, resolvedStagingDir);
+      }
+    }
+  }
+
+  // Helper: format asset name for log messages
+  function assetLabel(uuid: string): string {
+    const a = assetByUuid.get(uuid);
+    if (!a) return uuid.substring(0, 8);
+    const name = a.originalFilename ?? a.filename ?? uuid.substring(0, 8);
+    const size = a.originalFileSize ? formatBytes(a.originalFileSize) : "?";
+    const type = a.kind === AssetKind.PHOTO ? "photo" : "video";
+    return `${name} (${type}, ${size})`;
+  }
+
+  // Assets deferred due to individual timeout — retried after all batches
+  const deferred: string[] = [];
+
   // Process in batches
   for (let i = 0; i < pending.length; i += options.batchSize) {
     if (signal.aborted) break;
@@ -211,120 +316,101 @@ export async function runBackup(
     const spinner = options.quiet
       ? { stop() {} }
       : startSpinner(`Exporting ${batch.length} assets from Photos library...`);
-    let batchResult;
+    let batchResult: ExportBatchResult;
     try {
       batchResult = await exporter.exportBatch(batchUuids, signal);
     } catch (error: unknown) {
       spinner.stop();
       if (signal.aborted) break;
-      const msg = error instanceof Error ? error.message : String(error);
-      console.error(`    Export failed: ${msg}`);
-      for (const uuid of batchUuids) {
-        report.errors.push({ uuid, message: msg });
-        report.failed++;
-        logger.error(uuid, msg);
+
+      // On timeout: retry each asset individually to find the slow ones
+      if (isTimeoutError(error)) {
+        log(
+          `    Batch timed out — retrying ${batch.length} assets individually...`,
+        );
+        const combined: ExportBatchResult = { results: [], errors: [] };
+
+        for (const uuid of batchUuids) {
+          if (signal.aborted) break;
+          const assetBytes = assetByUuid.get(uuid)?.originalFileSize ?? 0;
+          if ("setEstimatedBatchBytes" in exporter) {
+            (exporter as { setEstimatedBatchBytes(n: number): void })
+              .setEstimatedBatchBytes(assetBytes);
+          }
+          try {
+            const result = await exporter.exportBatch([uuid], signal);
+            combined.results.push(...result.results);
+            combined.errors.push(...result.errors);
+          } catch (innerError: unknown) {
+            if (signal.aborted) break;
+            if (isTimeoutError(innerError)) {
+              log(
+                `    Deferring ${
+                  assetLabel(uuid)
+                } — timed out, will retry after remaining batches`,
+              );
+              deferred.push(uuid);
+            } else {
+              const msg = innerError instanceof Error
+                ? innerError.message
+                : String(innerError);
+              report.errors.push({ uuid, message: msg });
+              report.failed++;
+              logger.error(uuid, msg);
+            }
+          }
+        }
+
+        // Upload whatever succeeded from individual retries
+        await uploadExported(combined);
+      } else {
+        // Non-timeout error: fail the whole batch
+        const msg = error instanceof Error ? error.message : String(error);
+        console.error(`    Export failed: ${msg}`);
+        for (const uuid of batchUuids) {
+          report.errors.push({ uuid, message: msg });
+          report.failed++;
+          logger.error(uuid, msg);
+        }
       }
+      if (totalBatches > 1 && batchNum < totalBatches) log();
       continue;
     }
     spinner.stop();
 
-    // Record export errors
-    for (const err of batchResult.errors) {
-      console.error(`    Export error: ${err.uuid} — ${err.message}`);
-      report.errors.push(err);
-      report.failed++;
-      logger.error(err.uuid, err.message);
-    }
-
-    // 2. Upload each exported file to S3
-    for (const exported of batchResult.results) {
-      if (signal.aborted) break;
-      const asset = assetByUuid.get(exported.uuid);
-      if (!asset) continue;
-
-      const ext = extensionFromUtiOrFilename(
-        asset.uniformTypeIdentifier,
-        asset.originalFilename ?? asset.filename,
-      );
-      const s3Key = originalKey(asset.uuid, asset.dateCreated, ext);
-
-      try {
-        // Read file and upload to S3 (with retry for transient failures)
-        let fileData: Uint8Array | null = await Deno.readFile(exported.path);
-        await withRetry(
-          () => s3.putObject(s3Key, fileData!, contentTypeFor(ext)),
-          { signal },
-        );
-        fileData = null; // Allow GC before metadata upload
-
-        // Upload metadata JSON (with retry)
-        const meta = buildMetadataJson(
-          asset,
-          s3Key,
-          `sha256:${exported.sha256}`,
-          new Date().toISOString(),
-        );
-        const metaData = new TextEncoder().encode(
-          JSON.stringify(meta, null, 2),
-        );
-        await withRetry(
-          () =>
-            s3.putObject(
-              metadataKey(asset.uuid),
-              metaData,
-              "application/json",
-            ),
-          { signal },
-        );
-
-        // Update manifest
-        markBackedUp(
-          manifest,
-          asset.uuid,
-          `sha256:${exported.sha256}`,
-          s3Key,
-          exported.size,
-        );
-        sinceLastSave++;
-        report.uploaded++;
-        report.totalBytes += exported.size;
-
-        const name = asset.originalFilename ?? asset.filename ?? "unknown";
-        const typeLabel = asset.kind === AssetKind.PHOTO ? "photo" : "video";
-        logger.uploaded(asset.uuid, name, typeLabel, exported.size);
-
-        // Per-asset progress
-        if (!options.quiet) {
-          const done = report.uploaded + report.failed;
-          const pct = ((done / pending.length) * 100).toFixed(0);
-          log(
-            `  [${done}/${pending.length}] ${pct}%  ${name}  (${typeLabel}, ${
-              formatBytes(exported.size)
-            })`,
-          );
-        }
-
-        // Save manifest periodically (checked per-asset, not per-batch)
-        if (sinceLastSave >= options.saveInterval) {
-          await manifestStore.save(manifest);
-          sinceLastSave = 0;
-        }
-      } catch (error: unknown) {
-        if (signal.aborted) break;
-        const msg = error instanceof Error ? error.message : String(error);
-        console.error(`    Upload error: ${exported.uuid} — ${msg}`);
-        report.errors.push({ uuid: exported.uuid, message: msg });
-        report.failed++;
-        logger.error(exported.uuid, msg);
-      } finally {
-        // Always clean up staged file, even on interruption or error
-        await removeStagedFile(exported.path, resolvedStagingDir);
-      }
-    }
+    // 2. Upload exported assets
+    await uploadExported(batchResult);
 
     // Batch separator when multiple batches
     if (totalBatches > 1 && batchNum < totalBatches) {
       log();
+    }
+  }
+
+  // Retry deferred assets with double timeout
+  if (deferred.length > 0 && !signal.aborted) {
+    log();
+    log(`  Retrying ${deferred.length} deferred assets...`);
+    for (const uuid of deferred) {
+      if (signal.aborted) break;
+      const assetBytes = assetByUuid.get(uuid)?.originalFileSize ?? 0;
+      if ("setEstimatedBatchBytes" in exporter) {
+        (exporter as { setEstimatedBatchBytes(n: number): void })
+          .setEstimatedBatchBytes(assetBytes * 2);
+      }
+      try {
+        const result = await exporter.exportBatch([uuid], signal);
+        await uploadExported(result);
+      } catch (retryError: unknown) {
+        if (signal.aborted) break;
+        const msg = retryError instanceof Error
+          ? retryError.message
+          : String(retryError);
+        log(`    Failed: ${assetLabel(uuid)} — ${msg}`);
+        report.errors.push({ uuid, message: msg });
+        report.failed++;
+        logger.error(uuid, msg);
+      }
     }
   }
 

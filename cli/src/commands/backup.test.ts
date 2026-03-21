@@ -5,6 +5,7 @@ import { runBackup } from "./backup.ts";
 import { createS3ManifestStore, isBackedUp } from "../manifest/manifest.ts";
 import { createMockExporter } from "../export/exporter.mock.ts";
 import { createMockS3Provider } from "../storage/s3-client.mock.ts";
+import type { ExportBatchResult, Exporter } from "../export/exporter.ts";
 
 function makeAsset(
   uuid: string,
@@ -277,6 +278,82 @@ Deno.test("backup: filters by type", async () => {
     assertEquals(report.uploaded, 1);
     assertEquals(isBackedUp(manifest, "video-1"), true);
     assertEquals(isBackedUp(manifest, "photo-1"), false);
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("backup: defers timed-out assets and retries after remaining batches", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  const stagingDir = `${tmpDir}/staging`;
+  try {
+    const assets = [
+      makeAsset("fast-1"),
+      makeAsset("slow-1"),
+      makeAsset("fast-2"),
+    ];
+
+    const mockData = new Map([
+      [
+        "fast-1",
+        { filename: "IMG_0001.HEIC", data: new TextEncoder().encode("f1") },
+      ],
+      [
+        "slow-1",
+        { filename: "BIG_VIDEO.MOV", data: new TextEncoder().encode("s1") },
+      ],
+      [
+        "fast-2",
+        { filename: "IMG_0003.HEIC", data: new TextEncoder().encode("f2") },
+      ],
+    ]);
+
+    // Exporter that times out on batch calls containing "slow-1",
+    // but succeeds when "slow-1" is called individually (deferred retry)
+    let slowRetryCount = 0;
+    const innerExporter = createMockExporter(mockData, stagingDir);
+    const timeoutExporter: Exporter & { stagingDir: string } = {
+      stagingDir,
+      exportBatch(
+        uuids: string[],
+        signal?: AbortSignal,
+      ): Promise<ExportBatchResult> {
+        if (uuids.includes("slow-1") && uuids.length > 1) {
+          // Batch with slow asset: timeout
+          throw new Error("Ladder subprocess timed out after 300s");
+        }
+        if (uuids.length === 1 && uuids[0] === "slow-1") {
+          slowRetryCount++;
+          if (slowRetryCount === 1) {
+            // First individual retry: also times out (gets deferred)
+            throw new Error("Ladder subprocess timed out after 300s");
+          }
+          // Second retry (deferred): succeeds
+        }
+        return innerExporter.exportBatch(uuids, signal);
+      },
+    };
+
+    const { s3, manifestStore } = createTestContext();
+    const manifest = await manifestStore.load();
+
+    const report = await runBackup(
+      assets,
+      manifest,
+      manifestStore,
+      timeoutExporter,
+      s3,
+      { batchSize: 3, quiet: true },
+      stagingDir,
+    );
+
+    // All 3 should be uploaded: fast-1 and fast-2 via individual retry,
+    // slow-1 via deferred retry
+    assertEquals(report.uploaded, 3);
+    assertEquals(report.failed, 0);
+    assertEquals(isBackedUp(manifest, "fast-1"), true);
+    assertEquals(isBackedUp(manifest, "fast-2"), true);
+    assertEquals(isBackedUp(manifest, "slow-1"), true);
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }
