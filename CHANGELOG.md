@@ -1,34 +1,35 @@
 # Changelog
 
+## 0.2.3
+
+Skip slow assets, finish the rest, retry later.
+
+### Skip-and-defer
+
+- **Individual retry on batch timeout** — when a batch times out, each asset
+  is retried individually to find the slow one(s). Fast assets proceed
+  immediately; slow ones are deferred.
+- **Deferred retry** — assets that timed out individually are retried with a
+  longer timeout after all remaining batches complete.
+- **Clear feedback** — you see exactly which file is slow:
+  ```
+  Batch 1/2  (37 photos, 13 videos, ~1.6 GB)
+    Batch timed out — retrying 50 assets individually...
+    Deferring BIG_VIDEO.MOV (video, 450.2 MB) — timed out, will retry after remaining batches
+  ```
+- **Size-scaled timeouts** — 5 min base + 1 min per 100 MB of estimated
+  batch size.
+- **Sorted batches** — photos first (by size), then videos (by size).
+- **Retry hint** — summary shows `Run attic backup again to retry failed
+  assets.` when there are failures.
+
 ## 0.2.2
 
-Better debugging and smarter timeouts for large batches.
-
-### Export feedback
-
-- **Batch detail logging** — each batch now shows photo/video count and
-  estimated size before export starts.
-- **Timeout asset listing** — when a batch times out and subdivides, every
-  asset in the timed-out batch is listed by filename and size so you can see
-  exactly what's slow.
-- **Size-scaled timeouts** — timeout now scales with estimated batch size
-  (5 min base + 1 min per 100 MB) so large video batches get enough time.
-- **Sorted batches** — pending assets are sorted photos-first then videos,
-  by size ascending. This keeps fast photo batches together and pushes large
-  videos to the end.
+Better debugging and smarter timeouts for large batches. Superseded by 0.2.3.
 
 ## 0.2.1
 
-Resilient batch exports — isolates slow iCloud downloads instead of failing
-entire batches.
-
-### Batch subdivision
-
-- **Automatic retry on timeout** — when a ladder batch times out (e.g. due to
-  iCloud downloads), the batch is split in half and each half retried
-  recursively (max depth 3). Only the truly stuck assets end up as failures.
-- **Retry hint** — summary now shows
-  `Run attic backup again to retry failed assets.` when there are failures.
+Batch subdivision on timeout. Superseded by 0.2.3.
 
 ## 0.2.0
 
