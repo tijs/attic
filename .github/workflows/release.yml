@@ -10,33 +10,25 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: denoland/setup-deno@v2
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-        with:
-          deno-version: v2.x
+      - uses: actions/checkout@v4
 
       - name: Run tests
-        run: deno task test
+        run: swift test
+
+      - name: Build release binary
+        run: swift build -c release
 
       - name: Get version from tag
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
 
-      - name: Compile binaries
+      - name: Package archive
         run: |
-          deno compile -A --target aarch64-apple-darwin --output attic-aarch64-apple-darwin cli/mod.ts
-          deno compile -A --target x86_64-apple-darwin --output attic-x86_64-apple-darwin cli/mod.ts
+          cp .build/release/AtticCLI attic
+          tar czf "attic-${VERSION}-aarch64-apple-darwin.tar.gz" attic
 
-      - name: Package archives
-        run: |
-          tar czf "attic-${VERSION}-aarch64-apple-darwin.tar.gz" attic-aarch64-apple-darwin
-          tar czf "attic-${VERSION}-x86_64-apple-darwin.tar.gz" attic-x86_64-apple-darwin
-
-      - name: Generate checksums
+      - name: Generate checksum
         run: |
           shasum -a 256 attic-"${VERSION}"-*.tar.gz > checksums.txt
           cat checksums.txt
@@ -48,5 +40,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --generate-notes \
             "attic-${VERSION}-aarch64-apple-darwin.tar.gz" \
-            "attic-${VERSION}-x86_64-apple-darwin.tar.gz" \
             checksums.txt
