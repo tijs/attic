@@ -201,6 +201,14 @@ swift test --filter "testName" # Run single test
 Tests use dependency injection with mock implementations (MockS3Provider,
 MockExportProvider) — no external services or credentials needed.
 
+## Dependencies
+
+- [LadderKit](https://github.com/tijs/ladder) — PhotoKit access, Photos.sqlite
+  enrichment, and photo export with AppleScript fallback
+- [aws-sdk-swift](https://github.com/awslabs/aws-sdk-swift) — S3 client
+- [swift-argument-parser](https://github.com/apple/swift-argument-parser) —
+  CLI command parsing
+
 ## Documentation
 
 - [Architecture](docs/architecture.md) — How attic works: the backup pipeline,
