@@ -51,21 +51,22 @@ main.command("status", "Compare Photos DB vs backup manifest")
 
     const config = requireConfig();
     const reader = openPhotosDb(db);
+    const credentials = await loadKeychainCredentials(
+      config.keychain.accessKeyService,
+      config.keychain.secretKeyService,
+    );
+    const s3 = createS3Provider(
+      credentials,
+      bucket ?? config.bucket,
+      s3ConnectionFromConfig(config),
+    );
     try {
       const assets = reader.readAssets();
-      const credentials = await loadKeychainCredentials(
-        config.keychain.accessKeyService,
-        config.keychain.secretKeyService,
-      );
-      const s3 = createS3Provider(
-        credentials,
-        bucket ?? config.bucket,
-        s3ConnectionFromConfig(config),
-      );
       const manifestStore = createS3ManifestStore(s3);
       const manifest = await manifestStore.load();
       printStatusReport(assets, manifest);
     } finally {
+      s3.destroy();
       reader.close();
     }
   });
@@ -116,18 +117,18 @@ main.command("backup", "Back up pending assets to S3")
     const logger = options.log
       ? createFileLogger(options.log)
       : createNullLogger();
+    const credentials = await loadKeychainCredentials(
+      config.keychain.accessKeyService,
+      config.keychain.secretKeyService,
+    );
+    const s3 = createS3Provider(
+      credentials,
+      options.bucket ?? config.bucket,
+      s3ConnectionFromConfig(config),
+    );
+
     try {
       const assets = reader.readAssets();
-
-      const credentials = await loadKeychainCredentials(
-        config.keychain.accessKeyService,
-        config.keychain.secretKeyService,
-      );
-      const s3 = createS3Provider(
-        credentials,
-        options.bucket ?? config.bucket,
-        s3ConnectionFromConfig(config),
-      );
 
       const manifestStore = createS3ManifestStore(s3);
       const manifest = await loadManifestWithMigration(manifestStore);
@@ -148,6 +149,7 @@ main.command("backup", "Back up pending assets to S3")
         notifyOnComplete: options.notify ?? false,
       });
     } finally {
+      s3.destroy();
       logger.close();
       reader.close();
     }
@@ -179,18 +181,17 @@ main
 
     const config = requireConfig();
     const reader = openPhotosDb(options.db);
+    const credentials = await loadKeychainCredentials(
+      config.keychain.accessKeyService,
+      config.keychain.secretKeyService,
+    );
+    const s3 = createS3Provider(
+      credentials,
+      options.bucket ?? config.bucket,
+      s3ConnectionFromConfig(config),
+    );
     try {
       const assets = reader.readAssets();
-
-      const credentials = await loadKeychainCredentials(
-        config.keychain.accessKeyService,
-        config.keychain.secretKeyService,
-      );
-      const s3 = createS3Provider(
-        credentials,
-        options.bucket ?? config.bucket,
-        s3ConnectionFromConfig(config),
-      );
 
       const manifestStore = createS3ManifestStore(s3);
       const manifest = await manifestStore.load();
@@ -201,6 +202,7 @@ main
       });
       if (report.failed > 0) Deno.exit(2);
     } finally {
+      s3.destroy();
       reader.close();
     }
   });
@@ -243,13 +245,17 @@ main.command("verify", "Verify backup integrity against S3")
     );
     const manifestStore = createS3ManifestStore(s3);
 
-    if (options.rebuildManifest) {
-      await rebuildManifest(s3, manifestStore);
-    } else {
-      const manifest = await manifestStore.load();
-      await runVerify(manifest, s3, {
-        deep: options.deep ?? false,
-      });
+    try {
+      if (options.rebuildManifest) {
+        await rebuildManifest(s3, manifestStore);
+      } else {
+        const manifest = await manifestStore.load();
+        await runVerify(manifest, s3, {
+          deep: options.deep ?? false,
+        });
+      }
+    } finally {
+      s3.destroy();
     }
   });
 

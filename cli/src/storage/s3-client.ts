@@ -27,6 +27,8 @@ export interface S3Provider {
   getObject(key: string): Promise<Uint8Array>;
   headObject(key: string): Promise<S3ObjectMeta | null>;
   listObjects(prefix: string): AsyncIterable<S3Object>;
+  /** Close the underlying HTTP connection pool so the process can exit. */
+  destroy(): void;
 }
 
 export interface S3ConnectionConfig {
@@ -104,6 +106,10 @@ export function createS3Provider(
         }
         throw error;
       }
+    },
+
+    destroy() {
+      client.destroy();
     },
 
     async *listObjects(prefix: string): AsyncIterable<S3Object> {

@@ -41,6 +41,8 @@ export function createMockS3Provider(): S3Provider & {
       });
     },
 
+    destroy() {},
+
     async *listObjects(prefix: string): AsyncIterable<S3Object> {
       for (const [key, obj] of objects) {
         if (key.startsWith(prefix)) {
