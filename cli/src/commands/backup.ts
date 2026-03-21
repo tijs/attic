@@ -80,17 +80,17 @@ export async function runBackup(
     pending = pending.filter((a) => a.kind === AssetKind.VIDEO);
   }
 
+  // Apply limit (preserves natural DB order for asset selection)
+  if (options.limit > 0) {
+    pending = pending.slice(0, options.limit);
+  }
+
   // Sort: photos first, then videos; within each group by size ascending.
   // This keeps fast-to-export photos together and large videos at the end.
   pending.sort((a, b) => {
     if (a.kind !== b.kind) return a.kind - b.kind; // PHOTO=0 before VIDEO=1
     return (a.originalFileSize ?? 0) - (b.originalFileSize ?? 0);
   });
-
-  // Apply limit
-  if (options.limit > 0) {
-    pending = pending.slice(0, options.limit);
-  }
 
   if (pending.length === 0) {
     log("\n  Nothing to back up — all assets are current.\n");
