@@ -5,86 +5,87 @@ code in this repository.
 
 ## What This Is
 
-Deno/TypeScript CLI for backing up iCloud Photos to S3-compatible storage. Part
-of the photo-cloud system (companion: [ladder](https://github.com/tijs/ladder)).
+Swift CLI and shared library for backing up iCloud Photos to S3-compatible
+storage. Part of the photo-cloud system (companion:
+[ladder](https://github.com/tijs/ladder)).
 
 ## Commands
 
 ```bash
-deno task check       # Type check (cli/mod.ts)
-deno task test        # Run all tests
-deno task lint        # Lint
-deno task fmt         # Format
-deno task fmt:check   # Check formatting
-```
-
-Run a single test file:
-
-```bash
-deno test --allow-read --allow-write --allow-env --allow-ffi --allow-net cli/src/commands/backup.test.ts
+swift build 2>&1 | xcsift     # Build
+swift test 2>&1 | xcsift      # Run all tests
+swift build -c release 2>&1 | xcsift  # Release build
 ```
 
 Run a single test by name:
 
 ```bash
-deno test --allow-read --allow-write --allow-env --allow-ffi --allow-net --filter "test name" cli/src/commands/backup.test.ts
+swift test --filter "testName" 2>&1 | xcsift
 ```
 
-## Workspace Structure
+## Package Structure
 
-Deno workspace with two members:
+Swift package with three targets:
 
-- `shared/` — `@attic/shared` — `PhotoAsset` type, `AssetKind`/`CloudLocalState`
-  constants, S3 path helpers
-- `cli/` — `@attic/cli` — all commands, config, storage, manifest, export logic
+- `AtticCore` — shared library: S3 provider, manifest, config, keychain,
+  metadata, backup/verify/refresh pipelines. Used by both CLI and menu bar app.
+- `AtticCLI` — executable: ArgumentParser commands, terminal renderer
+- `AtticCoreTests` — tests using Swift Testing framework
 
-Import shared code as `@attic/shared` (mapped in `cli/deno.json`).
+Dependencies: `aws-sdk-swift` (AWSS3), `swift-argument-parser`, `LadderKit`
+(path dependency from `../ladder`).
 
-Key dependencies: `@aws-sdk/client-s3`, `@cliffy/command` (CLI framework),
-`@db/sqlite` (Photos.sqlite reader), `@std/crypto` (SHA-256).
+Platform: macOS 14+, Swift 6.x, Apple Silicon only.
 
 ## Architecture
 
 The backup pipeline:
-`Photos.sqlite → reader.ts → PhotoAsset[] → backup.ts → ladder export → S3 upload → manifest update`
+`Photos Library → LadderKit (PhotoKit + enrichment) → AssetInfo[] → BackupPipeline → S3 upload → manifest update`
 
-- **reader.ts** (`cli/src/photos-db/`) — reads Photos.sqlite read-only. Main
-  query joins `ZASSET` + `ZADDITIONALASSETATTRIBUTES`, then six enrichment
-  queries (albums, keywords, people, descriptions, edits, rendered resources)
-  each return a `Map` keyed by Z_PK. Uses `safeQuery()` for resilience across
-  macOS versions.
-- **backup.ts** (`cli/src/commands/`) — orchestrates filter → batch → export →
-  upload → manifest. Batches of 50 assets sent to ladder subprocess via JSON
-  stdin/stdout.
+- **LadderKit** provides `PhotoLibrary` (PhotoKit), `PhotosDatabase`
+  (Photos.sqlite enrichment), and `PhotoExporter` (export with SHA-256 hashing +
+  AppleScript fallback for iCloud-only assets). Called directly as a library.
 - **S3 key format** — originals: `originals/{year}/{month}/{uuid}.{ext}`,
   metadata: `metadata/assets/{uuid}.json`
 - **Manifest** (`manifest.json` on S3) — maps UUID →
   `{ s3Key, checksum, backedUpAt }`. S3 is the single source of truth. Saved to
-  S3 every 50 assets during backup. No local manifest file. Existing local
-  manifests at `~/.attic/manifest.json` are migrated to S3 on first run.
+  S3 every 50 assets during backup.
 
-All external dependencies are behind interfaces (`S3Provider`, `Exporter`,
-`ManifestStore`, `PhotosDbReader`) for testability.
+All external dependencies are behind protocols (`S3Providing`, `ManifestStoring`,
+`ConfigProviding`, `KeychainProviding`, `ExportProviding`) for testability.
+
+## CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `scan` | Scan Photos library, show summary |
+| `status` | Show backup progress vs manifest |
+| `backup` | Back up photos/videos to S3 |
+| `verify` | Verify S3 objects against manifest |
+| `refresh-metadata` | Re-upload metadata JSON |
+| `rebuild` | Rebuild manifest from S3 metadata |
+| `init` | Interactive S3 setup |
 
 ## Testing Patterns
 
 Tests use mock implementations — never external services or credentials:
 
-- `createMockS3Provider()` — in-memory `Map<string, Uint8Array>`
-- `createMockExporter()` — returns pre-configured assets from a `Map`
-- `makeAsset()` helper in test files creates `PhotoAsset` with sensible defaults
-  and partial overrides
+- `MockS3Provider` — in-memory `[String: Data]`
+- `MockExportProvider` — returns canned export results
+- `TimeoutExportProvider` — simulates batch timeouts + deferred retry
+
+Uses Swift Testing framework (`@Test`, `#expect`, `@Suite`).
 
 ## Reference Docs
 
-- [Architecture](docs/architecture.md) — pipeline, reader, ladder protocol,
-  manifest, interfaces
+- [Architecture](docs/architecture.md) — pipeline, reader, manifest, interfaces
 - [Asset Metadata](docs/metadata.md) — per-asset JSON schema uploaded to S3
 
 ## Conventions
 
 - Files should stay under 500 lines
-- Use `AssetKind.PHOTO` / `AssetKind.VIDEO` constants, not magic numbers
+- Use LadderKit's `AssetKind` constants, not magic numbers
 - S3 keys and UUIDs are validated with regex before interpolation (path
   traversal prevention)
-- `removeStagedFile()` constrains deletion to the staging directory
+- All dependencies injected via protocols
+- Swift 6 strict concurrency — all types are `Sendable` where needed

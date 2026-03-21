@@ -6,10 +6,13 @@
 
 Back up your iCloud Photos library to S3-compatible storage.
 
-Attic reads the Photos.sqlite database directly, exports originals via a
-companion Swift tool called [ladder](https://github.com/tijs/ladder), and
-uploads them to an S3-compatible bucket. A local manifest tracks what has
-already been backed up so subsequent runs only upload new assets.
+Attic reads your Photos library via PhotoKit, enriches metadata from
+Photos.sqlite, exports originals with SHA-256 hashing, and uploads them to an
+S3-compatible bucket. A manifest on S3 tracks what has already been backed up so
+subsequent runs only upload new assets.
+
+Uses [LadderKit](https://github.com/tijs/ladder) for PhotoKit access and
+AppleScript fallback for iCloud-only assets.
 
 Works with any S3-compatible provider. EU-friendly options include
 [Scaleway](https://www.scaleway.com/en/object-storage/),
@@ -24,23 +27,29 @@ Works with any S3-compatible provider. EU-friendly options include
 brew install tijs/tap/attic
 ```
 
-### From source (requires Deno v2+)
+### From source (requires Swift 6.x, macOS 14+)
 
 ```bash
 git clone https://github.com/tijs/attic.git
 cd attic
-deno task install
+swift build -c release
+sudo cp .build/release/AtticCLI /usr/local/bin/attic
 ```
-
-This installs `attic` to `~/.deno/bin/`. Make sure that's on your PATH.
 
 ## Prerequisites
 
-- The [ladder](https://github.com/tijs/ladder) binary. Ladder is a separate
-  Swift tool that uses PhotoKit to export original photo/video files from the
-  Photos library.
+- macOS 14+ (Sonoma), Apple Silicon
 - An S3-compatible storage bucket and API credentials
-- macOS (Photos.sqlite access and Keychain are macOS-only)
+
+## Permissions
+
+On first run, macOS will show permission dialogs for:
+
+- **Photos library access** — required to read your photo/video assets
+- **Keychain access** — required to read stored S3 credentials
+
+Both are one-time prompts. Click "Allow" or "Always Allow" to proceed. These
+permissions can be reviewed in System Settings → Privacy & Security.
 
 ## Setup
 
@@ -54,19 +63,6 @@ This prompts for your S3 endpoint, region, bucket name, and credentials. Config
 is saved to `~/.attic/config.json` and credentials are stored in the macOS
 Keychain.
 
-Build the ladder binary and add it to your PATH (see
-[ladder](https://github.com/tijs/ladder) for details):
-
-```bash
-git clone https://github.com/tijs/ladder.git
-cd ladder
-swift build -c release
-sudo cp .build/release/ladder /usr/local/bin/
-```
-
-Alternatively, pass `--ladder <path>` to the backup command or set the
-`LADDER_PATH` environment variable.
-
 ## Commands
 
 ### init
@@ -79,8 +75,8 @@ attic init
 
 ### scan
 
-Scan the Photos library and print statistics (asset counts, sizes, types, local
-vs iCloud-only).
+Scan the Photos library and print statistics (asset counts, types, favorites,
+edits).
 
 ```bash
 attic scan
@@ -88,8 +84,8 @@ attic scan
 
 ### status
 
-Compare the Photos database against the local backup manifest to show how many
-assets are backed up vs pending.
+Compare the Photos library against the S3 manifest to show how many assets are
+backed up vs pending.
 
 ```bash
 attic status
@@ -97,43 +93,39 @@ attic status
 
 ### backup
 
-Export pending assets via ladder and upload originals + metadata JSON to S3.
+Export pending assets and upload originals + metadata JSON to S3.
 
 ```bash
 attic backup
 ```
 
-| Flag                  | Description                                              |
-| --------------------- | -------------------------------------------------------- |
-| `--dry-run`           | Show what would be uploaded without uploading            |
-| `--limit N`           | Stop after N assets (useful for test runs)               |
-| `--batch-size N`      | Assets per export batch (default: 50)                    |
-| `--type photo\|video` | Only back up photos or videos                            |
-| `--bucket NAME`       | Override bucket from config                              |
-| `--ladder PATH`       | Path to the ladder binary (or set `LADDER_PATH` env var) |
-| `--db PATH`           | Path to Photos.sqlite                                    |
-| `-q, --quiet`         | Suppress progress output (for unattended use)            |
-| `--log PATH`          | Append structured JSONL log to file                      |
-| `--notify`            | Send macOS notification on completion                    |
+| Flag                  | Description                                |
+| --------------------- | ------------------------------------------ |
+| `--dry-run`           | Show what would be uploaded without uploading |
+| `--limit N`           | Stop after N assets (useful for test runs) |
+| `--batch-size N`      | Assets per export batch (default: 50)      |
+| `--type photo\|video` | Only back up photos or videos              |
+
+During a backup, a live-updating terminal dashboard shows progress, speed,
+current file, and elapsed time. Non-TTY output (pipes, CI) falls back to
+line-by-line progress.
 
 ### verify
 
-Verify backup integrity by checking S3 objects against the manifest.
+Verify backup integrity by confirming every manifest entry exists in S3.
 
 ```bash
 attic verify
 ```
 
-| Flag                 | Description                                                |
-| -------------------- | ---------------------------------------------------------- |
-| `--deep`             | Download each object and re-verify SHA-256 checksum (slow) |
-| `--rebuild-manifest` | Reconstruct the local manifest from S3 metadata files      |
-| `--bucket NAME`      | Override bucket from config                                |
+| Flag              | Description                       |
+| ----------------- | --------------------------------- |
+| `--concurrency N` | Concurrent requests (default: 20) |
 
 ### refresh-metadata
 
 Re-upload metadata JSON for already backed-up assets without re-uploading the
-original files. Useful after adding new metadata fields or enrichments.
+original files. Useful after adding new metadata fields.
 
 ```bash
 attic refresh-metadata
@@ -143,13 +135,18 @@ attic refresh-metadata
 | ----------------- | -------------------------------- |
 | `--dry-run`       | Show what would be uploaded      |
 | `--concurrency N` | Concurrent uploads (default: 20) |
-| `--bucket NAME`   | Override bucket from config      |
-| `--db PATH`       | Path to Photos.sqlite            |
+
+### rebuild
+
+Rebuild the manifest from S3 metadata files (disaster recovery).
+
+```bash
+attic rebuild
+```
 
 ## Configuration
 
-Attic stores its configuration at `~/.attic/config.json` (see
-`config.example.json` for a template):
+Attic stores its configuration at `~/.attic/config.json`:
 
 ```json
 {
@@ -168,42 +165,45 @@ The `keychain` section is optional and defaults to the service names shown
 above. Credentials are always stored in the macOS Keychain, never in config
 files or environment variables.
 
-`scan` and `status` work without config (they only read Photos.sqlite). `backup`
-and `verify` require config and will tell you to run `attic init` if it's
-missing.
+`scan` works without config (it only reads the Photos library). All other
+commands require config and S3 credentials — run `attic init` if missing.
+
+## Architecture
+
+```
+Photos Library → PhotoKit (LadderKit) → AssetInfo[]
+                                           ↓
+                               BackupPipeline (AtticCore)
+                                   ↓              ↓
+                             S3 upload      Manifest update
+```
+
+The project is a Swift package with three targets:
+
+- **AtticCore** — shared library: S3 provider, manifest, config, keychain,
+  metadata, backup/verify/refresh pipelines. Designed for reuse by both the CLI
+  and a planned macOS menu bar app.
+- **AtticCLI** — executable: ArgumentParser commands, terminal renderer
+- **AtticCoreTests** — tests using Swift Testing framework
+
+All external dependencies are behind protocols (`S3Providing`, `ManifestStoring`,
+`ConfigProviding`, `KeychainProviding`, `ExportProviding`) for testability.
 
 ## Development
 
-If you're working on attic itself, use `deno task` to run commands from source:
-
 ```bash
-deno task check       # Type check
-deno task test        # Run tests
-deno task lint        # Lint
-deno task fmt         # Format
-deno task compile     # Build standalone binary
+swift build                    # Build
+swift test                     # Run tests
+swift build -c release         # Release build
+swift test --filter "testName" # Run single test
 ```
 
-## Testing
-
-```bash
-deno task test
-```
-
-Tests use dependency injection with mock implementations for the S3 client and
-exporter, so no external services or credentials are needed.
+Tests use dependency injection with mock implementations (MockS3Provider,
+MockExportProvider) — no external services or credentials needed.
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) -- How attic works: the backup pipeline,
-  Photos.sqlite reader, ladder protocol, manifest lifecycle, and design
-  boundaries
-- [Asset Metadata](docs/metadata.md) -- Schema reference for the per-asset JSON
+- [Architecture](docs/architecture.md) — How attic works: the backup pipeline,
+  photo library access, manifest lifecycle, and design boundaries
+- [Asset Metadata](docs/metadata.md) — Schema reference for the per-asset JSON
   uploaded to S3
-- [Unattended Backups](docs/unattended-backups.md) -- Set up daily scheduled
-  backups via launchd on a dedicated Mac
-
-## Future Plans
-
-- **Rendered edit backup** -- Detect and upload edited versions alongside
-  originals (see `docs/plans/`)

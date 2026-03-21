@@ -1,4 +1,10 @@
-node_modules/
+# Swift
+.build/
+.swiftpm/
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+Package.resolved
 
 # User config (contains endpoint, bucket, keychain service names)
 ~/.attic/
