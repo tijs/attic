@@ -111,7 +111,12 @@ export async function runInit(): Promise<void> {
   );
   console.log("  Done.");
 
+  console.log("\n  Setup complete.\n");
+  console.log("  Required permissions (System Settings > Privacy & Security):");
+  console.log("  - Photos:     grant access to ladder");
+  console.log("  - Full Disk Access: enable for attic and ladder");
   console.log(
-    '\n  Setup complete. Run "attic scan" to see your Photos library.\n',
+    "  - Automation: grant ladder access to Photos (for iCloud-only assets)",
   );
+  console.log('\n  Run "attic scan" to see your Photos library.\n');
 }

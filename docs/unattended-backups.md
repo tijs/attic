@@ -26,6 +26,26 @@ for both:
 If you skip this, backups will fail with a permission error when trying to read
 the Photos database.
 
+## Automation permission (for iCloud-only assets)
+
+When "Optimize Mac Storage" is enabled, some assets exist only in iCloud and are
+invisible to PhotoKit. Ladder uses an AppleScript fallback via Photos.app to
+export these. This requires **Automation permission**.
+
+Open **System Settings > Privacy & Security > Automation** and grant
+`/opt/homebrew/bin/ladder` access to **Photos**.
+
+The easiest way to trigger the permission prompt is to run a test backup
+interactively:
+
+```bash
+attic backup --limit 1
+```
+
+If the permission is missing, attic will show a clear error message and abort
+before doing any work. For unattended LaunchAgent runs, the permission must be
+granted interactively once beforehand.
+
 ## LaunchAgent setup
 
 Create a LaunchAgent plist that runs `attic backup` daily.
@@ -200,6 +220,7 @@ rm ~/Library/LaunchAgents/photos.attic.verify.plist
   next run picks up where it left off.
 - **Disk space**: Attic stages files temporarily in `~/.attic/staging/` during
   export. Make sure there's enough free space for a batch (default 50 assets).
-- **iCloud-only assets**: If most of your library is iCloud-only, the first
-  backup will download everything from iCloud. This can be slow on the initial
-  run.
+- **iCloud-only assets**: Assets that only exist in iCloud are exported via
+  AppleScript fallback (one at a time, sequentially). This is slower than the
+  normal PhotoKit path since each asset is downloaded from iCloud. The first
+  backup of a large iCloud-only library may take a while.

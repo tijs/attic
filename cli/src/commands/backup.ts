@@ -10,7 +10,11 @@ import {
 import type { Manifest, ManifestStore } from "../manifest/manifest.ts";
 import { isBackedUp, markBackedUp } from "../manifest/manifest.ts";
 import type { ExportBatchResult, Exporter } from "../export/exporter.ts";
-import { isTimeoutError, removeStagedFile } from "../export/exporter.ts";
+import {
+  isPermissionError,
+  isTimeoutError,
+  removeStagedFile,
+} from "../export/exporter.ts";
 import type { S3Provider } from "../storage/s3-client.ts";
 import { formatBytes } from "../format.ts";
 import { startSpinner } from "../spinner.ts";
@@ -354,6 +358,26 @@ export async function runBackup(
 
         // Upload whatever succeeded from individual retries
         await uploadExported(combined);
+      } else if (isPermissionError(error)) {
+        // Permission error: abort all remaining batches — retrying won't help
+        const msg = error instanceof Error ? error.message : String(error);
+        console.error(`\n  ${msg}`);
+        console.error(
+          `\n  Fix the permission issue and run \`attic backup\` again.\n`,
+        );
+        for (const uuid of batchUuids) {
+          report.errors.push({ uuid, message: msg });
+          report.failed++;
+          logger.error(uuid, msg);
+        }
+        // Mark all remaining assets as failed too
+        for (
+          const uuid of pending.slice(i + options.batchSize).map((a) => a.uuid)
+        ) {
+          report.errors.push({ uuid, message: msg });
+          report.failed++;
+        }
+        break;
       } else {
         // Non-timeout error: fail the whole batch
         const msg = error instanceof Error ? error.message : String(error);
@@ -461,7 +485,7 @@ export async function runBackup(
 function exportErrorDetail(asset: PhotoAsset, message: string): string {
   const hints: string[] = [];
   if (asset.cloudLocalState === CloudLocalState.ICLOUD_ONLY) {
-    hints.push("asset is iCloud-only (original not downloaded locally)");
+    hints.push("iCloud-only asset (AppleScript fallback attempted)");
   }
   if (!asset.originalFileSize) {
     hints.push("no original file size recorded");

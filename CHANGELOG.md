@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.5
+
+Support for ladder v0.3.0 — iCloud-only asset export via AppleScript fallback.
+
+- **Permission error detection** — when ladder reports a missing Automation
+  permission, attic aborts immediately with a clear message instead of retrying
+  every batch
+- **Updated init output** — `attic init` now lists all required permissions
+  (Photos, Full Disk Access, Automation)
+- **iCloud-only error context** — export errors for iCloud-only assets now note
+  that the AppleScript fallback was attempted
+- Updated architecture docs to reflect ladder's AppleScript fallback
+- Updated unattended backup guide with Automation permission setup
+
+Compatible with ladder v0.3.0.
+
 ## 0.2.4
 
 Review fixes: type safety, error handling, cleanup.

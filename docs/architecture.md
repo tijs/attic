@@ -88,6 +88,12 @@ use the `UUID/L0/001` format; attic strips the suffix before further processing.
 Ladder output is validated at the trust boundary with
 `assertExportBatchResult()`.
 
+When PhotoKit can't find an asset (typically iCloud-only with Optimize Storage),
+ladder falls back to AppleScript via Photos.app. Photos.app handles the iCloud
+download transparently. The AppleScript fallback runs sequentially after all
+PhotoKit exports complete. The response format is identical — attic sees no
+difference between PhotoKit and AppleScript exports.
+
 ### 3. Upload
 
 For each exported file, attic:
@@ -166,7 +172,8 @@ Tests never hit external services, credentials, or the real Photos library.
 ## What attic doesn't do
 
 - **Modify Photos.sqlite** — read-only access, always
-- **Download from iCloud** — relies on Photos having local copies of originals
+- **Download from iCloud directly** — ladder handles iCloud-only assets via
+  AppleScript fallback through Photos.app
 - **Delete from S3** — the backup is append-only; there is no prune or cleanup
   command
 - **Back up thumbnails** — only original files and metadata

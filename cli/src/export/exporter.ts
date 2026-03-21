@@ -40,6 +40,14 @@ export class LadderTimeoutError extends Error {
   }
 }
 
+/** Thrown when ladder reports a missing macOS permission (e.g. Automation). */
+export class LadderPermissionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LadderPermissionError";
+  }
+}
+
 const DEFAULT_STAGING_DIR = join(
   Deno.env.get("HOME") ?? "~",
   ".attic",
@@ -172,10 +180,13 @@ async function spawnLadder(
   const result = await raceSubprocess(process, timeoutMs, signal);
 
   if (result.code !== 0) {
-    const err = new TextDecoder().decode(result.stderr);
-    throw new Error(
-      `ladder exited with code ${result.code}: ${err.trim()}`,
-    );
+    const err = new TextDecoder().decode(result.stderr).trim();
+    if (err.includes("Automation permission")) {
+      throw new LadderPermissionError(
+        err.replace(/^ladder:\s*/, ""),
+      );
+    }
+    throw new Error(`ladder exited with code ${result.code}: ${err}`);
   }
 
   const output = new TextDecoder().decode(result.stdout);
@@ -196,6 +207,11 @@ async function spawnLadder(
 /** Check whether an error is a ladder timeout. */
 export function isTimeoutError(error: unknown): boolean {
   return error instanceof LadderTimeoutError;
+}
+
+/** Check whether an error is a ladder permission issue. */
+export function isPermissionError(error: unknown): boolean {
+  return error instanceof LadderPermissionError;
 }
 
 /** Create an exporter that shells out to the ladder binary. */
