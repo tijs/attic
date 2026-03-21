@@ -75,6 +75,31 @@ export async function runBackup(
   const log = options.quiet ? () => {} : console.log.bind(console);
   const logger = options.logger;
 
+  // Pre-flight: verify ladder has required permissions before doing any work
+  if (exporter.checkPermissions) {
+    try {
+      await exporter.checkPermissions();
+    } catch (error: unknown) {
+      if (isPermissionError(error)) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.error(`\n  ${msg}`);
+        console.error(
+          `\n  Fix the permission issue and run \`attic backup\` again.\n`,
+        );
+        return {
+          uploaded: 0,
+          failed: assets.length,
+          skipped: 0,
+          totalBytes: 0,
+          errors: [],
+        };
+      }
+      // Non-permission errors from the probe are non-fatal — ladder may
+      // not be installed yet, or Photos may not be set up. Let the normal
+      // batch flow surface these errors with full context.
+    }
+  }
+
   // Filter to pending assets
   let pending = assets.filter((a) => !isBackedUp(manifest, a.uuid));
 

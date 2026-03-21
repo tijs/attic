@@ -30,6 +30,8 @@ export interface Exporter {
   ): Promise<ExportBatchResult>;
   /** Hint to scale timeout for the next exportBatch call. Implementations may ignore. */
   setEstimatedBatchBytes?(estimatedBytes: number): void;
+  /** Pre-flight check: verify ladder has required permissions (Photos, Automation). */
+  checkPermissions?(): Promise<void>;
 }
 
 /** Thrown when the ladder subprocess exceeds its timeout. */
@@ -232,6 +234,16 @@ export function createLadderExporter(
         baseTimeoutMs,
         timeoutForBytes(estimatedBytes),
       );
+    },
+
+    async checkPermissions(): Promise<void> {
+      if (!stagingDirCreated) {
+        await Deno.mkdir(stagingDir, { recursive: true });
+        stagingDirCreated = true;
+      }
+      // Spawn ladder with an empty UUID list — triggers pre-flight
+      // permission checks without exporting anything.
+      await spawnLadder(ladderPath, [], stagingDir, 30_000);
     },
 
     async exportBatch(
