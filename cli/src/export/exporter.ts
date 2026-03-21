@@ -113,64 +113,145 @@ function stripLocalIdSuffix(id: string): string {
 /** Default timeout for the ladder subprocess (5 minutes). */
 const LADDER_TIMEOUT_MS = 5 * 60 * 1000;
 
+/** Maximum subdivision depth when retrying timed-out batches. */
+const MAX_SUBDIVIDE_DEPTH = 3;
+
+/** Options for creating a ladder exporter. */
+export interface LadderExporterOptions {
+  stagingDir?: string;
+  timeoutMs?: number;
+  /** Called when a timed-out batch is subdivided for retry. */
+  onSubdivide?: (originalSize: number, parts: number) => void;
+}
+
+/** Spawn a single ladder process and return the parsed result. */
+async function spawnLadder(
+  ladderPath: string,
+  uuids: string[],
+  stagingDir: string,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<ExportBatchResult> {
+  await Deno.mkdir(stagingDir, { recursive: true });
+
+  // PhotoKit expects local identifiers in "UUID/L0/001" format
+  const photoKitIds = uuids.map((uuid) => `${uuid}/L0/001`);
+
+  const request = JSON.stringify({
+    uuids: photoKitIds,
+    stagingDir,
+  });
+
+  const cmd = new Deno.Command(ladderPath, {
+    stdin: "piped",
+    stdout: "piped",
+    stderr: "piped",
+  });
+
+  const process = cmd.spawn();
+
+  const writer = process.stdin.getWriter();
+  await writer.write(new TextEncoder().encode(request));
+  await writer.close();
+
+  // Race the subprocess against timeout and abort signal
+  const result = await raceSubprocess(process, timeoutMs, signal);
+
+  if (result.code !== 0) {
+    const err = new TextDecoder().decode(result.stderr);
+    throw new Error(
+      `ladder exited with code ${result.code}: ${err.trim()}`,
+    );
+  }
+
+  const output = new TextDecoder().decode(result.stdout);
+  const parsed: unknown = JSON.parse(output);
+  assertExportBatchResult(parsed);
+
+  // Map PhotoKit identifiers ("UUID/L0/001") back to bare UUIDs
+  for (const r of parsed.results) {
+    r.uuid = stripLocalIdSuffix(r.uuid);
+  }
+  for (const e of parsed.errors) {
+    e.uuid = stripLocalIdSuffix(e.uuid);
+  }
+
+  return parsed;
+}
+
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof Error && /timed out/i.test(error.message);
+}
+
+/** Try a batch; on timeout, split in half and retry each half recursively.
+ *  Stops at MAX_SUBDIVIDE_DEPTH and reports remaining UUIDs as failed. */
+export async function exportWithSubdivision(
+  spawn: (uuids: string[], signal?: AbortSignal) => Promise<ExportBatchResult>,
+  uuids: string[],
+  signal?: AbortSignal,
+  onSubdivide?: (originalSize: number, parts: number) => void,
+  depth: number = 0,
+): Promise<ExportBatchResult> {
+  try {
+    return await spawn(uuids, signal);
+  } catch (error: unknown) {
+    if (!isTimeoutError(error)) throw error;
+    if (depth >= MAX_SUBDIVIDE_DEPTH) {
+      // Give up — report all UUIDs in this chunk as failed
+      return {
+        results: [],
+        errors: uuids.map((uuid) => ({
+          uuid,
+          message: "Export timed out after subdivision retries",
+        })),
+      };
+    }
+
+    const mid = Math.ceil(uuids.length / 2);
+    const parts = uuids.length <= mid ? 1 : 2;
+    onSubdivide?.(uuids.length, parts);
+
+    const left = uuids.slice(0, mid);
+    const right = uuids.slice(mid);
+    const chunks = right.length > 0 ? [left, right] : [left];
+
+    const combined: ExportBatchResult = { results: [], errors: [] };
+    for (const chunk of chunks) {
+      if (signal?.aborted) break;
+      const result = await exportWithSubdivision(
+        spawn,
+        chunk,
+        signal,
+        onSubdivide,
+        depth + 1,
+      );
+      combined.results.push(...result.results);
+      combined.errors.push(...result.errors);
+    }
+    return combined;
+  }
+}
+
 /** Create an exporter that shells out to the ladder binary. */
 export function createLadderExporter(
   ladderPath: string,
-  stagingDir: string = DEFAULT_STAGING_DIR,
-  timeoutMs: number = LADDER_TIMEOUT_MS,
+  opts: LadderExporterOptions = {},
 ): Exporter & { stagingDir: string } {
+  const stagingDir = opts.stagingDir ?? DEFAULT_STAGING_DIR;
+  const timeoutMs = opts.timeoutMs ?? LADDER_TIMEOUT_MS;
+  const onSubdivide = opts.onSubdivide;
+
+  const spawn = (uuids: string[], signal?: AbortSignal) =>
+    spawnLadder(ladderPath, uuids, stagingDir, timeoutMs, signal);
+
   return {
     stagingDir,
 
-    async exportBatch(
+    exportBatch(
       uuids: string[],
       signal?: AbortSignal,
     ): Promise<ExportBatchResult> {
-      await Deno.mkdir(stagingDir, { recursive: true });
-
-      // PhotoKit expects local identifiers in "UUID/L0/001" format
-      const photoKitIds = uuids.map((uuid) => `${uuid}/L0/001`);
-
-      const request = JSON.stringify({
-        uuids: photoKitIds,
-        stagingDir,
-      });
-
-      const cmd = new Deno.Command(ladderPath, {
-        stdin: "piped",
-        stdout: "piped",
-        stderr: "piped",
-      });
-
-      const process = cmd.spawn();
-
-      const writer = process.stdin.getWriter();
-      await writer.write(new TextEncoder().encode(request));
-      await writer.close();
-
-      // Race the subprocess against timeout and abort signal
-      const result = await raceSubprocess(process, timeoutMs, signal);
-
-      if (result.code !== 0) {
-        const err = new TextDecoder().decode(result.stderr);
-        throw new Error(
-          `ladder exited with code ${result.code}: ${err.trim()}`,
-        );
-      }
-
-      const output = new TextDecoder().decode(result.stdout);
-      const parsed: unknown = JSON.parse(output);
-      assertExportBatchResult(parsed);
-
-      // Map PhotoKit identifiers ("UUID/L0/001") back to bare UUIDs
-      for (const r of parsed.results) {
-        r.uuid = stripLocalIdSuffix(r.uuid);
-      }
-      for (const e of parsed.errors) {
-        e.uuid = stripLocalIdSuffix(e.uuid);
-      }
-
-      return parsed;
+      return exportWithSubdivision(spawn, uuids, signal, onSubdivide);
     },
   };
 }

@@ -320,7 +320,11 @@ export async function runBackup(
     log(`\n  ── Complete ──`);
     log(`  Uploaded:  ${report.uploaded.toLocaleString()}`);
     log(`  Failed:    ${report.failed.toLocaleString()}`);
-    log(`  Total:     ${formatBytes(report.totalBytes)}\n`);
+    log(`  Total:     ${formatBytes(report.totalBytes)}`);
+    if (report.failed > 0) {
+      log(`\n  Run \`attic backup\` again to retry failed assets.`);
+    }
+    log();
     logger.complete(report.uploaded, report.failed, report.totalBytes);
   }
 

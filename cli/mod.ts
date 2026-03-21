@@ -135,7 +135,17 @@ main.command("backup", "Back up pending assets to S3")
       const ladderPath = options.ladder ??
         Deno.env.get("LADDER_PATH") ??
         "ladder";
-      const exporter = createLadderExporter(ladderPath);
+      const exporter = createLadderExporter(ladderPath, {
+        onSubdivide: (size, parts) => {
+          if (!options.quiet) {
+            console.log(
+              `    Export timed out (${size} assets) — retrying as ${parts}x${
+                Math.ceil(size / parts)
+              }...`,
+            );
+          }
+        },
+      });
 
       await runBackup(assets, manifest, manifestStore, exporter, s3, {
         batchSize: options.batchSize,
