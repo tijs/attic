@@ -2,6 +2,7 @@ import type { PhotoAsset } from "@attic/shared";
 import {
   AssetKind,
   buildMetadataJson,
+  CloudLocalState,
   extensionFromUtiOrFilename,
   metadataKey,
   originalKey,
@@ -180,12 +181,16 @@ export async function runBackup(
   async function uploadExported(
     batchResult: ExportBatchResult,
   ): Promise<void> {
-    // Record export errors
+    // Record export errors with asset context
     for (const err of batchResult.errors) {
-      console.error(`    Export error: ${err.uuid} — ${err.message}`);
+      const asset = assetByUuid.get(err.uuid);
+      const detail = asset
+        ? exportErrorDetail(asset, err.message)
+        : err.message;
+      console.error(`    Export error: ${assetLabel(err.uuid)} — ${detail}`);
       report.errors.push(err);
       report.failed++;
-      logger.error(err.uuid, err.message);
+      logger.error(err.uuid, detail);
     }
 
     for (const exported of batchResult.results) {
@@ -450,6 +455,19 @@ export async function runBackup(
   }
 
   return report;
+}
+
+/** Add context to a ladder export error based on what we know about the asset. */
+function exportErrorDetail(asset: PhotoAsset, message: string): string {
+  const hints: string[] = [];
+  if (asset.cloudLocalState === CloudLocalState.ICLOUD_ONLY) {
+    hints.push("asset is iCloud-only (original not downloaded locally)");
+  }
+  if (!asset.originalFileSize) {
+    hints.push("no original file size recorded");
+  }
+  if (hints.length === 0) return message;
+  return `${message} — ${hints.join(", ")}`;
 }
 
 function contentTypeFor(ext: string): string {
