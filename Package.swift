@@ -11,7 +11,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/awslabs/aws-sdk-swift.git", from: "1.6.0"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.7.0"),
-        .package(path: "../ladder"),
+        .package(url: "https://github.com/tijs/ladder.git", from: "0.3.4"),
     ],
     targets: [
         .target(
