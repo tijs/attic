@@ -130,8 +130,10 @@ function stripLocalIdSuffix(id: string): string {
   return slashIndex === -1 ? id : id.substring(0, slashIndex);
 }
 
-/** Base timeout for the ladder subprocess (5 minutes). */
-const LADDER_BASE_TIMEOUT_MS = 5 * 60 * 1000;
+/** Base timeout for the ladder subprocess (10 minutes).
+ *  Matches ladder's per-asset AppleScript timeout so iCloud downloads
+ *  don't get killed while still in progress. */
+const LADDER_BASE_TIMEOUT_MS = 10 * 60 * 1000;
 
 /** Extra timeout per 100 MB of estimated batch size (~1 min per 100 MB). */
 const TIMEOUT_PER_100MB_MS = 60 * 1000;
@@ -183,7 +185,8 @@ async function spawnLadder(
 
   if (result.code !== 0) {
     const err = new TextDecoder().decode(result.stderr).trim();
-    if (err.includes("Automation permission")) {
+    // Exit code 77 = permission error (ladder convention)
+    if (result.code === 77) {
       throw new LadderPermissionError(
         err.replace(/^ladder:\s*/, ""),
       );
