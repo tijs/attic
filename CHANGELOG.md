@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.0-alpha.2
+
+Animated preparation spinner for the backup command.
+
+- **Preparation spinner** — shows an animated spinner with status messages
+  ("Loading manifest from S3...", "Scanning Photos library...") during the
+  preparation phase before uploads begin, so the CLI no longer appears hung
+- **Unused variable fix** — removed unused `config` binding in backup command
+
 ## 0.2.6
 
 Hardened error detection and timeout handling.

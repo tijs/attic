@@ -22,8 +22,17 @@ struct BackupCommand: AsyncParsableCommand {
     var dryRun: Bool = false
 
     func run() async throws {
-        let (config, s3, manifestStore) = try Dependencies.makeBackupDeps()
+        let isTTY = isatty(STDOUT_FILENO) != 0
+        let spinner = isTTY ? PreparationSpinner() : nil
+        spinner?.start()
+
+        spinner?.updateStatus("Loading configuration...")
+        let (_, s3, manifestStore) = try Dependencies.makeBackupDeps()
+
+        spinner?.updateStatus("Loading manifest from S3...")
         var manifest = try await Dependencies.loadManifest(store: manifestStore)
+
+        spinner?.updateStatus("Scanning Photos library...")
         let assets = Dependencies.loadAssets()
 
         let assetKind: AssetKind? = switch type?.lowercased() {
@@ -42,10 +51,10 @@ struct BackupCommand: AsyncParsableCommand {
         // Pre-flight permission check
         try await exporter.checkPermissions()
 
-        let isTTY = isatty(STDOUT_FILENO) != 0
-        let progress: any BackupProgressDelegate = isTTY
-            ? TerminalRenderer()
-            : LogProgressDelegate()
+        spinner?.updateStatus("Comparing assets...")
+
+        let renderer = isTTY ? TerminalRenderer(spinner: spinner) : nil
+        let progress: any BackupProgressDelegate = renderer ?? LogProgressDelegate()
 
         let options = BackupOptions(
             batchSize: batchSize,

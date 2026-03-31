@@ -11,6 +11,11 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
     private var state = RenderState()
     private var startTime: Date?
     private var lastRenderTime: Date?
+    private let spinner: PreparationSpinner?
+
+    init(spinner: PreparationSpinner? = nil) {
+        self.spinner = spinner
+    }
 
     private struct RenderState {
         var total: Int = 0
@@ -30,6 +35,7 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
     // MARK: - BackupProgressDelegate
 
     func backupStarted(pending: Int, photos: Int, videos: Int) {
+        spinner?.stop()
         lock.withLock {
             state.total = pending
             state.photos = photos
