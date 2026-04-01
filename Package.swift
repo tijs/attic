@@ -9,7 +9,7 @@ let package = Package(
         .library(name: "AtticCore", targets: ["AtticCore"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/awslabs/aws-sdk-swift.git", from: "1.6.0"),
+        .package(url: "https://github.com/adam-fowler/aws-signer-v4.git", from: "3.0.0"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.7.0"),
         .package(url: "https://github.com/tijs/ladder.git", from: "0.3.4"),
     ],
@@ -17,7 +17,7 @@ let package = Package(
         .target(
             name: "AtticCore",
             dependencies: [
-                .product(name: "AWSS3", package: "aws-sdk-swift"),
+                .product(name: "AWSSigner", package: "aws-signer-v4"),
                 .product(name: "LadderKit", package: "ladder"),
             ],
             path: "Sources/AtticCore"

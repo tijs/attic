@@ -23,8 +23,8 @@ enum Dependencies {
     }
 
     /// Create an S3 client from config + credentials.
-    static func makeS3Client(config: AtticConfig, credentials: S3Credentials) throws -> AWSS3Client {
-        try AWSS3Client(
+    static func makeS3Client(config: AtticConfig, credentials: S3Credentials) throws -> URLSessionS3Client {
+        try URLSessionS3Client(
             credentials: credentials,
             bucket: config.bucket,
             endpoint: config.endpoint,
@@ -36,7 +36,7 @@ enum Dependencies {
     /// Create the full set of backup dependencies.
     static func makeBackupDeps() throws -> (
         config: AtticConfig,
-        s3: AWSS3Client,
+        s3: URLSessionS3Client,
         manifestStore: S3ManifestStore
     ) {
         let config = try loadConfig()
