@@ -4,9 +4,9 @@ import Foundation
 public enum S3Paths {
     // MARK: - Validation patterns
 
-    nonisolated(unsafe) private static let uuidPattern = /^[A-Za-z0-9._\-]+$/
-    nonisolated(unsafe) private static let s3KeyPattern = /^[A-Za-z0-9\/._\-]+$/
-    nonisolated(unsafe) private static let extPattern = /^[a-z0-9]+$/
+    private nonisolated(unsafe) static let uuidPattern = /^[A-Za-z0-9._\-]+$/
+    private nonisolated(unsafe) static let s3KeyPattern = /^[A-Za-z0-9\/._\-]+$/
+    private nonisolated(unsafe) static let extPattern = /^[a-z0-9]+$/
 
     /// UTI-to-extension lookup table.
     private static let utiMap: [String: String] = [

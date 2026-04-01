@@ -19,10 +19,10 @@ opt_in_rules:
   - empty_string
   - first_where
   - last_where
-  - modifier_order
   - redundant_type_annotation
   - sorted_imports
   - vertical_whitespace_closing_braces
+  # modifier_order intentionally omitted — swiftformat handles this
 
 identifier_name:
   min_length: 1

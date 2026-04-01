@@ -106,7 +106,7 @@ public struct FileConfigProvider: ConfigProviding {
 
 // MARK: - Validation
 
-nonisolated(unsafe) private let bucketPattern = /^[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9]$/
+private nonisolated(unsafe) let bucketPattern = /^[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9]$/
 
 extension AtticConfig {
     /// Validate a raw JSON object into an AtticConfig.

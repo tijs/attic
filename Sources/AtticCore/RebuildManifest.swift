@@ -64,7 +64,7 @@ private struct MetadataForRebuild: Decodable {
     let backedUpAt: String?
 }
 
-nonisolated(unsafe) private let checksumValidation = /^sha256:[a-f0-9]+$/
+private nonisolated(unsafe) let checksumValidation = /^sha256:[a-f0-9]+$/
 
 private func isValidChecksum(_ value: String) -> Bool {
     value.wholeMatch(of: checksumValidation) != nil
