@@ -15,7 +15,7 @@ struct LadderKitExportProvider: ExportProviding {
     }
 
     func exportBatch(uuids: [String]) async throws -> ExportResponse {
-        try await exporter.export(uuids: uuids)
+        await exporter.export(uuids: uuids)
     }
 
     func checkPermissions() async throws {
