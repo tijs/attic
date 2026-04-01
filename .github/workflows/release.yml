@@ -14,6 +14,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: SwiftLint
+        run: swiftlint lint --quiet
+
+      - name: SwiftFormat check
+        run: swiftformat --lint .
+
       - name: Run tests
         run: swift test
 
