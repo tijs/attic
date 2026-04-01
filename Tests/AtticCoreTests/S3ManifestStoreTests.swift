@@ -1,8 +1,7 @@
-import Testing
-import Foundation
 @testable import AtticCore
+import Foundation
+import Testing
 
-@Suite("MockS3Provider")
 struct MockS3ProviderTests {
     @Test func putAndGetRoundTrip() async throws {
         let s3 = MockS3Provider()
@@ -72,12 +71,19 @@ private actor ThrowingS3Provider: S3Providing {
 
     func putObject(key: String, body: Data, contentType: String?) async throws {}
     func putObject(key: String, fileURL: URL, contentType: String?) async throws {}
-    func getObject(key: String) async throws -> Data { throw error }
-    func headObject(key: String) async throws -> S3ObjectMeta? { nil }
-    func listObjects(prefix: String) async throws -> [S3ListObject] { [] }
+    func getObject(key: String) async throws -> Data {
+        throw error
+    }
+
+    func headObject(key: String) async throws -> S3ObjectMeta? {
+        nil
+    }
+
+    func listObjects(prefix: String) async throws -> [S3ListObject] {
+        []
+    }
 }
 
-@Suite("S3ManifestStore")
 struct S3ManifestStoreTests {
     @Test func loadReturnsEmptyWhenKeyMissing() async throws {
         let s3 = MockS3Provider()
@@ -95,7 +101,8 @@ struct S3ManifestStoreTests {
 
     @Test func loadReturnsEmptyOnS3NoSuchKey() async throws {
         let s3 = ThrowingS3Provider(
-            error: S3ClientError.s3Error(code: "NoSuchKey", message: "Not found"))
+            error: S3ClientError.s3Error(code: "NoSuchKey", message: "Not found"),
+        )
         let store = S3ManifestStore(s3: s3)
         let manifest = try await store.load()
         #expect(manifest.entries.isEmpty)
@@ -117,7 +124,7 @@ struct S3ManifestStoreTests {
             uuid: "uuid-1",
             s3Key: "originals/2024/01/uuid-1.heic",
             checksum: "sha256:abc",
-            backedUpAt: "2024-01-15T00:00:00Z"
+            backedUpAt: "2024-01-15T00:00:00Z",
         )
         try await store.save(manifest)
 
@@ -136,7 +143,6 @@ struct S3ManifestStoreTests {
     }
 }
 
-@Suite("Manifest migration")
 struct ManifestMigrationTests {
     @Test func usesS3ManifestWhenPresent() async throws {
         let s3 = MockS3Provider()
@@ -146,13 +152,13 @@ struct ManifestMigrationTests {
             uuid: "s3-uuid",
             s3Key: "originals/2024/01/s3.heic",
             checksum: "sha256:s3",
-            backedUpAt: "2024-01-15T00:00:00Z"
+            backedUpAt: "2024-01-15T00:00:00Z",
         )
         try await store.save(existing)
 
         let manifest = try await loadManifestWithMigration(
             s3Store: store,
-            localDirectory: URL(fileURLWithPath: "/nonexistent")
+            localDirectory: URL(fileURLWithPath: "/nonexistent"),
         )
         #expect(manifest.isBackedUp("s3-uuid"))
     }
@@ -179,7 +185,7 @@ struct ManifestMigrationTests {
         try localJSON.write(
             to: dir.appendingPathComponent("manifest.json"),
             atomically: true,
-            encoding: .utf8
+            encoding: .utf8,
         )
 
         let s3 = MockS3Provider()
@@ -187,7 +193,7 @@ struct ManifestMigrationTests {
 
         let manifest = try await loadManifestWithMigration(
             s3Store: store,
-            localDirectory: dir
+            localDirectory: dir,
         )
         #expect(manifest.isBackedUp("local-uuid"))
 
@@ -201,7 +207,7 @@ struct ManifestMigrationTests {
         let store = S3ManifestStore(s3: s3)
         let manifest = try await loadManifestWithMigration(
             s3Store: store,
-            localDirectory: URL(fileURLWithPath: "/nonexistent")
+            localDirectory: URL(fileURLWithPath: "/nonexistent"),
         )
         #expect(manifest.entries.isEmpty)
     }
@@ -228,7 +234,7 @@ struct ManifestMigrationTests {
         try localJSON.write(
             to: dir.appendingPathComponent("manifest.json"),
             atomically: true,
-            encoding: .utf8
+            encoding: .utf8,
         )
 
         // S3 has a different entry
@@ -239,14 +245,14 @@ struct ManifestMigrationTests {
             uuid: "s3-uuid",
             s3Key: "originals/2024/01/s3.heic",
             checksum: "sha256:s3",
-            backedUpAt: "2024-01-15T00:00:00Z"
+            backedUpAt: "2024-01-15T00:00:00Z",
         )
         try await store.save(s3Manifest)
 
         // S3 should win — local is not consulted
         let manifest = try await loadManifestWithMigration(
             s3Store: store,
-            localDirectory: dir
+            localDirectory: dir,
         )
         #expect(manifest.isBackedUp("s3-uuid"))
         #expect(!manifest.isBackedUp("local-uuid"))

@@ -14,7 +14,7 @@ public struct RebuildManifestReport: Sendable {
 /// is lost or corrupted.
 public func runRebuildManifest(
     s3: any S3Providing,
-    manifestStore: any ManifestStoring
+    manifestStore: any ManifestStoring,
 ) async throws -> (Manifest, RebuildManifestReport) {
     let objects = try await s3.listObjects(prefix: "metadata/assets/")
     var manifest = Manifest()
@@ -32,7 +32,8 @@ public func runRebuildManifest(
 
             guard S3Paths.isValidUUID(parsed.uuid),
                   S3Paths.isValidS3Key(parsed.s3Key),
-                  isValidChecksum(parsed.checksum) else {
+                  isValidChecksum(parsed.checksum)
+            else {
                 report.errors.append((key: obj.key, message: "Validation failed"))
                 continue
             }
@@ -41,7 +42,7 @@ public func runRebuildManifest(
                 uuid: parsed.uuid,
                 s3Key: parsed.s3Key,
                 checksum: parsed.checksum,
-                backedUpAt: parsed.backedUpAt ?? isoFormatter.string(from: Date())
+                backedUpAt: parsed.backedUpAt ?? isoFormatter.string(from: Date()),
             )
             report.recovered += 1
         } catch {

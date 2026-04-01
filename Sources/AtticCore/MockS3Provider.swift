@@ -46,7 +46,7 @@ public actor MockS3Provider: S3Providing {
         guard let obj = objects[key] else { return nil }
         return S3ObjectMeta(
             contentLength: obj.body.count,
-            contentType: obj.contentType
+            contentType: obj.contentType,
         )
     }
 
@@ -57,7 +57,7 @@ public actor MockS3Provider: S3Providing {
             .map { key in
                 S3ListObject(
                     key: key,
-                    size: objects[key]?.body.count ?? 0
+                    size: objects[key]?.body.count ?? 0,
                 )
             }
     }

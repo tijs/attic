@@ -1,8 +1,7 @@
-import Testing
-import Foundation
 @testable import AtticCore
+import Foundation
+import Testing
 
-@Suite("RebuildManifest")
 struct RebuildManifestTests {
     @Test func rebuildsManifestFromMetadataFiles() async throws {
         let s3 = MockS3Provider()
@@ -28,7 +27,7 @@ struct RebuildManifestTests {
         try await s3.putObject(
             key: "metadata/assets/uuid-1.json",
             body: Data(metaJSON.utf8),
-            contentType: "application/json"
+            contentType: "application/json",
         )
 
         let (manifest, report) = try await runRebuildManifest(s3: s3, manifestStore: store)
@@ -46,7 +45,7 @@ struct RebuildManifestTests {
 
         try await s3.putObject(
             key: "metadata/assets/readme.txt",
-            body: Data("not json".utf8)
+            body: Data("not json".utf8),
         )
 
         let (manifest, report) = try await runRebuildManifest(s3: s3, manifestStore: store)
@@ -62,7 +61,7 @@ struct RebuildManifestTests {
 
         try await s3.putObject(
             key: "metadata/assets/broken.json",
-            body: Data("not valid json".utf8)
+            body: Data("not valid json".utf8),
         )
 
         let (manifest, report) = try await runRebuildManifest(s3: s3, manifestStore: store)
@@ -85,7 +84,7 @@ struct RebuildManifestTests {
         """
         try await s3.putObject(
             key: "metadata/assets/evil.json",
-            body: Data(metaJSON.utf8)
+            body: Data(metaJSON.utf8),
         )
 
         let (manifest, report) = try await runRebuildManifest(s3: s3, manifestStore: store)
@@ -109,7 +108,7 @@ struct RebuildManifestTests {
         """
         try await s3.putObject(
             key: "metadata/assets/uuid-1.json",
-            body: Data(metaJSON.utf8)
+            body: Data(metaJSON.utf8),
         )
 
         _ = try await runRebuildManifest(s3: s3, manifestStore: store)

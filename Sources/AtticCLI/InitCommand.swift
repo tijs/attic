@@ -1,17 +1,17 @@
 import ArgumentParser
-import Foundation
 import AtticCore
+import Foundation
 
 struct InitCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "init",
-        abstract: "Set up Attic with S3 endpoint, bucket, and credentials."
+        abstract: "Set up Attic with S3 endpoint, bucket, and credentials.",
     )
 
     func run() async throws {
-        debugPrint("Attic Setup")
-        debugPrint("===========")
-        debugPrint("")
+        print("Attic Setup")
+        print("===========")
+        print("")
 
         let endpoint = prompt("S3 endpoint (https://...): ")
         guard endpoint.hasPrefix("https://") else {
@@ -30,7 +30,7 @@ struct InitCommand: AsyncParsableCommand {
             endpoint: endpoint,
             region: region,
             bucket: bucket,
-            pathStyle: pathStyle
+            pathStyle: pathStyle,
         )
         // Save config
         let configProvider = FileConfigProvider()
@@ -41,17 +41,17 @@ struct InitCommand: AsyncParsableCommand {
         try keychain.store(service: config.keychain.accessKeyService, value: accessKey)
         try keychain.store(service: config.keychain.secretKeyService, value: secretKey)
 
-        debugPrint("")
-        debugPrint("Configuration saved.")
-        debugPrint("Credentials stored in macOS Keychain.")
-        debugPrint("")
-        debugPrint("Next steps:")
-        debugPrint("  attic scan      Scan your Photos library")
-        debugPrint("  attic status    Check backup progress")
-        debugPrint("  attic backup    Start backing up")
-        debugPrint("")
-        debugPrint("macOS will ask for permission to access Photos and")
-        debugPrint("Keychain on first run — both are expected and required.")
+        print("")
+        print("Configuration saved.")
+        print("Credentials stored in macOS Keychain.")
+        print("")
+        print("Next steps:")
+        print("  attic scan      Scan your Photos library")
+        print("  attic status    Check backup progress")
+        print("  attic backup    Start backing up")
+        print("")
+        print("macOS will ask for permission to access Photos and")
+        print("Keychain on first run — both are expected and required.")
     }
 }
 

@@ -5,7 +5,7 @@ import LadderKit
 struct StatusCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "status",
-        abstract: "Show backup progress — how many assets are backed up vs pending."
+        abstract: "Show backup progress — how many assets are backed up vs pending.",
     )
 
     func run() async throws {
@@ -29,19 +29,19 @@ struct StatusCommand: AsyncParsableCommand {
 
         let pct = assets.isEmpty ? 100.0 : Double(backedUpCount) / Double(assets.count) * 100
 
-        debugPrint("Attic Backup Status")
-        debugPrint("====================")
-        debugPrint("Bucket:        \(config.bucket)")
-        debugPrint("Completion:    \(String(format: "%.1f", pct))%")
-        debugPrint("")
-        debugPrint("Backed up:     \(backedUpCount) (\(formatBytes(backedUpBytes)))")
-        debugPrint("  Photos:      \(backedUpPhotos)")
-        debugPrint("  Videos:      \(backedUpVideos)")
-        debugPrint("")
-        debugPrint("Pending:       \(pendingCount)")
-        debugPrint("  Photos:      \(pendingPhotos)")
-        debugPrint("  Videos:      \(pendingVideos)")
-        debugPrint("")
-        debugPrint("Manifest:      \(manifest.entries.count) entries")
+        print("Attic Backup Status")
+        print("====================")
+        print("Bucket:        \(config.bucket)")
+        print("Completion:    \(String(format: "%.1f", pct))%")
+        print("")
+        print("Backed up:     \(backedUpCount) (\(formatBytes(backedUpBytes)))")
+        print("  Photos:      \(backedUpPhotos)")
+        print("  Videos:      \(backedUpVideos)")
+        print("")
+        print("Pending:       \(pendingCount)")
+        print("  Photos:      \(pendingPhotos)")
+        print("  Videos:      \(pendingVideos)")
+        print("")
+        print("Manifest:      \(manifest.entries.count) entries")
     }
 }

@@ -47,7 +47,7 @@ public func runRefreshMetadata(
     manifest: Manifest,
     s3: any S3Providing,
     options: RefreshMetadataOptions = RefreshMetadataOptions(),
-    progress: any RefreshMetadataProgressDelegate = NullRefreshMetadataProgressDelegate()
+    progress: any RefreshMetadataProgressDelegate = NullRefreshMetadataProgressDelegate(),
 ) async throws -> RefreshMetadataReport {
     // Only refresh assets that are in the manifest
     let backedUp = assets.filter { manifest.isBackedUp($0.uuid) }
@@ -72,12 +72,17 @@ public func runRefreshMetadata(
     await withTaskGroup(of: Void.self) { group in
         var cursor = 0
 
-        for _ in 0..<min(options.concurrency, backedUp.count) {
+        for _ in 0 ..< min(options.concurrency, backedUp.count) {
             let asset = backedUp[cursor]
             cursor += 1
             group.addTask {
-                await refreshSingle(asset: asset, manifest: manifest, s3: s3,
-                                    report: report, progress: progress)
+                await refreshSingle(
+                    asset: asset,
+                    manifest: manifest,
+                    s3: s3,
+                    report: report,
+                    progress: progress,
+                )
             }
         }
 
@@ -86,8 +91,13 @@ public func runRefreshMetadata(
                 let asset = backedUp[cursor]
                 cursor += 1
                 group.addTask {
-                    await refreshSingle(asset: asset, manifest: manifest, s3: s3,
-                                        report: report, progress: progress)
+                    await refreshSingle(
+                        asset: asset,
+                        manifest: manifest,
+                        s3: s3,
+                        report: report,
+                        progress: progress,
+                    )
                 }
             }
         }
@@ -106,7 +116,11 @@ private actor RefreshReport {
     var totalBytes = 0
     var errors: [(uuid: String, message: String)] = []
 
-    func markUpdated(bytes: Int) { updated += 1; totalBytes += bytes }
+    func markUpdated(bytes: Int) {
+        updated += 1
+        totalBytes += bytes
+    }
+
     func markFailed(_ uuid: String, _ message: String) {
         failed += 1
         if errors.count < maxReportErrors {
@@ -117,7 +131,7 @@ private actor RefreshReport {
     func snapshot() -> RefreshMetadataReport {
         RefreshMetadataReport(
             updated: updated, skipped: 0, failed: failed,
-            totalBytes: totalBytes, errors: errors
+            totalBytes: totalBytes, errors: errors,
         )
     }
 }
@@ -127,7 +141,7 @@ private func refreshSingle(
     manifest: Manifest,
     s3: any S3Providing,
     report: RefreshReport,
-    progress: any RefreshMetadataProgressDelegate
+    progress: any RefreshMetadataProgressDelegate,
 ) async {
     guard let entry = manifest.entries[asset.uuid] else { return }
 
@@ -136,7 +150,7 @@ private func refreshSingle(
             asset: asset,
             s3Key: entry.s3Key,
             checksum: entry.checksum,
-            backedUpAt: entry.backedUpAt
+            backedUpAt: entry.backedUpAt,
         )
         let data = try metadataEncoder.encode(meta)
         let metaKey = try S3Paths.metadataKey(uuid: asset.uuid)

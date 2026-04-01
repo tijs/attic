@@ -1,8 +1,7 @@
-import Testing
-import Foundation
 @testable import AtticCore
+import Foundation
+import Testing
 
-@Suite("S3XMLParsing")
 struct S3XMLParsingTests {
     // MARK: - ListObjectsV2
 
@@ -27,7 +26,7 @@ struct S3XMLParsingTests {
 
         #expect(result.objects.count == 2)
         #expect(result.objects[0].key == "originals/2024/01/abc.heic")
-        #expect(result.objects[0].size == 1234567)
+        #expect(result.objects[0].size == 1_234_567)
         #expect(result.objects[1].key == "originals/2024/02/def.jpg")
         #expect(result.objects[1].size == 89012)
         #expect(result.isTruncated == false)

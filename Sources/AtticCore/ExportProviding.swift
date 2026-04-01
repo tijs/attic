@@ -21,9 +21,9 @@ public enum ExportProviderError: Error, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case .timeout(let seconds):
+        case let .timeout(seconds):
             "Export timed out after \(seconds)s"
-        case .permissionDenied(let message):
+        case let .permissionDenied(message):
             message
         }
     }

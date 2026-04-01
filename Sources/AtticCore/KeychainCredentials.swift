@@ -16,7 +16,7 @@ public struct S3Credentials: Sendable {
 public protocol KeychainProviding: Sendable {
     func loadCredentials(
         accessKeyService: String,
-        secretKeyService: String
+        secretKeyService: String,
     ) throws -> S3Credentials
 
     func store(service: String, value: String) throws
@@ -30,13 +30,13 @@ public struct SecurityKeychain: KeychainProviding {
 
     public func loadCredentials(
         accessKeyService: String = "attic-s3-access-key",
-        secretKeyService: String = "attic-s3-secret-key"
+        secretKeyService: String = "attic-s3-secret-key",
     ) throws -> S3Credentials {
         let accessKeyId = try get(service: accessKeyService)
         let secretAccessKey = try get(service: secretKeyService)
         return S3Credentials(
             accessKeyId: accessKeyId,
-            secretAccessKey: secretAccessKey
+            secretAccessKey: secretAccessKey,
         )
     }
 
@@ -58,7 +58,7 @@ public struct SecurityKeychain: KeychainProviding {
         guard status == errSecSuccess else {
             throw KeychainError.storeFailed(
                 service: service,
-                status: status
+                status: status,
             )
         }
     }
@@ -79,7 +79,7 @@ public struct SecurityKeychain: KeychainProviding {
         else {
             throw KeychainError.readFailed(
                 service: service,
-                status: status
+                status: status,
             )
         }
 
@@ -94,10 +94,10 @@ public enum KeychainError: Error, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case .readFailed(let service, let status):
+        case let .readFailed(service, status):
             "Failed to read keychain item \"\(service)\" (status: \(status)). "
-            + "Store it with: security add-generic-password -s \(service) -a attic -w \"<value>\""
-        case .storeFailed(let service, let status):
+                + "Store it with: security add-generic-password -s \(service) -a attic -w \"<value>\""
+        case let .storeFailed(service, status):
             "Failed to store credential in Keychain for service \"\(service)\" (status: \(status))"
         }
     }

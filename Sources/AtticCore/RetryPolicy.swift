@@ -7,9 +7,9 @@ import Foundation
 public func withRetry<T: Sendable>(
     maxAttempts: Int = 3,
     baseDelay: Duration = .seconds(1),
-    operation: @Sendable () async throws -> T
+    operation: @Sendable () async throws -> T,
 ) async throws -> T {
-    for attempt in 1...maxAttempts {
+    for attempt in 1 ... maxAttempts {
         do {
             return try await operation()
         } catch {

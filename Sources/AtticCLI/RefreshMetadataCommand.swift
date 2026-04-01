@@ -4,7 +4,7 @@ import AtticCore
 struct RefreshMetadataCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "refresh-metadata",
-        abstract: "Re-generate and upload metadata JSON for all backed-up assets."
+        abstract: "Re-generate and upload metadata JSON for all backed-up assets.",
     )
 
     @Option(name: .long, help: "Number of concurrent uploads.")
@@ -21,28 +21,28 @@ struct RefreshMetadataCommand: AsyncParsableCommand {
         let options = RefreshMetadataOptions(concurrency: concurrency, dryRun: dryRun)
 
         if dryRun {
-            let backedUpCount = assets.filter { manifest.isBackedUp($0.uuid) }.count
-            debugPrint("Dry run: would refresh metadata for \(backedUpCount) assets.")
+            let backedUpCount = assets.count(where: { manifest.isBackedUp($0.uuid) })
+            print("Dry run: would refresh metadata for \(backedUpCount) assets.")
             return
         }
 
-        debugPrint("Refreshing metadata for backed-up assets...")
+        print("Refreshing metadata for backed-up assets...")
 
         let report = try await runRefreshMetadata(
-            assets: assets, manifest: manifest, s3: s3, options: options
+            assets: assets, manifest: manifest, s3: s3, options: options,
         )
 
-        debugPrint("")
-        debugPrint("Refresh Results")
-        debugPrint("===============")
-        debugPrint("Updated:   \(report.updated)")
-        debugPrint("Failed:    \(report.failed)")
-        debugPrint("Bytes:     \(formatBytes(report.totalBytes))")
+        print("")
+        print("Refresh Results")
+        print("===============")
+        print("Updated:   \(report.updated)")
+        print("Failed:    \(report.failed)")
+        print("Bytes:     \(formatBytes(report.totalBytes))")
 
         if !report.errors.isEmpty {
-            debugPrint("")
+            print("")
             for err in report.errors.prefix(10) {
-                debugPrint("  ✗ \(err.uuid): \(err.message)")
+                print("  ✗ \(err.uuid): \(err.message)")
             }
         }
     }

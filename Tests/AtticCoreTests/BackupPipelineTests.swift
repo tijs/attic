@@ -1,7 +1,7 @@
-import Testing
+@testable import AtticCore
 import Foundation
 import LadderKit
-@testable import AtticCore
+import Testing
 
 // MARK: - Test helpers
 
@@ -13,9 +13,9 @@ struct MockExportProvider: ExportProviding {
 
     init(
         assets: [String: (filename: String, data: Data)] = [:],
-        stagingDir: URL? = nil
+        stagingDir: URL? = nil,
     ) {
-        self.availableAssets = assets
+        availableAssets = assets
         self.stagingDir = stagingDir ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("attic-test-staging-\(UUID().uuidString)")
     }
@@ -37,12 +37,12 @@ struct MockExportProvider: ExportProviding {
                     uuid: uuid,
                     path: filePath.path,
                     size: Int64(asset.data.count),
-                    sha256: "fakehash_\(uuid)"
+                    sha256: "fakehash_\(uuid)",
                 ))
             } else {
                 errors.append(LadderKit.ExportError(
                     uuid: uuid,
-                    message: "Asset not found in mock library"
+                    message: "Asset not found in mock library",
                 ))
             }
         }
@@ -71,7 +71,7 @@ struct TimeoutExportProvider: ExportProviding {
     func exportBatch(uuids: [String]) async throws -> ExportResponse {
         let containsSlow = uuids.contains { slowUUIDs.contains($0) }
 
-        if containsSlow && uuids.count > 1 {
+        if containsSlow, uuids.count > 1 {
             throw ExportProviderError.timeout(seconds: 300)
         }
 
@@ -92,7 +92,7 @@ func makeTestAsset(
     uuid: String,
     kind: AssetKind = .photo,
     filename: String = "IMG_0001.HEIC",
-    uti: String = "public.heic"
+    uti: String = "public.heic",
 ) -> AssetInfo {
     AssetInfo(
         identifier: "\(uuid)/L0/001",
@@ -105,7 +105,7 @@ func makeTestAsset(
         isFavorite: false,
         originalFilename: filename,
         uniformTypeIdentifier: uti,
-        hasEdit: false
+        hasEdit: false,
     )
 }
 
@@ -117,7 +117,6 @@ func createTestContext() async throws -> (MockS3Provider, S3ManifestStore) {
 
 // MARK: - Tests
 
-@Suite("BackupPipeline")
 struct BackupPipelineTests {
     @Test func uploadsPendingAssetsAndUpdatesManifest() async throws {
         let assets = [makeTestAsset(uuid: "uuid-1"), makeTestAsset(uuid: "uuid-2")]
@@ -135,7 +134,7 @@ struct BackupPipelineTests {
             manifestStore: manifestStore,
             exporter: exporter,
             s3: s3,
-            options: BackupOptions(batchSize: 10)
+            options: BackupOptions(batchSize: 10),
         )
 
         #expect(report.uploaded == 2)
@@ -163,7 +162,7 @@ struct BackupPipelineTests {
             uuid: "uuid-1",
             s3Key: "originals/2024/01/uuid-1.heic",
             checksum: "sha256:abc",
-            backedUpAt: "2024-01-15T00:00:00Z"
+            backedUpAt: "2024-01-15T00:00:00Z",
         )
 
         let report = try await runBackup(
@@ -172,7 +171,7 @@ struct BackupPipelineTests {
             manifestStore: manifestStore,
             exporter: exporter,
             s3: s3,
-            options: BackupOptions(batchSize: 10)
+            options: BackupOptions(batchSize: 10),
         )
 
         #expect(report.uploaded == 1)
@@ -198,7 +197,7 @@ struct BackupPipelineTests {
             manifestStore: manifestStore,
             exporter: exporter,
             s3: s3,
-            options: BackupOptions(batchSize: 10, limit: 1)
+            options: BackupOptions(batchSize: 10, limit: 1),
         )
 
         #expect(report.uploaded == 1)
@@ -217,7 +216,7 @@ struct BackupPipelineTests {
             manifestStore: manifestStore,
             exporter: exporter,
             s3: s3,
-            options: BackupOptions(dryRun: true)
+            options: BackupOptions(dryRun: true),
         )
 
         #expect(report.uploaded == 0)
@@ -245,7 +244,7 @@ struct BackupPipelineTests {
             manifestStore: manifestStore,
             exporter: exporter,
             s3: s3,
-            options: BackupOptions(batchSize: 10)
+            options: BackupOptions(batchSize: 10),
         )
 
         #expect(report.uploaded == 1)
@@ -261,7 +260,7 @@ struct BackupPipelineTests {
                 uuid: "video-1",
                 kind: .video,
                 filename: "VID.MOV",
-                uti: "com.apple.quicktime-movie"
+                uti: "com.apple.quicktime-movie",
             ),
         ]
 
@@ -277,7 +276,7 @@ struct BackupPipelineTests {
             manifestStore: manifestStore,
             exporter: exporter,
             s3: s3,
-            options: BackupOptions(batchSize: 10, type: .video)
+            options: BackupOptions(batchSize: 10, type: .video),
         )
 
         #expect(report.uploaded == 1)
@@ -300,7 +299,7 @@ struct BackupPipelineTests {
         let exporter = TimeoutExportProvider(
             inner: inner,
             slowUUIDs: ["slow-1"],
-            deferredRetrySucceeds: true
+            deferredRetrySucceeds: true,
         )
         let (s3, manifestStore) = try await createTestContext()
         var manifest = try await manifestStore.load()
@@ -311,7 +310,7 @@ struct BackupPipelineTests {
             manifestStore: manifestStore,
             exporter: exporter,
             s3: s3,
-            options: BackupOptions(batchSize: 3)
+            options: BackupOptions(batchSize: 3),
         )
 
         #expect(report.uploaded == 3)
@@ -336,7 +335,7 @@ struct BackupPipelineTests {
             manifestStore: manifestStore,
             exporter: exporter,
             s3: s3,
-            options: BackupOptions(batchSize: 10)
+            options: BackupOptions(batchSize: 10),
         )
 
         // Load from S3 — should persist

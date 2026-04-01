@@ -1,12 +1,12 @@
 import ArgumentParser
-import Foundation
 import AtticCore
+import Foundation
 import LadderKit
 
 struct BackupCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "backup",
-        abstract: "Back up photos and videos to S3."
+        abstract: "Back up photos and videos to S3.",
     )
 
     @Option(name: .long, help: "Number of assets per export batch.")
@@ -60,7 +60,7 @@ struct BackupCommand: AsyncParsableCommand {
             batchSize: batchSize,
             limit: limit,
             type: assetKind,
-            dryRun: dryRun
+            dryRun: dryRun,
         )
 
         // Prevent idle sleep during backup (released automatically via deinit)
@@ -75,13 +75,15 @@ struct BackupCommand: AsyncParsableCommand {
             s3: s3,
             options: options,
             progress: progress,
-            networkMonitor: networkMonitor
+            networkMonitor: networkMonitor,
         )
 
         _ = powerAssertion // prevent unused warning, released in deinit
 
         if !isTTY {
-            debugPrint("Backup complete: \(report.uploaded) uploaded, \(report.failed) failed (\(formatBytes(report.totalBytes)))")
+            let summary = "Backup complete: \(report.uploaded) uploaded, "
+                + "\(report.failed) failed (\(formatBytes(report.totalBytes)))"
+            print(summary)
         }
     }
 }
@@ -89,27 +91,34 @@ struct BackupCommand: AsyncParsableCommand {
 /// Simple line-by-line progress for non-TTY output (CI, pipes).
 struct LogProgressDelegate: BackupProgressDelegate {
     func backupStarted(pending: Int, photos: Int, videos: Int) {
-        debugPrint("Starting backup: \(pending) assets (\(photos) photos, \(videos) videos)")
+        print("Starting backup: \(pending) assets (\(photos) photos, \(videos) videos)")
     }
+
     func batchStarted(batchNumber: Int, totalBatches: Int, assetCount: Int) {
-        debugPrint("Batch \(batchNumber)/\(totalBatches) (\(assetCount) assets)")
+        print("Batch \(batchNumber)/\(totalBatches) (\(assetCount) assets)")
     }
+
     func assetUploaded(uuid: String, filename: String, type: AssetKind, size: Int) {
-        debugPrint("  ✓ \(filename) (\(formatBytes(size)))")
+        print("  ✓ \(filename) (\(formatBytes(size)))")
     }
+
     func assetFailed(uuid: String, filename: String, message: String) {
-        debugPrint("  ✗ \(filename): \(message)")
+        print("  ✗ \(filename): \(message)")
     }
+
     func manifestSaved(entriesCount: Int) {
-        debugPrint("  Manifest saved (\(entriesCount) entries)")
+        print("  Manifest saved (\(entriesCount) entries)")
     }
+
     func backupPaused(reason: String) {
-        debugPrint("  ⏸ Paused: \(reason)")
+        print("  ⏸ Paused: \(reason)")
     }
+
     func backupResumed() {
-        debugPrint("  ▶ Resumed")
+        print("  ▶ Resumed")
     }
+
     func backupCompleted(uploaded: Int, failed: Int, totalBytes: Int) {
-        debugPrint("Done: \(uploaded) uploaded, \(failed) failed (\(formatBytes(totalBytes)))")
+        print("Done: \(uploaded) uploaded, \(failed) failed (\(formatBytes(totalBytes)))")
     }
 }

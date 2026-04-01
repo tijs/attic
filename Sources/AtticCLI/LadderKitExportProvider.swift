@@ -1,5 +1,5 @@
-import Foundation
 import AtticCore
+import Foundation
 import LadderKit
 
 /// Bridges LadderKit's PhotoExporter to AtticCore's ExportProviding protocol.
@@ -7,10 +7,10 @@ struct LadderKitExportProvider: ExportProviding {
     private let exporter: PhotoExporter
 
     init(stagingDir: URL, library: PhotoLibrary = PhotoKitLibrary()) {
-        self.exporter = PhotoExporter(
+        exporter = PhotoExporter(
             stagingDir: stagingDir,
             library: library,
-            scriptExporter: AppleScriptRunner()
+            scriptExporter: AppleScriptRunner(),
         )
     }
 

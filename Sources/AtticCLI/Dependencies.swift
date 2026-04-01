@@ -1,5 +1,5 @@
-import Foundation
 import AtticCore
+import Foundation
 import LadderKit
 
 /// Builds the real dependencies for CLI commands from config + keychain.
@@ -18,7 +18,7 @@ enum Dependencies {
         let keychain = SecurityKeychain()
         return try keychain.loadCredentials(
             accessKeyService: config.keychain.accessKeyService,
-            secretKeyService: config.keychain.secretKeyService
+            secretKeyService: config.keychain.secretKeyService,
         )
     }
 
@@ -29,7 +29,7 @@ enum Dependencies {
             bucket: config.bucket,
             endpoint: config.endpoint,
             region: config.region,
-            pathStyle: config.pathStyle
+            pathStyle: config.pathStyle,
         )
     }
 

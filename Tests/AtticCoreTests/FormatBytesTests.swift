@@ -1,7 +1,6 @@
-import Testing
 @testable import AtticCore
+import Testing
 
-@Suite("FormatBytes")
 struct FormatBytesTests {
     @Test func zero() {
         #expect(formatBytes(0) == "0 B")

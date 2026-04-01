@@ -4,7 +4,7 @@ import AtticCore
 struct VerifyCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "verify",
-        abstract: "Verify backed-up assets exist in S3."
+        abstract: "Verify backed-up assets exist in S3.",
     )
 
     @Option(name: .long, help: "Number of concurrent verification requests.")
@@ -15,29 +15,29 @@ struct VerifyCommand: AsyncParsableCommand {
         let manifest = try await Dependencies.loadManifest(store: manifestStore)
 
         guard !manifest.entries.isEmpty else {
-            debugPrint("Manifest is empty — nothing to verify.")
+            print("Manifest is empty — nothing to verify.")
             return
         }
 
-        debugPrint("Verifying \(manifest.entries.count) assets...")
+        print("Verifying \(manifest.entries.count) assets...")
 
         let report = try await runVerify(manifest: manifest, s3: s3, concurrency: concurrency)
 
-        debugPrint("")
-        debugPrint("Verify Results")
-        debugPrint("==============")
-        debugPrint("OK:        \(report.ok)")
-        debugPrint("Missing:   \(report.missing)")
-        debugPrint("Errors:    \(report.failed)")
+        print("")
+        print("Verify Results")
+        print("==============")
+        print("OK:        \(report.ok)")
+        print("Missing:   \(report.missing)")
+        print("Errors:    \(report.failed)")
 
         if !report.errors.isEmpty {
-            debugPrint("")
-            debugPrint("Issues:")
+            print("")
+            print("Issues:")
             for err in report.errors.prefix(20) {
-                debugPrint("  \(err.uuid): \(err.message)")
+                print("  \(err.uuid): \(err.message)")
             }
             if report.errors.count > 20 {
-                debugPrint("  ... and \(report.errors.count - 20) more")
+                print("  ... and \(report.errors.count - 20) more")
             }
         }
     }

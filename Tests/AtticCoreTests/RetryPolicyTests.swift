@@ -1,8 +1,7 @@
-import Testing
-import Foundation
 @testable import AtticCore
+import Foundation
+import Testing
 
-@Suite("RetryPolicy")
 struct RetryPolicyTests {
     @Test func returnsResultOnFirstSuccess() async throws {
         let result = try await withRetry { 42 }
@@ -38,7 +37,7 @@ struct RetryPolicyTests {
         do {
             let _: Int = try await withRetry(
                 maxAttempts: 3,
-                baseDelay: .milliseconds(10)
+                baseDelay: .milliseconds(10),
             ) {
                 await counter.increment()
                 throw TransientError("ECONNRESET")
@@ -54,7 +53,7 @@ struct RetryPolicyTests {
         let task = Task {
             try await withRetry(
                 maxAttempts: 5,
-                baseDelay: .milliseconds(100)
+                baseDelay: .milliseconds(100),
             ) {
                 await counter.increment()
                 throw TransientError("timeout")
@@ -79,12 +78,16 @@ struct RetryPolicyTests {
 
 private struct TransientError: Error, CustomStringConvertible {
     let description: String
-    init(_ description: String) { self.description = description }
+    init(_ description: String) {
+        self.description = description
+    }
 }
 
 private struct NonTransientError: Error, CustomStringConvertible {
     let description: String
-    init(_ description: String) { self.description = description }
+    init(_ description: String) {
+        self.description = description
+    }
 }
 
 private actor Counter {

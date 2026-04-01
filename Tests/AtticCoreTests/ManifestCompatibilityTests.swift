@@ -1,8 +1,7 @@
-import Testing
-import Foundation
 @testable import AtticCore
+import Foundation
+import Testing
 
-@Suite("Manifest cross-version compatibility")
 struct ManifestCompatibilityTests {
     /// A manifest JSON produced by the Deno CLI (v0.2.x format).
     /// The Swift version must be able to parse this exactly.
@@ -37,7 +36,7 @@ struct ManifestCompatibilityTests {
         #expect(entry1?.s3Key == "originals/2024/01/A1B2C3D4-E5F6-7890-ABCD-EF1234567890.heic")
         #expect(entry1?.checksum == "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08")
         #expect(entry1?.backedUpAt == "2024-01-15T12:34:56Z")
-        #expect(entry1?.size == 4194304)
+        #expect(entry1?.size == 4_194_304)
 
         let entry2 = manifest.entries["DEADBEEF-CAFE-4321-BABE-FEEDFACE1234"]
         #expect(entry2 != nil)
@@ -51,16 +50,16 @@ struct ManifestCompatibilityTests {
             s3Key: "originals/2024/06/uuid-1.heic",
             checksum: "sha256:abc123def456",
             size: 1024,
-            backedUpAt: "2024-06-15T10:00:00Z"
+            backedUpAt: "2024-06-15T10:00:00Z",
         )
 
         // Encode and re-parse
         let data = try manifest.encoded()
-        let parsed = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let parsed = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
         // Verify structure matches Deno format
-        let entries = parsed["entries"] as! [String: Any]
-        let entry = entries["uuid-1"] as! [String: Any]
+        let entries = try #require(parsed["entries"] as? [String: Any])
+        let entry = try #require(entries["uuid-1"] as? [String: Any])
 
         #expect(entry["uuid"] as? String == "uuid-1")
         #expect(entry["s3Key"] as? String == "originals/2024/06/uuid-1.heic")
@@ -83,7 +82,7 @@ struct ManifestCompatibilityTests {
             s3Key: "originals/2025/03/NEW-UUID.png",
             checksum: "sha256:newchecksum",
             size: 2048,
-            backedUpAt: "2025-03-21T00:00:00Z"
+            backedUpAt: "2025-03-21T00:00:00Z",
         )
 
         // Round-trip
@@ -97,7 +96,7 @@ struct ManifestCompatibilityTests {
 
         // Original entries preserved exactly
         let original = reloaded.entries["A1B2C3D4-E5F6-7890-ABCD-EF1234567890"]
-        #expect(original?.size == 4194304)
+        #expect(original?.size == 4_194_304)
         #expect(original?.backedUpAt == "2024-01-15T12:34:56Z")
     }
 

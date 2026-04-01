@@ -14,7 +14,7 @@ public struct AtticConfig: Codable, Equatable, Sendable {
 
         public init(
             accessKeyService: String = "attic-s3-access-key",
-            secretKeyService: String = "attic-s3-secret-key"
+            secretKeyService: String = "attic-s3-secret-key",
         ) {
             self.accessKeyService = accessKeyService
             self.secretKeyService = secretKeyService
@@ -26,7 +26,7 @@ public struct AtticConfig: Codable, Equatable, Sendable {
         region: String,
         bucket: String,
         pathStyle: Bool = true,
-        keychain: KeychainConfig = KeychainConfig()
+        keychain: KeychainConfig = KeychainConfig(),
     ) {
         self.endpoint = endpoint
         self.region = region
@@ -80,7 +80,7 @@ public struct FileConfigProvider: ConfigProviding {
             try fm.createDirectory(at: directory, withIntermediateDirectories: true)
             try fm.setAttributes(
                 [.posixPermissions: 0o700],
-                ofItemAtPath: directory.path
+                ofItemAtPath: directory.path,
             )
         }
 
@@ -99,14 +99,14 @@ public struct FileConfigProvider: ConfigProviding {
         try fm.moveItem(at: tempPath, to: path)
         try fm.setAttributes(
             [.posixPermissions: 0o600],
-            ofItemAtPath: path.path
+            ofItemAtPath: path.path,
         )
     }
 }
 
 // MARK: - Validation
 
-private nonisolated(unsafe) let bucketPattern = /^[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9]$/
+nonisolated(unsafe) private let bucketPattern = /^[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9]$/
 
 extension AtticConfig {
     /// Validate a raw JSON object into an AtticConfig.
@@ -117,18 +117,18 @@ extension AtticConfig {
 
         guard let endpoint = obj["endpoint"] as? String, !endpoint.isEmpty else {
             throw ConfigError.invalid(
-                #"Config: "endpoint" is required (e.g. "https://s3.fr-par.scw.cloud")"#
+                #"Config: "endpoint" is required (e.g. "https://s3.fr-par.scw.cloud")"#,
             )
         }
         guard endpoint.hasPrefix("https://") else {
             throw ConfigError.invalid(
-                #"Config: "endpoint" must start with https://"#
+                #"Config: "endpoint" must start with https://"#,
             )
         }
 
         guard let region = obj["region"] as? String, !region.isEmpty else {
             throw ConfigError.invalid(
-                #"Config: "region" is required (e.g. "fr-par")"#
+                #"Config: "region" is required (e.g. "fr-par")"#,
             )
         }
 
@@ -138,15 +138,14 @@ extension AtticConfig {
         guard bucket.wholeMatch(of: bucketPattern) != nil else {
             throw ConfigError.invalid(
                 "Config: \"bucket\" name \"\(bucket)\" is invalid. "
-                + "Use lowercase letters, numbers, dots, and hyphens (3-63 chars)."
+                    + "Use lowercase letters, numbers, dots, and hyphens (3-63 chars).",
             )
         }
 
-        let pathStyle: Bool
-        if let ps = obj["pathStyle"] {
-            pathStyle = (ps as? Bool) ?? true
+        let pathStyle: Bool = if let ps = obj["pathStyle"] {
+            (ps as? Bool) ?? true
         } else {
-            pathStyle = true
+            true
         }
 
         let keychainObj = obj["keychain"] as? [String: Any] ?? [:]
@@ -162,8 +161,8 @@ extension AtticConfig {
             pathStyle: pathStyle,
             keychain: KeychainConfig(
                 accessKeyService: accessKeyService,
-                secretKeyService: secretKeyService
-            )
+                secretKeyService: secretKeyService,
+            ),
         )
     }
 }
@@ -175,10 +174,10 @@ public enum ConfigError: Error, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case .notFound(let path):
+        case let .notFound(path):
             "No config file found at \(path)\n"
-            + "Run \"attic init\" to set up your S3 connection, or create the file manually."
-        case .invalid(let message):
+                + "Run \"attic init\" to set up your S3 connection, or create the file manually."
+        case let .invalid(message):
             message
         }
     }

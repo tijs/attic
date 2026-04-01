@@ -1,5 +1,5 @@
-import Foundation
 import AWSSigner
+import Foundation
 import NIOHTTP1
 
 /// S3 client using URLSession and aws-signer-v4.
@@ -20,7 +20,7 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         bucket: String,
         endpoint: String,
         region: String,
-        pathStyle: Bool
+        pathStyle: Bool,
     ) throws {
         guard let endpointURL = URL(string: endpoint) else {
             throw S3ClientError.unexpectedResponse("Invalid endpoint URL: \(endpoint)")
@@ -32,14 +32,14 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
 
         let creds = StaticCredential(
             accessKeyId: credentials.accessKeyId,
-            secretAccessKey: credentials.secretAccessKey
+            secretAccessKey: credentials.secretAccessKey,
         )
-        self.signer = AWSSigner(credentials: creds, name: "s3", region: region)
+        signer = AWSSigner(credentials: creds, name: "s3", region: region)
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 600
-        self.session = URLSession(configuration: config)
+        session = URLSession(configuration: config)
     }
 
     // MARK: - S3Providing
@@ -157,7 +157,8 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
             let bucketHost = "\(scheme)://\(bucket).\(host)\(port)"
             guard let baseURL = URL(string: bucketHost) else {
                 throw S3ClientError.unexpectedResponse(
-                    "Invalid virtual-hosted URL: \(bucketHost)")
+                    "Invalid virtual-hosted URL: \(bucketHost)",
+                )
             }
             if key.isEmpty {
                 url = baseURL
@@ -198,7 +199,7 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
             method: method,
             headers: nioHeaders,
             body: body,
-            date: Date()
+            date: Date(),
         )
 
         // Apply signed headers back to the URLRequest
@@ -212,7 +213,7 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
             throw S3ClientError.unexpectedResponse("Not an HTTP response")
         }
 
-        guard http.statusCode >= 200 && http.statusCode < 300 else {
+        guard http.statusCode >= 200, http.statusCode < 300 else {
             if let s3Error = parseS3Error(data: data) {
                 throw S3ClientError.s3Error(code: s3Error.code, message: s3Error.message)
             }
@@ -229,11 +230,11 @@ public enum S3ClientError: Error, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case .httpError(let status, let key):
+        case let .httpError(status, key):
             "S3 HTTP \(status) for key: \(key)"
-        case .unexpectedResponse(let msg):
+        case let .unexpectedResponse(msg):
             "Unexpected response: \(msg)"
-        case .s3Error(let code, let message):
+        case let .s3Error(code, message):
             "S3 error \(code): \(message)"
         }
     }

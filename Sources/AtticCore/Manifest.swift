@@ -13,7 +13,7 @@ public struct ManifestEntry: Codable, Sendable, Equatable {
         s3Key: String,
         checksum: String,
         backedUpAt: String,
-        size: Int? = nil
+        size: Int? = nil,
     ) {
         self.uuid = uuid
         self.s3Key = s3Key
@@ -42,14 +42,14 @@ public struct Manifest: Codable, Sendable {
         s3Key: String,
         checksum: String,
         size: Int? = nil,
-        backedUpAt: String? = nil
+        backedUpAt: String? = nil,
     ) {
         entries[uuid] = ManifestEntry(
             uuid: uuid,
             s3Key: s3Key,
             checksum: checksum,
             backedUpAt: backedUpAt ?? isoFormatter.string(from: Date()),
-            size: size
+            size: size,
         )
     }
 }
@@ -65,18 +65,17 @@ public protocol ManifestStoring: Sendable {
 
 // MARK: - Validation
 
-extension Manifest {
+public extension Manifest {
     /// Parse and validate manifest data.
-    public static func parse(from data: Data) throws -> Manifest {
-        let decoded = try JSONDecoder().decode(Manifest.self, from: data)
-        return decoded
+    static func parse(from data: Data) throws -> Manifest {
+        try JSONDecoder().decode(Manifest.self, from: data)
     }
 
     /// Encode manifest to JSON data.
     ///
     /// - Parameter sortedKeys: Use sorted keys for human readability (slower for large manifests).
     ///   Defaults to false for periodic saves; callers should pass true for final saves.
-    public func encoded(sortedKeys: Bool = false) throws -> Data {
+    func encoded(sortedKeys: Bool = false) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = sortedKeys ? [.prettyPrinted, .sortedKeys] : []
         var data = try encoder.encode(self)

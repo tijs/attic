@@ -14,7 +14,7 @@ public final class PowerAssertion: @unchecked Sendable {
     public init(reason: String) {
         activity = ProcessInfo.processInfo.beginActivity(
             options: [.userInitiated, .idleSystemSleepDisabled],
-            reason: reason
+            reason: reason,
         )
     }
 

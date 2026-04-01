@@ -1,12 +1,11 @@
-import Testing
+@testable import AtticCore
 import Foundation
 import LadderKit
-@testable import AtticCore
+import Testing
 
-@Suite("MetadataBuilder")
 struct MetadataBuilderTests {
-    @Test func buildsMetadataFromAssetInfo() {
-        let date = ISO8601DateFormatter().date(from: "2024-06-15T10:30:00Z")!
+    @Test func buildsMetadataFromAssetInfo() throws {
+        let date = try #require(ISO8601DateFormatter().date(from: "2024-06-15T10:30:00Z"))
         let asset = AssetInfo(
             identifier: "ABC-123/L0/001",
             creationDate: date,
@@ -22,14 +21,14 @@ struct MetadataBuilderTests {
             albums: [AlbumInfo(identifier: "album-1", title: "Vacation")],
             keywords: ["beach", "summer"],
             people: [PersonInfo(uuid: "person-1", displayName: "Alice")],
-            assetDescription: "A sunny beach photo"
+            assetDescription: "A sunny beach photo",
         )
 
         let metadata = buildMetadataJSON(
             asset: asset,
             s3Key: "originals/2024/06/ABC-123.heic",
             checksum: "sha256:abc123",
-            backedUpAt: "2024-06-15T12:00:00Z"
+            backedUpAt: "2024-06-15T12:00:00Z",
         )
 
         #expect(metadata.uuid == "ABC-123")
@@ -61,14 +60,14 @@ struct MetadataBuilderTests {
             pixelHeight: 1080,
             latitude: nil,
             longitude: nil,
-            isFavorite: false
+            isFavorite: false,
         )
 
         let metadata = buildMetadataJSON(
             asset: asset,
             s3Key: "originals/unknown/00/XYZ-789.mov",
             checksum: "sha256:def456",
-            backedUpAt: "2024-01-01T00:00:00Z"
+            backedUpAt: "2024-01-01T00:00:00Z",
         )
 
         #expect(metadata.uuid == "XYZ-789")

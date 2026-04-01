@@ -4,9 +4,9 @@ import Foundation
 public enum S3Paths {
     // MARK: - Validation patterns
 
-    private static nonisolated(unsafe) let uuidPattern = /^[A-Za-z0-9._\-]+$/
-    private static nonisolated(unsafe) let s3KeyPattern = /^[A-Za-z0-9\/._\-]+$/
-    private static nonisolated(unsafe) let extPattern = /^[a-z0-9]+$/
+    nonisolated(unsafe) private static let uuidPattern = /^[A-Za-z0-9._\-]+$/
+    nonisolated(unsafe) private static let s3KeyPattern = /^[A-Za-z0-9\/._\-]+$/
+    nonisolated(unsafe) private static let extPattern = /^[a-z0-9]+$/
 
     /// UTI-to-extension lookup table.
     private static let utiMap: [String: String] = [
@@ -35,7 +35,7 @@ public enum S3Paths {
     public static func originalKey(
         uuid: String,
         dateCreated: Date?,
-        extension ext: String
+        extension ext: String,
     ) throws -> String {
         try assertSafeUUID(uuid)
         let cleanExt = ext.lowercased().trimmingPrefix(".")
@@ -65,7 +65,7 @@ public enum S3Paths {
     /// Extract file extension from a UTI or filename.
     public static func extensionFromUTIOrFilename(
         uti: String?,
-        filename: String
+        filename: String,
     ) -> String {
         if let uti, let mapped = utiMap[uti] {
             return mapped
@@ -113,9 +113,9 @@ public enum S3PathError: Error, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case .unsafeUUID(let value):
+        case let .unsafeUUID(value):
             "Unsafe UUID for S3 key: \(value)"
-        case .unsafeExtension(let value):
+        case let .unsafeExtension(value):
             "Unsafe extension for S3 key: \(value)"
         }
     }

@@ -1,0 +1,54 @@
+# SwiftLint configuration for Attic
+
+excluded:
+  - .build
+  - Package.swift
+
+disabled_rules:
+  - trailing_comma          # We prefer trailing commas in multiline collections
+  - todo                    # TODOs are fine during development
+  - class_delegate_protocol # Delegate protocols here don't need to be class-only
+  - large_tuple             # Used in Dependencies.makeBackupDeps return type
+  - for_where               # False positives on TaskGroup drain loops with side effects
+
+opt_in_rules:
+  - empty_count
+  - closure_spacing
+  - contains_over_first_not_nil
+  - direct_return
+  - empty_string
+  - first_where
+  - last_where
+  - modifier_order
+  - redundant_type_annotation
+  - sorted_imports
+  - vertical_whitespace_closing_braces
+
+identifier_name:
+  min_length: 1
+  excluded:
+    - id
+
+line_length:
+  warning: 120
+  error: 160
+
+file_length:
+  warning: 500
+  error: 600
+
+type_body_length:
+  warning: 400
+  error: 500
+
+function_body_length:
+  warning: 80
+  error: 150
+
+function_parameter_count:
+  warning: 8
+  error: 12
+
+cyclomatic_complexity:
+  warning: 15
+  error: 25

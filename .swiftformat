@@ -1,0 +1,29 @@
+# SwiftFormat configuration for Attic
+
+--swiftversion 6.1
+--minversion 0.55
+
+# Rules
+--enable sortImports
+--enable redundantSelf
+--enable trailingCommas
+--enable blankLinesBetweenScopes
+--enable consecutiveBlankLines
+
+# Formatting options
+--indent 4
+--indentcase false
+--trimwhitespace always
+--voidtype void
+--wraparguments before-first
+--wrapparameters before-first
+--wrapcollections before-first
+--maxwidth 120
+--commas always
+--semicolons never
+--stripunusedargs closure-only
+--self remove
+--header strip
+
+# Exclusions
+--exclude .build,Package.swift

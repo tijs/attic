@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: SwiftLint
+        run: swiftlint lint --quiet
+
+      - name: SwiftFormat check
+        run: |
+          swiftformat --lint . 2>&1
+          if [ $? -ne 0 ]; then
+            echo "::error::Code is not formatted. Run 'swiftformat .' locally."
+            exit 1
+          fi
+
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run tests
+        run: swift test

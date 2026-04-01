@@ -1,5 +1,5 @@
-import Foundation
 import AtticCore
+import Foundation
 import LadderKit
 
 /// ANSI live-updating dashboard for backup progress.
@@ -62,8 +62,7 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
             state.uploaded += 1
             state.totalBytes += size
             state.currentFile = "\(filename) (\(formatBytes(size)))"
-            if type == .photo { state.uploadedPhotos += 1 }
-            else { state.uploadedVideos += 1 }
+            if type == .photo { state.uploadedPhotos += 1 } else { state.uploadedVideos += 1 }
         }
         render()
     }
@@ -110,7 +109,6 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
         }
         renderFinal()
     }
-
 
     // MARK: - Rendering
 
@@ -183,7 +181,7 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
         // Clear the live display
         let lineCount = 8
         print("\u{1b}[\(lineCount)A", terminator: "")
-        for _ in 0..<lineCount {
+        for _ in 0 ..< lineCount {
             print("\u{1b}[2K")
         }
         print("\u{1b}[\(lineCount)A", terminator: "")

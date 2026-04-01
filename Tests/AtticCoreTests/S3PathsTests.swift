@@ -1,11 +1,10 @@
-import Testing
-import Foundation
 @testable import AtticCore
+import Foundation
+import Testing
 
-@Suite("S3Paths")
 struct S3PathsTests {
     @Test func originalKeyGeneratesCorrectPath() throws {
-        let date = ISO8601DateFormatter().date(from: "2024-01-15T12:00:00Z")!
+        let date = try #require(ISO8601DateFormatter().date(from: "2024-01-15T12:00:00Z"))
         let key = try S3Paths.originalKey(uuid: "abc-uuid", dateCreated: date, extension: "heic")
         #expect(key == "originals/2024/01/abc-uuid.heic")
     }
@@ -16,13 +15,13 @@ struct S3PathsTests {
     }
 
     @Test func originalKeyStripsLeadingDot() throws {
-        let date = ISO8601DateFormatter().date(from: "2024-03-01T00:00:00Z")!
+        let date = try #require(ISO8601DateFormatter().date(from: "2024-03-01T00:00:00Z"))
         let key = try S3Paths.originalKey(uuid: "x", dateCreated: date, extension: ".HEIC")
         #expect(key == "originals/2024/03/x.heic")
     }
 
-    @Test func originalKeyRejectsUnsafeUUID() {
-        let date = ISO8601DateFormatter().date(from: "2024-01-15T12:00:00Z")!
+    @Test func originalKeyRejectsUnsafeUUID() throws {
+        let date = try #require(ISO8601DateFormatter().date(from: "2024-01-15T12:00:00Z"))
         #expect(throws: S3PathError.self) {
             try S3Paths.originalKey(uuid: "../../../etc", dateCreated: date, extension: "heic")
         }
@@ -31,8 +30,8 @@ struct S3PathsTests {
         }
     }
 
-    @Test func originalKeyRejectsUnsafeExtension() {
-        let date = ISO8601DateFormatter().date(from: "2024-01-15T12:00:00Z")!
+    @Test func originalKeyRejectsUnsafeExtension() throws {
+        let date = try #require(ISO8601DateFormatter().date(from: "2024-01-15T12:00:00Z"))
         #expect(throws: S3PathError.self) {
             try S3Paths.originalKey(uuid: "abc", dateCreated: date, extension: "h/e")
         }

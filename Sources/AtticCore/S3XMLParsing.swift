@@ -39,7 +39,7 @@ private class ListObjectsV2Parser: NSObject, XMLParserDelegate {
     func parser(
         _ parser: XMLParser, didStartElement elementName: String,
         namespaceURI: String?, qualifiedName: String?,
-        attributes: [String: String] = [:]
+        attributes: [String: String] = [:],
     ) {
         currentElement = elementName
         currentText = ""
@@ -56,7 +56,7 @@ private class ListObjectsV2Parser: NSObject, XMLParserDelegate {
 
     func parser(
         _ parser: XMLParser, didEndElement elementName: String,
-        namespaceURI: String?, qualifiedName: String?
+        namespaceURI: String?, qualifiedName: String?,
     ) {
         let text = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -92,7 +92,7 @@ private class S3ErrorParser: NSObject, XMLParserDelegate {
     func parser(
         _ parser: XMLParser, didStartElement elementName: String,
         namespaceURI: String?, qualifiedName: String?,
-        attributes: [String: String] = [:]
+        attributes: [String: String] = [:],
     ) {
         currentElement = elementName
         currentText = ""
@@ -104,7 +104,7 @@ private class S3ErrorParser: NSObject, XMLParserDelegate {
 
     func parser(
         _ parser: XMLParser, didEndElement elementName: String,
-        namespaceURI: String?, qualifiedName: String?
+        namespaceURI: String?, qualifiedName: String?,
     ) {
         let text = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
         switch elementName {

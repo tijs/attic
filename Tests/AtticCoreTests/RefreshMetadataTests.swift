@@ -1,9 +1,8 @@
-import Testing
+@testable import AtticCore
 import Foundation
 import LadderKit
-@testable import AtticCore
+import Testing
 
-@Suite("RefreshMetadata")
 struct RefreshMetadataTests {
     @Test func refreshesMetadataForBackedUpAssets() async throws {
         let s3 = MockS3Provider()
@@ -12,13 +11,13 @@ struct RefreshMetadataTests {
             uuid: "uuid-1",
             s3Key: "originals/2024/01/uuid-1.heic",
             checksum: "sha256:abc",
-            backedUpAt: "2024-01-15T00:00:00Z"
+            backedUpAt: "2024-01-15T00:00:00Z",
         )
 
         let assets = [makeTestAsset(uuid: "uuid-1")]
 
         let report = try await runRefreshMetadata(
-            assets: assets, manifest: manifest, s3: s3
+            assets: assets, manifest: manifest, s3: s3,
         )
 
         #expect(report.updated == 1)
@@ -38,7 +37,7 @@ struct RefreshMetadataTests {
         let assets = [makeTestAsset(uuid: "uuid-1")]
 
         let report = try await runRefreshMetadata(
-            assets: assets, manifest: manifest, s3: s3
+            assets: assets, manifest: manifest, s3: s3,
         )
 
         #expect(report.updated == 0)
@@ -52,14 +51,14 @@ struct RefreshMetadataTests {
         manifest.markBackedUp(
             uuid: "uuid-1",
             s3Key: "originals/2024/01/uuid-1.heic",
-            checksum: "sha256:abc"
+            checksum: "sha256:abc",
         )
 
         let assets = [makeTestAsset(uuid: "uuid-1")]
         let options = RefreshMetadataOptions(dryRun: true)
 
         let report = try await runRefreshMetadata(
-            assets: assets, manifest: manifest, s3: s3, options: options
+            assets: assets, manifest: manifest, s3: s3, options: options,
         )
 
         #expect(report.skipped == 1)
@@ -73,7 +72,7 @@ struct RefreshMetadataTests {
         let manifest = Manifest()
 
         let report = try await runRefreshMetadata(
-            assets: [], manifest: manifest, s3: s3
+            assets: [], manifest: manifest, s3: s3,
         )
 
         #expect(report.updated == 0)

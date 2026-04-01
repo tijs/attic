@@ -1,8 +1,7 @@
-import Testing
-import Foundation
 @testable import AtticCore
+import Foundation
+import Testing
 
-@Suite("AtticConfig")
 struct AtticConfigTests {
     @Test func validateAcceptsValidConfigWithAllFields() throws {
         let config = try AtticConfig.validate([
@@ -98,7 +97,7 @@ struct AtticConfigTests {
         let config = AtticConfig(
             endpoint: "https://s3.fr-par.scw.cloud",
             region: "fr-par",
-            bucket: "test-bucket"
+            bucket: "test-bucket",
         )
 
         try provider.write(config)

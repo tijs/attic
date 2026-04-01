@@ -12,7 +12,7 @@ public struct VerifyReport: Sendable {
 public func runVerify(
     manifest: Manifest,
     s3: any S3Providing,
-    concurrency: Int = 20
+    concurrency: Int = 20,
 ) async throws -> VerifyReport {
     let entries = Array(manifest.entries.values)
 
@@ -26,7 +26,7 @@ public func runVerify(
         var cursor = 0
 
         // Seed initial tasks up to concurrency limit
-        for _ in 0..<min(concurrency, entries.count) {
+        for _ in 0 ..< min(concurrency, entries.count) {
             let entry = entries[cursor]
             cursor += 1
             group.addTask {
@@ -58,13 +58,17 @@ private actor VerifyReportAccumulator {
     var failed = 0
     var errors: [(uuid: String, message: String)] = []
 
-    func markOK() { ok += 1 }
+    func markOK() {
+        ok += 1
+    }
+
     func markMissing(_ uuid: String) {
         missing += 1
         if errors.count < maxReportErrors {
             errors.append((uuid: uuid, message: "Missing from S3"))
         }
     }
+
     func markFailed(_ uuid: String, _ message: String) {
         failed += 1
         if errors.count < maxReportErrors {
@@ -80,7 +84,7 @@ private actor VerifyReportAccumulator {
 private func verifySingle(
     entry: ManifestEntry,
     s3: any S3Providing,
-    report: VerifyReportAccumulator
+    report: VerifyReportAccumulator,
 ) async {
     do {
         if try await s3.headObject(key: entry.s3Key) != nil {

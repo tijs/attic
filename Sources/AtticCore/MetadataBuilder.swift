@@ -53,7 +53,7 @@ public func buildMetadataJSON(
     asset: AssetInfo,
     s3Key: String,
     checksum: String,
-    backedUpAt: String
+    backedUpAt: String,
 ) -> AssetMetadata {
     AssetMetadata(
         uuid: asset.uuid,
@@ -76,6 +76,6 @@ public func buildMetadataJSON(
         editor: asset.editor,
         s3Key: s3Key,
         checksum: checksum,
-        backedUpAt: backedUpAt
+        backedUpAt: backedUpAt,
     )
 }

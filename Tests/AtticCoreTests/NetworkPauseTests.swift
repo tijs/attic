@@ -1,7 +1,7 @@
-import Testing
+@testable import AtticCore
 import Foundation
 import LadderKit
-@testable import AtticCore
+import Testing
 
 // MARK: - Test helpers
 
@@ -23,7 +23,7 @@ actor NetworkFailingS3Provider: S3Providing {
 
     func putObject(key: String, body: Data, contentType: String?) async throws {
         putCallCount += 1
-        if shouldFail && putCallCount > failAfterPuts {
+        if shouldFail, putCallCount > failAfterPuts {
             throw NetworkError.networkDown
         }
         try await inner.putObject(key: key, body: body, contentType: contentType)
@@ -31,7 +31,7 @@ actor NetworkFailingS3Provider: S3Providing {
 
     func putObject(key: String, fileURL: URL, contentType: String?) async throws {
         putCallCount += 1
-        if shouldFail && putCallCount > failAfterPuts {
+        if shouldFail, putCallCount > failAfterPuts {
             throw NetworkError.networkDown
         }
         try await inner.putObject(key: key, fileURL: fileURL, contentType: contentType)
@@ -64,7 +64,9 @@ enum NetworkError: Error, CustomStringConvertible {
 /// Network monitor that always reports unavailable and always times out.
 /// Used for testing the timeout path without any polling or actor overhead.
 struct AlwaysUnavailableNetworkMonitor: NetworkMonitoring {
-    var isNetworkAvailable: Bool { false }
+    var isNetworkAvailable: Bool {
+        false
+    }
 
     func waitForNetwork(timeout: Duration) async throws -> Bool {
         try Task.checkCancellation()
@@ -89,24 +91,31 @@ final class RecordingProgressDelegate: BackupProgressDelegate, @unchecked Sendab
     func backupStarted(pending: Int, photos: Int, videos: Int) {
         record("started(\(pending))")
     }
+
     func batchStarted(batchNumber: Int, totalBatches: Int, assetCount: Int) {
         record("batch(\(batchNumber))")
     }
+
     func assetUploaded(uuid: String, filename: String, type: AssetKind, size: Int) {
         record("uploaded(\(uuid))")
     }
+
     func assetFailed(uuid: String, filename: String, message: String) {
         record("failed(\(uuid))")
     }
+
     func manifestSaved(entriesCount: Int) {
         record("manifestSaved(\(entriesCount))")
     }
+
     func backupCompleted(uploaded: Int, failed: Int, totalBytes: Int) {
         record("completed(\(uploaded),\(failed))")
     }
+
     func backupPaused(reason: String) {
         record("paused")
     }
+
     func backupResumed() {
         record("resumed")
     }
@@ -114,7 +123,6 @@ final class RecordingProgressDelegate: BackupProgressDelegate, @unchecked Sendab
 
 // MARK: - Tests
 
-@Suite("NetworkPause")
 struct NetworkPauseTests {
     @Test func backupCompletesNormallyWithoutNetworkMonitor() async throws {
         let assets = [makeTestAsset(uuid: "uuid-1")]
@@ -130,7 +138,7 @@ struct NetworkPauseTests {
             manifestStore: manifestStore,
             exporter: exporter,
             s3: s3,
-            options: BackupOptions(batchSize: 10)
+            options: BackupOptions(batchSize: 10),
         )
 
         #expect(report.uploaded == 1)
@@ -153,7 +161,7 @@ struct NetworkPauseTests {
             exporter: exporter,
             s3: s3,
             options: BackupOptions(batchSize: 10),
-            networkMonitor: monitor
+            networkMonitor: monitor,
         )
 
         #expect(report.uploaded == 1)
@@ -189,7 +197,7 @@ struct NetworkPauseTests {
             s3: s3,
             options: BackupOptions(batchSize: 10),
             progress: progress,
-            networkMonitor: monitor
+            networkMonitor: monitor,
         )
 
         #expect(report.uploaded == 1)
@@ -226,7 +234,7 @@ struct NetworkPauseTests {
             s3: failingS3,
             options: BackupOptions(batchSize: 10, networkTimeout: .milliseconds(100)),
             progress: progress,
-            networkMonitor: monitor
+            networkMonitor: monitor,
         )
 
         #expect(progress.events.contains("paused"))
@@ -254,7 +262,7 @@ struct NetworkPauseTests {
                 exporter: exporter,
                 s3: s3,
                 options: BackupOptions(batchSize: 10, networkTimeout: .seconds(30)),
-                networkMonitor: monitor
+                networkMonitor: monitor,
             )
         }
 

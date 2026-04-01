@@ -29,7 +29,7 @@ public struct BackupOptions: Sendable {
         type: AssetKind? = nil,
         dryRun: Bool = false,
         saveInterval: Int = 50,
-        networkTimeout: Duration = .seconds(900)
+        networkTimeout: Duration = .seconds(900),
     ) {
         self.batchSize = batchSize
         self.limit = limit
@@ -64,7 +64,7 @@ public func runBackup(
     s3: any S3Providing,
     options: BackupOptions = BackupOptions(),
     progress: any BackupProgressDelegate = NullProgressDelegate(),
-    networkMonitor: (any NetworkMonitoring)? = nil
+    networkMonitor: (any NetworkMonitoring)? = nil,
 ) async throws -> BackupReport {
     // Filter to pending assets, optionally by type
     var pending = assets.filter { asset in
@@ -85,8 +85,7 @@ public func runBackup(
     var photoCount = 0
     var videoCount = 0
     for asset in pending {
-        if asset.kind == .photo { photoCount += 1 }
-        else { videoCount += 1 }
+        if asset.kind == .photo { photoCount += 1 } else { videoCount += 1 }
     }
 
     progress.backupStarted(pending: pending.count, photos: photoCount, videos: videoCount)
@@ -107,18 +106,18 @@ public func runBackup(
     // Process in batches
     let totalBatches = (pending.count + options.batchSize - 1) / options.batchSize
 
-    for batchIndex in 0..<totalBatches {
+    for batchIndex in 0 ..< totalBatches {
         try Task.checkCancellation()
 
         let start = batchIndex * options.batchSize
         let end = min(start + options.batchSize, pending.count)
-        let batch = Array(pending[start..<end])
+        let batch = Array(pending[start ..< end])
         let batchUUIDs = batch.map(\.uuid)
 
         progress.batchStarted(
             batchNumber: batchIndex + 1,
             totalBatches: totalBatches,
-            assetCount: batch.count
+            assetCount: batch.count,
         )
 
         // 1. Export via LadderKit
@@ -153,7 +152,7 @@ public func runBackup(
                 saveInterval: options.saveInterval,
                 progress: progress,
                 networkMonitor: networkMonitor,
-                networkTimeout: options.networkTimeout
+                networkTimeout: options.networkTimeout,
             )
             continue
         } catch let error as ExportProviderError where error.isPermission {
@@ -188,7 +187,7 @@ public func runBackup(
             saveInterval: options.saveInterval,
             progress: progress,
             networkMonitor: networkMonitor,
-            networkTimeout: options.networkTimeout
+            networkTimeout: options.networkTimeout,
         )
     }
 
@@ -205,7 +204,7 @@ public func runBackup(
                     saveInterval: options.saveInterval,
                     progress: progress,
                     networkMonitor: networkMonitor,
-                    networkTimeout: options.networkTimeout
+                    networkTimeout: options.networkTimeout,
                 )
             } catch {
                 let msg = String(describing: error)
@@ -226,7 +225,7 @@ public func runBackup(
     progress.backupCompleted(
         uploaded: report.uploaded,
         failed: report.failed,
-        totalBytes: report.totalBytes
+        totalBytes: report.totalBytes,
     )
 
     return report
@@ -261,7 +260,7 @@ private func uploadExported(
     saveInterval: Int,
     progress: any BackupProgressDelegate,
     networkMonitor: (any NetworkMonitoring)? = nil,
-    networkTimeout: Duration = .seconds(900)
+    networkTimeout: Duration = .seconds(900),
 ) async throws {
     // Record export errors
     for err in batchResult.errors {
@@ -279,12 +278,12 @@ private func uploadExported(
 
         let ext = S3Paths.extensionFromUTIOrFilename(
             uti: asset.uniformTypeIdentifier,
-            filename: asset.originalFilename ?? "unknown"
+            filename: asset.originalFilename ?? "unknown",
         )
         let s3Key = try S3Paths.originalKey(
             uuid: asset.uuid,
             dateCreated: asset.creationDate,
-            extension: ext
+            extension: ext,
         )
 
         do {
@@ -294,7 +293,7 @@ private func uploadExported(
                 manifest: &manifest, report: &report,
                 sinceLastSave: &sinceLastSave,
                 saveInterval: saveInterval,
-                manifestStore: manifestStore, progress: progress
+                manifestStore: manifestStore, progress: progress,
             )
         } catch is CancellationError {
             throw CancellationError()
@@ -312,7 +311,7 @@ private func uploadExported(
 
                     progress.backupPaused(reason: "Waiting for network...")
                     let recovered = try await monitor.waitForNetwork(
-                        timeout: networkTimeout
+                        timeout: networkTimeout,
                     )
                     progress.backupResumed()
 
@@ -325,7 +324,7 @@ private func uploadExported(
                                 manifest: &manifest, report: &report,
                                 sinceLastSave: &sinceLastSave,
                                 saveInterval: saveInterval,
-                                manifestStore: manifestStore, progress: progress
+                                manifestStore: manifestStore, progress: progress,
                             )
                             try? FileManager.default.removeItem(atPath: exported.path)
                             continue
@@ -337,7 +336,7 @@ private func uploadExported(
                         let timeoutMinutes = Int(networkTimeout.components.seconds) / 60
                         report.appendError(
                             uuid: exported.uuid,
-                            message: "Network unavailable for \(timeoutMinutes) minutes, backup paused"
+                            message: "Network unavailable for \(timeoutMinutes) minutes, backup paused",
                         )
                         report.failed += 1
                         if sinceLastSave > 0 {
@@ -373,7 +372,7 @@ private func uploadAssetToS3(
     sinceLastSave: inout Int,
     saveInterval: Int,
     manifestStore: any ManifestStoring,
-    progress: any BackupProgressDelegate
+    progress: any BackupProgressDelegate,
 ) async throws {
     // Upload original via file URL (avoids loading into memory)
     let fileURL = URL(fileURLWithPath: exported.path)
@@ -381,7 +380,7 @@ private func uploadAssetToS3(
         try await s3.putObject(
             key: s3Key,
             fileURL: fileURL,
-            contentType: contentTypeForExtension(ext)
+            contentType: contentTypeForExtension(ext),
         )
     }
 
@@ -391,7 +390,7 @@ private func uploadAssetToS3(
         asset: asset,
         s3Key: s3Key,
         checksum: "sha256:\(exported.sha256)",
-        backedUpAt: isoNow
+        backedUpAt: isoNow,
     )
     let metaData = try metadataEncoder.encode(meta)
     let metaKey = try S3Paths.metadataKey(uuid: asset.uuid)
@@ -399,7 +398,7 @@ private func uploadAssetToS3(
         try await s3.putObject(
             key: metaKey,
             body: metaData,
-            contentType: "application/json"
+            contentType: "application/json",
         )
     }
 
@@ -408,7 +407,7 @@ private func uploadAssetToS3(
         uuid: asset.uuid,
         s3Key: s3Key,
         checksum: "sha256:\(exported.sha256)",
-        size: Int(exported.size)
+        size: Int(exported.size),
     )
     sinceLastSave += 1
     report.uploaded += 1
@@ -419,7 +418,7 @@ private func uploadAssetToS3(
         uuid: asset.uuid,
         filename: filename,
         type: asset.kind,
-        size: Int(exported.size)
+        size: Int(exported.size),
     )
 
     // Periodic manifest save

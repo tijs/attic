@@ -40,14 +40,14 @@ public protocol S3Providing: Sendable {
     func listObjects(prefix: String) async throws -> [S3ListObject]
 }
 
-// Convenience overloads.
-extension S3Providing {
-    public func putObject(key: String, body: Data) async throws {
+/// Convenience overloads.
+public extension S3Providing {
+    func putObject(key: String, body: Data) async throws {
         try await putObject(key: key, body: body, contentType: nil)
     }
 
     /// Default file upload: uses memory-mapped I/O. Real implementations may override.
-    public func putObject(key: String, fileURL: URL, contentType: String?) async throws {
+    func putObject(key: String, fileURL: URL, contentType: String?) async throws {
         let data = try Data(contentsOf: fileURL, options: .mappedIfSafe)
         try await putObject(key: key, body: data, contentType: contentType)
     }

@@ -41,7 +41,7 @@ public struct S3ManifestStore: ManifestStoring {
 /// 4. If neither exists, return empty manifest.
 public func loadManifestWithMigration(
     s3Store: ManifestStoring,
-    localDirectory: URL? = nil
+    localDirectory: URL? = nil,
 ) async throws -> Manifest {
     let s3Manifest = try await s3Store.load()
 
@@ -80,7 +80,7 @@ private func isNotFoundError(_ error: Error) -> Bool {
         switch s3Error {
         case .httpError(404, _):
             return true
-        case .s3Error(let code, _):
+        case let .s3Error(code, _):
             return code == "NoSuchKey" || code == "NotFound"
         default:
             break

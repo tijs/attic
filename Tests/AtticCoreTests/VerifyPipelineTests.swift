@@ -1,8 +1,7 @@
-import Testing
-import Foundation
 @testable import AtticCore
+import Foundation
+import Testing
 
-@Suite("VerifyPipeline")
 struct VerifyPipelineTests {
     private func makeManifest(entries: [(uuid: String, s3Key: String, checksum: String)]) -> Manifest {
         var manifest = Manifest()
@@ -75,11 +74,17 @@ struct VerifyPipelineTests {
 /// S3 provider that throws on headObject to test the error path.
 private actor FailingS3Provider: S3Providing {
     func putObject(key: String, body: Data, contentType: String?) async throws {}
-    func getObject(key: String) async throws -> Data { Data() }
+    func getObject(key: String) async throws -> Data {
+        Data()
+    }
+
     func headObject(key: String) async throws -> S3ObjectMeta? {
         throw FailingS3Error.networkError
     }
-    func listObjects(prefix: String) async throws -> [S3ListObject] { [] }
+
+    func listObjects(prefix: String) async throws -> [S3ListObject] {
+        []
+    }
 }
 
 private enum FailingS3Error: Error {

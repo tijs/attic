@@ -19,7 +19,7 @@ public final class NWPathNetworkMonitor: NetworkMonitoring, @unchecked Sendable 
         monitor = NWPathMonitor()
         monitor.pathUpdateHandler = { [weak self] path in
             guard let self else { return }
-            self.lock.withLock {
+            lock.withLock {
                 self.currentStatus = path.status
             }
         }

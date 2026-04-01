@@ -1,8 +1,7 @@
-import Testing
-import Foundation
 @testable import AtticCore
+import Foundation
+import Testing
 
-@Suite("Manifest")
 struct ManifestTests {
     @Test func emptyManifest() {
         let manifest = Manifest()
@@ -10,20 +9,20 @@ struct ManifestTests {
         #expect(!manifest.isBackedUp("any-uuid"))
     }
 
-    @Test func markBackedUp() {
+    @Test func markBackedUp() throws {
         var manifest = Manifest()
         manifest.markBackedUp(
             uuid: "test-uuid",
             s3Key: "originals/2024/01/test-uuid.heic",
             checksum: "sha256:abc123",
             size: 1024,
-            backedUpAt: "2024-01-15T12:00:00Z"
+            backedUpAt: "2024-01-15T12:00:00Z",
         )
 
         #expect(manifest.isBackedUp("test-uuid"))
         #expect(!manifest.isBackedUp("other-uuid"))
 
-        let entry = manifest.entries["test-uuid"]!
+        let entry = try #require(manifest.entries["test-uuid"])
         #expect(entry.uuid == "test-uuid")
         #expect(entry.s3Key == "originals/2024/01/test-uuid.heic")
         #expect(entry.checksum == "sha256:abc123")
@@ -31,15 +30,15 @@ struct ManifestTests {
         #expect(entry.backedUpAt == "2024-01-15T12:00:00Z")
     }
 
-    @Test func markBackedUpDefaultsTimestamp() {
+    @Test func markBackedUpDefaultsTimestamp() throws {
         var manifest = Manifest()
         manifest.markBackedUp(
             uuid: "test-uuid",
             s3Key: "originals/2024/01/test-uuid.heic",
-            checksum: "sha256:abc123"
+            checksum: "sha256:abc123",
         )
 
-        let entry = manifest.entries["test-uuid"]!
+        let entry = try #require(manifest.entries["test-uuid"])
         #expect(!entry.backedUpAt.isEmpty)
     }
 
@@ -50,13 +49,13 @@ struct ManifestTests {
             s3Key: "originals/2024/01/uuid-1.heic",
             checksum: "sha256:aaa",
             size: 500,
-            backedUpAt: "2024-01-01T00:00:00Z"
+            backedUpAt: "2024-01-01T00:00:00Z",
         )
         manifest.markBackedUp(
             uuid: "uuid-2",
             s3Key: "originals/2024/02/uuid-2.jpg",
             checksum: "sha256:bbb",
-            backedUpAt: "2024-02-01T00:00:00Z"
+            backedUpAt: "2024-02-01T00:00:00Z",
         )
 
         let data = try manifest.encoded()
