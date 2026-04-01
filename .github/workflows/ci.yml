@@ -12,16 +12,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Install tools
+        run: brew install swiftlint swiftformat
+
       - name: SwiftLint
         run: swiftlint lint --quiet
 
       - name: SwiftFormat check
-        run: |
-          swiftformat --lint . 2>&1
-          if [ $? -ne 0 ]; then
-            echo "::error::Code is not formatted. Run 'swiftformat .' locally."
-            exit 1
-          fi
+        run: swiftformat --lint .
 
   test:
     runs-on: macos-15
