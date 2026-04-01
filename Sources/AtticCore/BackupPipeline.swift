@@ -21,19 +21,22 @@ public struct BackupOptions: Sendable {
     public var type: AssetKind?
     public var dryRun: Bool
     public var saveInterval: Int
+    public var networkTimeout: Duration
 
     public init(
         batchSize: Int = 50,
         limit: Int = 0,
         type: AssetKind? = nil,
         dryRun: Bool = false,
-        saveInterval: Int = 50
+        saveInterval: Int = 50,
+        networkTimeout: Duration = .seconds(900)
     ) {
         self.batchSize = batchSize
         self.limit = limit
         self.type = type
         self.dryRun = dryRun
         self.saveInterval = saveInterval
+        self.networkTimeout = networkTimeout
     }
 }
 
@@ -60,7 +63,8 @@ public func runBackup(
     exporter: any ExportProviding,
     s3: any S3Providing,
     options: BackupOptions = BackupOptions(),
-    progress: any BackupProgressDelegate = NullProgressDelegate()
+    progress: any BackupProgressDelegate = NullProgressDelegate(),
+    networkMonitor: (any NetworkMonitoring)? = nil
 ) async throws -> BackupReport {
     // Filter to pending assets, optionally by type
     var pending = assets.filter { asset in
@@ -147,7 +151,9 @@ public func runBackup(
                 manifest: &manifest, manifestStore: manifestStore,
                 report: &report, sinceLastSave: &sinceLastSave,
                 saveInterval: options.saveInterval,
-                progress: progress
+                progress: progress,
+                networkMonitor: networkMonitor,
+                networkTimeout: options.networkTimeout
             )
             continue
         } catch let error as ExportProviderError where error.isPermission {
@@ -180,7 +186,9 @@ public func runBackup(
             manifest: &manifest, manifestStore: manifestStore,
             report: &report, sinceLastSave: &sinceLastSave,
             saveInterval: options.saveInterval,
-            progress: progress
+            progress: progress,
+            networkMonitor: networkMonitor,
+            networkTimeout: options.networkTimeout
         )
     }
 
@@ -195,7 +203,9 @@ public func runBackup(
                     manifest: &manifest, manifestStore: manifestStore,
                     report: &report, sinceLastSave: &sinceLastSave,
                     saveInterval: options.saveInterval,
-                    progress: progress
+                    progress: progress,
+                    networkMonitor: networkMonitor,
+                    networkTimeout: options.networkTimeout
                 )
             } catch {
                 let msg = String(describing: error)
@@ -222,6 +232,22 @@ public func runBackup(
     return report
 }
 
+/// Check if an upload error looks like a transient network issue.
+///
+/// Intentionally a superset of `RetryPolicy.isTransient` — includes
+/// "nsurlerrordomain" and "cfnetwork" so the pipeline's network-pause
+/// logic catches errors that `withRetry` deliberately does not retry
+/// (avoiding 7s of backoff before the network monitor can take over).
+private func isTransientUploadError(_ error: Error) -> Bool {
+    let message = String(describing: error).lowercased()
+    let patterns = [
+        "timeout", "timed out", "econnreset", "econnrefused",
+        "epipe", "socket", "network", "fetch failed",
+        "nsurlerrordomain", "cfnetwork",
+    ]
+    return patterns.contains { message.contains($0) }
+}
+
 // MARK: - Upload helper
 
 private func uploadExported(
@@ -233,7 +259,9 @@ private func uploadExported(
     report: inout BackupReport,
     sinceLastSave: inout Int,
     saveInterval: Int,
-    progress: any BackupProgressDelegate
+    progress: any BackupProgressDelegate,
+    networkMonitor: (any NetworkMonitoring)? = nil,
+    networkTimeout: Duration = .seconds(900)
 ) async throws {
     // Record export errors
     for err in batchResult.errors {
@@ -260,62 +288,67 @@ private func uploadExported(
         )
 
         do {
-            // Upload original via file URL (avoids loading into memory)
-            let fileURL = URL(fileURLWithPath: exported.path)
-            try await withRetry {
-                try await s3.putObject(
-                    key: s3Key,
-                    fileURL: fileURL,
-                    contentType: contentTypeForExtension(ext)
-                )
-            }
-
-            // Build and upload metadata
-            let isoNow = isoFormatter.string(from: Date())
-            let meta = buildMetadataJSON(
-                asset: asset,
-                s3Key: s3Key,
-                checksum: "sha256:\(exported.sha256)",
-                backedUpAt: isoNow
+            try await uploadAssetToS3(
+                exported: exported, asset: asset,
+                s3Key: s3Key, ext: ext, s3: s3,
+                manifest: &manifest, report: &report,
+                sinceLastSave: &sinceLastSave,
+                saveInterval: saveInterval,
+                manifestStore: manifestStore, progress: progress
             )
-            let metaData = try metadataEncoder.encode(meta)
-            let metaKey = try S3Paths.metadataKey(uuid: asset.uuid)
-            try await withRetry {
-                try await s3.putObject(
-                    key: metaKey,
-                    body: metaData,
-                    contentType: "application/json"
-                )
-            }
-
-            // Update manifest
-            manifest.markBackedUp(
-                uuid: asset.uuid,
-                s3Key: s3Key,
-                checksum: "sha256:\(exported.sha256)",
-                size: Int(exported.size)
-            )
-            sinceLastSave += 1
-            report.uploaded += 1
-            report.totalBytes += Int(exported.size)
-
-            let filename = asset.originalFilename ?? "unknown"
-            progress.assetUploaded(
-                uuid: asset.uuid,
-                filename: filename,
-                type: asset.kind,
-                size: Int(exported.size)
-            )
-
-            // Periodic manifest save (skip sortedKeys for speed)
-            if sinceLastSave >= saveInterval {
-                try await manifestStore.save(manifest)
-                progress.manifestSaved(entriesCount: manifest.entries.count)
-                sinceLastSave = 0
-            }
         } catch is CancellationError {
             throw CancellationError()
         } catch {
+            // Check if this is a network issue we can wait out
+            if let monitor = networkMonitor, isTransientUploadError(error) {
+                let networkUp = await monitor.isNetworkAvailable
+                if !networkUp {
+                    // Save manifest before waiting (preserve progress)
+                    if sinceLastSave > 0 {
+                        try? await manifestStore.save(manifest)
+                        progress.manifestSaved(entriesCount: manifest.entries.count)
+                        sinceLastSave = 0
+                    }
+
+                    progress.backupPaused(reason: "Waiting for network...")
+                    let recovered = try await monitor.waitForNetwork(
+                        timeout: networkTimeout
+                    )
+                    progress.backupResumed()
+
+                    if recovered {
+                        // Retry the same asset after network recovery
+                        do {
+                            try await uploadAssetToS3(
+                                exported: exported, asset: asset,
+                                s3Key: s3Key, ext: ext, s3: s3,
+                                manifest: &manifest, report: &report,
+                                sinceLastSave: &sinceLastSave,
+                                saveInterval: saveInterval,
+                                manifestStore: manifestStore, progress: progress
+                            )
+                            try? FileManager.default.removeItem(atPath: exported.path)
+                            continue
+                        } catch {
+                            // Retry after recovery also failed — fall through
+                        }
+                    } else {
+                        // Network timeout — save manifest and stop
+                        let timeoutMinutes = Int(networkTimeout.components.seconds) / 60
+                        report.appendError(
+                            uuid: exported.uuid,
+                            message: "Network unavailable for \(timeoutMinutes) minutes, backup paused"
+                        )
+                        report.failed += 1
+                        if sinceLastSave > 0 {
+                            try? await manifestStore.save(manifest)
+                            sinceLastSave = 0
+                        }
+                        return
+                    }
+                }
+            }
+
             let msg = String(describing: error)
             let filename = asset.originalFilename ?? exported.uuid
             progress.assetFailed(uuid: exported.uuid, filename: filename, message: msg)
@@ -325,5 +358,74 @@ private func uploadExported(
 
         // Clean up staged file
         try? FileManager.default.removeItem(atPath: exported.path)
+    }
+}
+
+/// Upload a single asset (original + metadata) to S3 and update the manifest.
+private func uploadAssetToS3(
+    exported: ExportResult,
+    asset: AssetInfo,
+    s3Key: String,
+    ext: String,
+    s3: any S3Providing,
+    manifest: inout Manifest,
+    report: inout BackupReport,
+    sinceLastSave: inout Int,
+    saveInterval: Int,
+    manifestStore: any ManifestStoring,
+    progress: any BackupProgressDelegate
+) async throws {
+    // Upload original via file URL (avoids loading into memory)
+    let fileURL = URL(fileURLWithPath: exported.path)
+    try await withRetry {
+        try await s3.putObject(
+            key: s3Key,
+            fileURL: fileURL,
+            contentType: contentTypeForExtension(ext)
+        )
+    }
+
+    // Build and upload metadata
+    let isoNow = isoFormatter.string(from: Date())
+    let meta = buildMetadataJSON(
+        asset: asset,
+        s3Key: s3Key,
+        checksum: "sha256:\(exported.sha256)",
+        backedUpAt: isoNow
+    )
+    let metaData = try metadataEncoder.encode(meta)
+    let metaKey = try S3Paths.metadataKey(uuid: asset.uuid)
+    try await withRetry {
+        try await s3.putObject(
+            key: metaKey,
+            body: metaData,
+            contentType: "application/json"
+        )
+    }
+
+    // Update manifest
+    manifest.markBackedUp(
+        uuid: asset.uuid,
+        s3Key: s3Key,
+        checksum: "sha256:\(exported.sha256)",
+        size: Int(exported.size)
+    )
+    sinceLastSave += 1
+    report.uploaded += 1
+    report.totalBytes += Int(exported.size)
+
+    let filename = asset.originalFilename ?? "unknown"
+    progress.assetUploaded(
+        uuid: asset.uuid,
+        filename: filename,
+        type: asset.kind,
+        size: Int(exported.size)
+    )
+
+    // Periodic manifest save
+    if sinceLastSave >= saveInterval {
+        try await manifestStore.save(manifest)
+        progress.manifestSaved(entriesCount: manifest.entries.count)
+        sinceLastSave = 0
     }
 }

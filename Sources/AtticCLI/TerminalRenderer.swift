@@ -30,6 +30,10 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
         var uploadedPhotos: Int = 0
         var uploadedVideos: Int = 0
         var headerPrinted: Bool = false
+        var isPaused: Bool = false
+        var pauseReason: String = ""
+        var pauseStarted: Date?
+        var totalPauseDuration: TimeInterval = 0
     }
 
     // MARK: - BackupProgressDelegate
@@ -76,6 +80,27 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
         // No visual update needed
     }
 
+    func backupPaused(reason: String) {
+        lock.withLock {
+            state.isPaused = true
+            state.pauseReason = reason
+            state.pauseStarted = Date()
+        }
+        render()
+    }
+
+    func backupResumed() {
+        lock.withLock {
+            state.isPaused = false
+            if let pauseStart = state.pauseStarted {
+                state.totalPauseDuration += Date().timeIntervalSince(pauseStart)
+            }
+            state.pauseStarted = nil
+            state.pauseReason = ""
+        }
+        render()
+    }
+
     func backupCompleted(uploaded: Int, failed: Int, totalBytes: Int) {
         lock.withLock {
             state.uploaded = uploaded
@@ -91,8 +116,14 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
 
     private func render() {
         let (s, elapsed): (RenderState, TimeInterval) = lock.withLock {
-            let e = startTime.map { Date().timeIntervalSince($0) } ?? 0
-            return (state, e)
+            let total = startTime.map { Date().timeIntervalSince($0) } ?? 0
+            // Exclude pause time from elapsed for accurate speed calculation
+            var currentPause: TimeInterval = 0
+            if let pauseStart = state.pauseStarted {
+                currentPause = Date().timeIntervalSince(pauseStart)
+            }
+            let active = total - state.totalPauseDuration - currentPause
+            return (state, max(0, active))
         }
         let speed = elapsed > 0 ? Double(s.totalBytes) / elapsed : 0
 
@@ -111,10 +142,15 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
         lines.append("  Progress  [\(bar)] \(completed)/\(s.total)")
         lines.append("  Photos    \(s.uploadedPhotos) uploaded")
         lines.append("  Videos    \(s.uploadedVideos) uploaded")
-        lines.append("  Speed     \(formatBytes(Int(speed)))/s")
+        lines.append("  Speed     \(s.isPaused ? "—" : "\(formatBytes(Int(speed)))/s")")
         lines.append("  Errors    \(s.failed)")
         lines.append("")
-        lines.append("  Current   \(s.currentFile)")
+        if s.isPaused, let pauseStart = s.pauseStarted {
+            let waitTime = Date().timeIntervalSince(pauseStart)
+            lines.append("  Status    \u{1b}[33m⏸ \(s.pauseReason) (\(formatDuration(waitTime)))\u{1b}[0m")
+        } else {
+            lines.append("  Current   \(s.currentFile)")
+        }
         lines.append("  Elapsed   \(formatDuration(elapsed))")
 
         // Move cursor up to overwrite previous render (8 lines of content)

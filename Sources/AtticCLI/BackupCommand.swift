@@ -63,6 +63,10 @@ struct BackupCommand: AsyncParsableCommand {
             dryRun: dryRun
         )
 
+        // Prevent idle sleep during backup (released automatically via deinit)
+        let powerAssertion = PowerAssertion(reason: "Backing up photos to S3")
+        let networkMonitor = NWPathNetworkMonitor()
+
         let report = try await runBackup(
             assets: assets,
             manifest: &manifest,
@@ -70,8 +74,11 @@ struct BackupCommand: AsyncParsableCommand {
             exporter: exporter,
             s3: s3,
             options: options,
-            progress: progress
+            progress: progress,
+            networkMonitor: networkMonitor
         )
+
+        _ = powerAssertion // prevent unused warning, released in deinit
 
         if !isTTY {
             debugPrint("Backup complete: \(report.uploaded) uploaded, \(report.failed) failed (\(formatBytes(report.totalBytes)))")
@@ -95,6 +102,12 @@ struct LogProgressDelegate: BackupProgressDelegate {
     }
     func manifestSaved(entriesCount: Int) {
         debugPrint("  Manifest saved (\(entriesCount) entries)")
+    }
+    func backupPaused(reason: String) {
+        debugPrint("  ⏸ Paused: \(reason)")
+    }
+    func backupResumed() {
+        debugPrint("  ▶ Resumed")
     }
     func backupCompleted(uploaded: Int, failed: Int, totalBytes: Int) {
         debugPrint("Done: \(uploaded) uploaded, \(failed) failed (\(formatBytes(totalBytes)))")
