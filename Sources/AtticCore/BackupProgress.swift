@@ -22,6 +22,18 @@ public protocol BackupProgressDelegate: Sendable {
 
     /// Backup completed.
     func backupCompleted(uploaded: Int, failed: Int, totalBytes: Int)
+
+    /// Backup paused (e.g., network lost during upload).
+    func backupPaused(reason: String)
+
+    /// Backup resumed after a pause.
+    func backupResumed()
+}
+
+/// Default no-op implementations for optional delegate methods.
+public extension BackupProgressDelegate {
+    func backupPaused(reason: String) {}
+    func backupResumed() {}
 }
 
 /// No-op delegate for quiet/test runs.
