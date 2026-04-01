@@ -62,6 +62,21 @@ struct MockS3ProviderTests {
     }
 }
 
+/// S3 provider that throws a configurable error on getObject.
+private actor ThrowingS3Provider: S3Providing {
+    let error: Error
+
+    init(error: Error) {
+        self.error = error
+    }
+
+    func putObject(key: String, body: Data, contentType: String?) async throws {}
+    func putObject(key: String, fileURL: URL, contentType: String?) async throws {}
+    func getObject(key: String) async throws -> Data { throw error }
+    func headObject(key: String) async throws -> S3ObjectMeta? { nil }
+    func listObjects(prefix: String) async throws -> [S3ListObject] { [] }
+}
+
 @Suite("S3ManifestStore")
 struct S3ManifestStoreTests {
     @Test func loadReturnsEmptyWhenKeyMissing() async throws {
@@ -69,6 +84,29 @@ struct S3ManifestStoreTests {
         let store = S3ManifestStore(s3: s3)
         let manifest = try await store.load()
         #expect(manifest.entries.isEmpty)
+    }
+
+    @Test func loadReturnsEmptyOnHTTP404() async throws {
+        let s3 = ThrowingS3Provider(error: S3ClientError.httpError(404, "manifest.json"))
+        let store = S3ManifestStore(s3: s3)
+        let manifest = try await store.load()
+        #expect(manifest.entries.isEmpty)
+    }
+
+    @Test func loadReturnsEmptyOnS3NoSuchKey() async throws {
+        let s3 = ThrowingS3Provider(
+            error: S3ClientError.s3Error(code: "NoSuchKey", message: "Not found"))
+        let store = S3ManifestStore(s3: s3)
+        let manifest = try await store.load()
+        #expect(manifest.entries.isEmpty)
+    }
+
+    @Test func loadThrowsOnNon404HTTPError() async throws {
+        let s3 = ThrowingS3Provider(error: S3ClientError.httpError(403, "manifest.json"))
+        let store = S3ManifestStore(s3: s3)
+        await #expect(throws: S3ClientError.self) {
+            _ = try await store.load()
+        }
     }
 
     @Test func saveAndLoadRoundTrip() async throws {
