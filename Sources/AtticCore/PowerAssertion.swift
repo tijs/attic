@@ -18,11 +18,7 @@ public final class PowerAssertion: @unchecked Sendable {
         )
     }
 
-    public func end() {
-        ProcessInfo.processInfo.endActivity(activity)
-    }
-
     deinit {
-        end()
+        ProcessInfo.processInfo.endActivity(activity)
     }
 }

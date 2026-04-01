@@ -18,8 +18,9 @@ public final class NWPathNetworkMonitor: NetworkMonitoring, @unchecked Sendable 
     public init() {
         monitor = NWPathMonitor()
         monitor.pathUpdateHandler = { [weak self] path in
-            self?.lock.withLock {
-                self?.currentStatus = path.status
+            guard let self else { return }
+            self.lock.withLock {
+                self.currentStatus = path.status
             }
         }
         monitor.start(queue: queue)
@@ -41,8 +42,12 @@ public final class NWPathNetworkMonitor: NetworkMonitoring, @unchecked Sendable 
             try Task.checkCancellation()
 
             if isNetworkAvailable {
-                // Wait for stabilization to avoid flicker
-                try await Task.sleep(for: stabilizationDelay)
+                // Wait for stabilization to avoid flicker, capped to remaining time
+                let remaining = deadline - ContinuousClock.now
+                let stabilize = min(stabilizationDelay, remaining)
+                if stabilize > .zero {
+                    try await Task.sleep(for: stabilize)
+                }
                 try Task.checkCancellation()
 
                 // Confirm network is still up after stabilization

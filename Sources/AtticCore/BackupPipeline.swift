@@ -233,6 +233,11 @@ public func runBackup(
 }
 
 /// Check if an upload error looks like a transient network issue.
+///
+/// Intentionally a superset of `RetryPolicy.isTransient` — includes
+/// "nsurlerrordomain" and "cfnetwork" so the pipeline's network-pause
+/// logic catches errors that `withRetry` deliberately does not retry
+/// (avoiding 7s of backoff before the network monitor can take over).
 private func isTransientUploadError(_ error: Error) -> Bool {
     let message = String(describing: error).lowercased()
     let patterns = [
@@ -329,9 +334,10 @@ private func uploadExported(
                         }
                     } else {
                         // Network timeout — save manifest and stop
+                        let timeoutMinutes = Int(networkTimeout.components.seconds) / 60
                         report.appendError(
                             uuid: exported.uuid,
-                            message: "Network unavailable for 15 minutes, backup paused"
+                            message: "Network unavailable for \(timeoutMinutes) minutes, backup paused"
                         )
                         report.failed += 1
                         if sinceLastSave > 0 {
