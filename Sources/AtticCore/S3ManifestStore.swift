@@ -76,6 +76,16 @@ public func loadManifestWithMigration(
 }
 
 private func isNotFoundError(_ error: Error) -> Bool {
+    if let s3Error = error as? S3ClientError {
+        switch s3Error {
+        case .httpError(404, _):
+            return true
+        case .s3Error(let code, _):
+            return code == "NoSuchKey" || code == "NotFound"
+        default:
+            break
+        }
+    }
     let description = String(describing: error)
     return description.contains("NotFound") || description.contains("NoSuchKey")
         || description.contains("notFound")
