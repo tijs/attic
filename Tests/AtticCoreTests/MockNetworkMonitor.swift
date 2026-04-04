@@ -1,31 +1,32 @@
+@testable import AtticCore
 import Foundation
 
 /// In-memory network monitor mock for tests.
 ///
 /// Controllable `isAvailable` property. `waitForNetwork` polls with a short
 /// interval and respects both timeout and cancellation.
-public actor MockNetworkMonitor: NetworkMonitoring {
+actor MockNetworkMonitor: NetworkMonitoring {
     private var available: Bool
 
-    public init(available: Bool = true) {
+    init(available: Bool = true) {
         self.available = available
     }
 
-    public var isNetworkAvailable: Bool {
+    var isNetworkAvailable: Bool {
         available
     }
 
     /// Simulate network recovery.
-    public func setAvailable() {
+    func setAvailable() {
         available = true
     }
 
     /// Simulate network loss.
-    public func setUnavailable() {
+    func setUnavailable() {
         available = false
     }
 
-    public func waitForNetwork(timeout: Duration) async throws -> Bool {
+    func waitForNetwork(timeout: Duration) async throws -> Bool {
         if available { return true }
 
         let deadline = ContinuousClock.now + timeout

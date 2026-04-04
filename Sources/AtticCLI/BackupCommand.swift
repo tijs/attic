@@ -65,7 +65,6 @@ struct BackupCommand: AsyncParsableCommand {
 
         // Prevent idle sleep during backup (released automatically via deinit)
         let powerAssertion = PowerAssertion(reason: "Backing up photos to S3")
-        let networkMonitor = NWPathNetworkMonitor()
 
         let report = try await runBackup(
             assets: assets,
@@ -75,7 +74,7 @@ struct BackupCommand: AsyncParsableCommand {
             s3: s3,
             options: options,
             progress: progress,
-            networkMonitor: networkMonitor,
+            networkMonitor: NWPathNetworkMonitor(),
         )
 
         _ = powerAssertion // prevent unused warning, released in deinit

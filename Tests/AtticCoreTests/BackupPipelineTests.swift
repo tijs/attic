@@ -57,7 +57,6 @@ struct MockExportProvider: ExportProviding {
 struct TimeoutExportProvider: ExportProviding {
     let inner: MockExportProvider
     let slowUUIDs: Set<String>
-    let deferredRetrySucceeds: Bool
     private let retryCounter = RetryCounter()
 
     actor RetryCounter {
@@ -299,7 +298,6 @@ struct BackupPipelineTests {
         let exporter = TimeoutExportProvider(
             inner: inner,
             slowUUIDs: ["slow-1"],
-            deferredRetrySucceeds: true,
         )
         let (s3, manifestStore) = try await createTestContext()
         var manifest = try await manifestStore.load()
@@ -318,6 +316,103 @@ struct BackupPipelineTests {
         #expect(manifest.isBackedUp("fast-1"))
         #expect(manifest.isBackedUp("fast-2"))
         #expect(manifest.isBackedUp("slow-1"))
+    }
+
+    @Test func concurrentUploadsAllAppearInManifest() async throws {
+        // Create enough assets to exercise concurrency (more than default 6)
+        let count = 12
+        var assets: [AssetInfo] = []
+        var exportMap: [String: (filename: String, data: Data)] = [:]
+        for i in 1 ... count {
+            let uuid = "concurrent-\(i)"
+            assets.append(makeTestAsset(uuid: uuid))
+            exportMap[uuid] = ("IMG_\(i).HEIC", Data("photo\(i)".utf8))
+        }
+
+        let exporter = MockExportProvider(assets: exportMap)
+        let (s3, manifestStore) = try await createTestContext()
+        var manifest = try await manifestStore.load()
+
+        let report = try await runBackup(
+            assets: assets,
+            manifest: &manifest,
+            manifestStore: manifestStore,
+            exporter: exporter,
+            s3: s3,
+            options: BackupOptions(batchSize: 12, concurrency: 4),
+        )
+
+        #expect(report.uploaded == count)
+        #expect(report.failed == 0)
+        for i in 1 ... count {
+            #expect(manifest.isBackedUp("concurrent-\(i)"))
+        }
+    }
+
+    @Test func concurrentMixedSuccessAndFailure() async throws {
+        let assets = [
+            makeTestAsset(uuid: "ok-1"),
+            makeTestAsset(uuid: "ok-2"),
+            makeTestAsset(uuid: "missing-1"),
+            makeTestAsset(uuid: "ok-3"),
+            makeTestAsset(uuid: "missing-2"),
+        ]
+
+        let exporter = MockExportProvider(assets: [
+            "ok-1": ("IMG_1.HEIC", Data("p1".utf8)),
+            "ok-2": ("IMG_2.HEIC", Data("p2".utf8)),
+            "ok-3": ("IMG_3.HEIC", Data("p3".utf8)),
+        ])
+        let (s3, manifestStore) = try await createTestContext()
+        var manifest = try await manifestStore.load()
+
+        let report = try await runBackup(
+            assets: assets,
+            manifest: &manifest,
+            manifestStore: manifestStore,
+            exporter: exporter,
+            s3: s3,
+            options: BackupOptions(batchSize: 10, concurrency: 3),
+        )
+
+        #expect(report.uploaded == 3)
+        #expect(report.failed == 2)
+        #expect(manifest.isBackedUp("ok-1"))
+        #expect(manifest.isBackedUp("ok-2"))
+        #expect(manifest.isBackedUp("ok-3"))
+        #expect(!manifest.isBackedUp("missing-1"))
+        #expect(!manifest.isBackedUp("missing-2"))
+    }
+
+    @Test func concurrencyOneWorksLikeSequential() async throws {
+        let assets = [
+            makeTestAsset(uuid: "seq-1"),
+            makeTestAsset(uuid: "seq-2"),
+            makeTestAsset(uuid: "seq-3"),
+        ]
+
+        let exporter = MockExportProvider(assets: [
+            "seq-1": ("IMG_1.HEIC", Data("p1".utf8)),
+            "seq-2": ("IMG_2.HEIC", Data("p2".utf8)),
+            "seq-3": ("IMG_3.HEIC", Data("p3".utf8)),
+        ])
+        let (s3, manifestStore) = try await createTestContext()
+        var manifest = try await manifestStore.load()
+
+        let report = try await runBackup(
+            assets: assets,
+            manifest: &manifest,
+            manifestStore: manifestStore,
+            exporter: exporter,
+            s3: s3,
+            options: BackupOptions(batchSize: 10, concurrency: 1),
+        )
+
+        #expect(report.uploaded == 3)
+        #expect(report.failed == 0)
+        #expect(manifest.isBackedUp("seq-1"))
+        #expect(manifest.isBackedUp("seq-2"))
+        #expect(manifest.isBackedUp("seq-3"))
     }
 
     @Test func savesManifestToS3() async throws {
