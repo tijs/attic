@@ -107,7 +107,7 @@ public enum StatusStats {
             let display = uti.hasPrefix("public.") ? String(uti.dropFirst(7)).uppercased() : uti.uppercased()
             counts[display, default: 0] += 1
         }
-        let sorted = counts.sorted { $0.value > $1.value }
+        let sorted = counts.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
         let total = Double(assets.count)
         var result: [TypeBreakdown] = []
         var shown = 0.0
