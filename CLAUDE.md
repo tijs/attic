@@ -58,8 +58,7 @@ All external dependencies are behind protocols (`S3Providing`, `ManifestStoring`
 
 | Command | Description |
 |---------|-------------|
-| `scan` | Scan Photos library, show summary |
-| `status` | Show backup progress vs manifest |
+| `status` | Library stats, backup progress, S3 manifest info |
 | `backup` | Back up photos/videos to S3 |
 | `verify` | Verify S3 objects against manifest |
 | `refresh-metadata` | Re-upload metadata JSON |

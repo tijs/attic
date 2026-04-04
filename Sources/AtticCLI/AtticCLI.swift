@@ -8,7 +8,6 @@ struct AtticCLI: AsyncParsableCommand {
         abstract: "Back up iCloud Photos to S3-compatible storage.",
         version: AtticCore.version,
         subcommands: [
-            ScanCommand.self,
             StatusCommand.self,
             BackupCommand.self,
             VerifyCommand.self,
