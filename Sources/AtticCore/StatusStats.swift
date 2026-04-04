@@ -3,19 +3,29 @@ import LadderKit
 
 // MARK: - Dashboard Data Models
 
+public struct TypeBreakdown: Sendable, Equatable {
+    public let uti: String
+    public let percentage: Double
+
+    public init(uti: String, percentage: Double) {
+        self.uti = uti
+        self.percentage = percentage
+    }
+}
+
 public struct DashboardData: Sendable {
     public let version: String
     public let library: LibraryStats
     public let backup: BackupStats?
     public let s3: S3Info?
-    public let types: [(uti: String, percentage: Double)]
+    public let types: [TypeBreakdown]
 
     public init(
         version: String,
         library: LibraryStats,
         backup: BackupStats?,
         s3: S3Info?,
-        types: [(uti: String, percentage: Double)],
+        types: [TypeBreakdown],
     ) {
         self.version = version
         self.library = library
@@ -89,7 +99,7 @@ public enum StatusStats {
     public static func computeUTIBreakdown(
         _ assets: [AssetInfo],
         topN: Int = 5,
-    ) -> [(uti: String, percentage: Double)] {
+    ) -> [TypeBreakdown] {
         guard !assets.isEmpty else { return [] }
         var counts: [String: Int] = [:]
         for asset in assets {
@@ -99,13 +109,13 @@ public enum StatusStats {
         }
         let sorted = counts.sorted { $0.value > $1.value }
         let total = Double(assets.count)
-        var result: [(uti: String, percentage: Double)] = []
+        var result: [TypeBreakdown] = []
         var shown = 0.0
 
         for (index, entry) in sorted.enumerated() {
             let pct = Double(entry.value) / total * 100
             if index < topN {
-                result.append((uti: entry.key, percentage: pct))
+                result.append(TypeBreakdown(uti: entry.key, percentage: pct))
                 shown += pct
             } else {
                 break
@@ -114,7 +124,7 @@ public enum StatusStats {
 
         let otherPct = 100.0 - shown
         if otherPct > 0.5 {
-            result.append((uti: "Other", percentage: otherPct))
+            result.append(TypeBreakdown(uti: "Other", percentage: otherPct))
         }
 
         return result
@@ -123,9 +133,9 @@ public enum StatusStats {
     public static func computeBackupStats(assets: [AssetInfo], manifest: Manifest) -> BackupStats {
         var backedUp = 0, backedUpBytes = 0
         for asset in assets {
-            if manifest.isBackedUp(asset.uuid) {
+            if let entry = manifest.entries[asset.uuid] {
                 backedUp += 1
-                backedUpBytes += manifest.entries[asset.uuid]?.size ?? 0
+                backedUpBytes += entry.size ?? 0
             }
         }
         return BackupStats(
@@ -138,8 +148,8 @@ public enum StatusStats {
 
     public static func computeS3Info(bucket: String, manifest: Manifest) -> S3Info {
         let lastBackup = manifest.entries.values
+            .max(by: { $0.backedUpAt < $1.backedUpAt })
             .map(\.backedUpAt)
-            .max()
         let displayDate: String? = lastBackup.flatMap { iso in
             let trimmed = String(iso.prefix(10))
             return trimmed.count == 10 ? trimmed : iso

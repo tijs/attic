@@ -133,9 +133,13 @@ struct StatusRenderer {
 
 // MARK: - Number Formatting
 
+private let numberFormatter: NumberFormatter = {
+    let f = NumberFormatter()
+    f.numberStyle = .decimal
+    f.groupingSeparator = ","
+    return f
+}()
+
 private func format(_ number: Int) -> String {
-    let formatter = NumberFormatter()
-    formatter.numberStyle = .decimal
-    formatter.groupingSeparator = ","
-    return formatter.string(from: NSNumber(value: number)) ?? "\(number)"
+    numberFormatter.string(from: NSNumber(value: number)) ?? "\(number)"
 }

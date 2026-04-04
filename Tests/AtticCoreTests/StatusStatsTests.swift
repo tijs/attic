@@ -162,7 +162,7 @@ struct StatusStatsTests {
 
     // MARK: - S3 Info
 
-    @Test func s3InfoDeriesLastBackup() {
+    @Test func s3InfoDerivesLastBackup() {
         let manifest = Manifest(entries: [
             "a": ManifestEntry(uuid: "a", s3Key: "k", checksum: "c", backedUpAt: "2026-01-15T10:00:00Z"),
             "b": ManifestEntry(uuid: "b", s3Key: "k", checksum: "c", backedUpAt: "2026-04-03T14:22:00Z"),

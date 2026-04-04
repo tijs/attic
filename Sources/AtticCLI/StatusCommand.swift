@@ -24,7 +24,7 @@ struct StatusCommand: AsyncParsableCommand {
             let manifest = try await Dependencies.loadManifest(store: manifestStore)
             backup = StatusStats.computeBackupStats(assets: assets, manifest: manifest)
             s3 = StatusStats.computeS3Info(bucket: config.bucket, manifest: manifest)
-        } catch is CLIError {
+        } catch CLIError.notInitialized {
             // No config — show library only with init hint
         }
 
