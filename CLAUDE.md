@@ -81,6 +81,14 @@ Uses Swift Testing framework (`@Test`, `#expect`, `@Suite`).
 - [Architecture](docs/architecture.md) — pipeline, reader, manifest, interfaces
 - [Asset Metadata](docs/metadata.md) — per-asset JSON schema uploaded to S3
 
+## Releasing
+
+1. Bump `AtticCore.version` in `Sources/AtticCore/AtticCore.swift`
+2. Commit, tag with `v{version}`, push both main and the tag
+3. The `Release` GitHub Action builds the binary and creates a GitHub release
+4. Update `tijs/homebrew-tap` formula with new version and sha256 from the
+   release checksums
+
 ## Conventions
 
 - Files should stay under 500 lines
