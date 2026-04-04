@@ -12,7 +12,7 @@ struct RetryPolicyTests {
         let counter = Counter()
         let result: String = try await withRetry(baseDelay: .milliseconds(10)) {
             let attempt = await counter.increment()
-            if attempt == 1 { throw TransientError("fetch failed") }
+            if attempt == 1 { throw TransientError.make("fetch failed") }
             return "ok"
         }
         #expect(result == "ok")
@@ -40,10 +40,10 @@ struct RetryPolicyTests {
                 baseDelay: .milliseconds(10),
             ) {
                 await counter.increment()
-                throw TransientError("ECONNRESET")
+                throw TransientError.make("ECONNRESET")
             }
         } catch {
-            #expect(error is TransientError)
+            #expect(error is S3ClientError)
         }
         #expect(await counter.value == 3)
     }
@@ -56,7 +56,7 @@ struct RetryPolicyTests {
                 baseDelay: .milliseconds(100),
             ) {
                 await counter.increment()
-                throw TransientError("timeout")
+                throw TransientError.make("timeout")
             } as Int
         }
 
@@ -76,10 +76,10 @@ struct RetryPolicyTests {
 
 // MARK: - Test helpers
 
-private struct TransientError: Error, CustomStringConvertible {
-    let description: String
-    init(_ description: String) {
-        self.description = description
+/// Simulates a transient server error that isTransient() recognizes.
+private enum TransientError {
+    static func make(_ message: String) -> Error {
+        S3ClientError.httpError(503, message)
     }
 }
 
