@@ -478,6 +478,7 @@ const state = {
   lightboxIndex: -1,
   metadataLoading: true,
   pollTimer: null,
+  generation: 0,
 };
 
 const grid = document.getElementById('grid');
@@ -500,30 +501,41 @@ function buildFilterParams() {
   return params;
 }
 
+let filterFetchInFlight = false;
+
 async function fetchFilters({ reload = false } = {}) {
-  const params = buildFilterParams();
-  const res = await fetch(`/api/filters?${params}`);
-  const data = await res.json();
+  if (filterFetchInFlight) return;
+  filterFetchInFlight = true;
 
-  updateYearDropdown(data.years);
-  updateAlbumDropdown(data.albums);
-  updateTypeDropdown(data.totalPhotos, data.totalVideos);
-  updateStats(data);
-  updateProgress(data);
+  try {
+    const params = buildFilterParams();
+    const res = await fetch(`/api/filters?${params}`);
+    const data = await res.json();
 
-  if (data.isLoading && !state.pollTimer) {
-    state.metadataLoading = true;
-    state.pollTimer = setInterval(() => fetchFilters(), 2000);
+    updateYearDropdown(data.years);
+    updateAlbumDropdown(data.albums);
+    updateTypeDropdown(data.totalPhotos, data.totalVideos);
+    updateStats(data);
+    updateProgress(data);
+
+    if (data.isLoading && !state.pollTimer) {
+      state.metadataLoading = true;
+      state.pollTimer = setInterval(() => fetchFilters(), 2000);
+    }
+
+    if (!data.isLoading) {
+      state.metadataLoading = false;
+      if (state.pollTimer) {
+        clearInterval(state.pollTimer);
+        state.pollTimer = null;
+      }
+      reload = true;
+    }
+
+    if (reload) resetAndLoad();
+  } finally {
+    filterFetchInFlight = false;
   }
-
-  if (!data.isLoading && state.pollTimer) {
-    state.metadataLoading = false;
-    clearInterval(state.pollTimer);
-    state.pollTimer = null;
-    reload = true;
-  }
-
-  if (reload) resetAndLoad();
 }
 
 function updateYearDropdown(years) {
@@ -643,8 +655,10 @@ clearBtn.addEventListener('click', () => {
 });
 
 function resetAndLoad() {
+  state.generation++;
   state.page = 1;
   state.done = false;
+  state.loading = false;
   state.assets = [];
   grid.innerHTML = '';
   emptyState.style.display = 'none';
@@ -657,6 +671,7 @@ async function loadPage() {
   if (state.loading || state.done) return;
   state.loading = true;
   loadingBar.classList.add('active');
+  const gen = state.generation;
 
   const params = new URLSearchParams({ page: state.page, pageSize: state.pageSize });
   if (state.filters.year) params.set('year', state.filters.year);
@@ -666,6 +681,13 @@ async function loadPage() {
 
   const res = await fetch(`/api/assets?${params}`);
   const data = await res.json();
+
+  // Discard response if a reset happened while the fetch was in-flight
+  if (gen !== state.generation) {
+    state.loading = false;
+    loadingBar.classList.remove('active');
+    return;
+  }
 
   state.totalCount = data.totalCount;
 
@@ -775,7 +797,8 @@ function closeLightbox() {
 }
 
 async function renderLightbox() {
-  const asset = state.assets[state.lightboxIndex];
+  const idx = state.lightboxIndex;
+  const asset = state.assets[idx];
   if (!asset) return;
 
   const content = document.getElementById('lbContent');
@@ -784,6 +807,9 @@ async function renderLightbox() {
 
   const res = await fetch(`/api/assets/${asset.uuid}`);
   const detail = await res.json();
+
+  // Discard if user navigated away while fetch was in-flight
+  if (state.lightboxIndex !== idx) return;
 
   content.innerHTML = '';
   if (asset.isVideo) {
