@@ -21,26 +21,25 @@ struct ViewerCommand: AsyncParsableCommand {
         }
 
         let dataStore = ViewerDataStore()
-        let total = manifest.entries.count
-
-        let spinner = PreparationSpinner()
-        spinner.updateStatus("Loading metadata... 0 / \(formatCount(total)) assets")
-        spinner.start()
-
-        await dataStore.load(manifest: manifest, s3: s3) { loaded, total in
-            spinner.updateStatus(
-                "Loading metadata... \(formatCount(loaded)) / \(formatCount(total)) assets"
-            )
-        }
-
-        spinner.stop()
-        print("  Loaded \(formatCount(total)) assets")
-
         let thumbnailService = ThumbnailService(s3: s3, dataStore: dataStore)
         let server = ViewerServer(
             dataStore: dataStore, s3: s3,
             thumbnailProvider: thumbnailService, port: port
         )
+
+        // Start metadata loading in the background — assets become
+        // queryable as they arrive, and the browser polls for progress.
+        let total = manifest.entries.count
+        print("  Loading metadata for \(formatCount(total)) assets in background...")
+
+        Task {
+            do {
+                await dataStore.load(manifest: manifest, s3: s3) { _, _ in }
+                print("  Metadata loading complete.")
+            } catch {
+                print("  Error loading metadata: \(error)")
+            }
+        }
 
         try await server.start { actualPort in
             let url = "http://127.0.0.1:\(actualPort)"

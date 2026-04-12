@@ -3,156 +3,425 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Attic Viewer</title>
+<title>Attic</title>
 <style>
 :root {
-  --bg: #fff;
-  --bg-secondary: #f5f5f7;
-  --text: #1d1d1f;
-  --text-secondary: #86868b;
-  --border: #d2d2d7;
-  --accent: #0071e3;
-  --grid-gap: 2px;
-  --thumb-size: 200px;
+  --bg: #111113;
+  --bg-raised: #1a1a1e;
+  --bg-hover: #232328;
+  --surface: #27272c;
+  --text: #ececef;
+  --text-dim: #8b8b93;
+  --text-faint: #55555e;
+  --border: #2e2e35;
+  --accent: #6e8efb;
+  --accent-dim: rgba(110,142,251,0.12);
+  --radius: 8px;
+  --radius-sm: 5px;
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  --grid-gap: 3px;
+  --thumb-size: 180px;
+  --header-h: 64px;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1d1d1f;
-    --bg-secondary: #2d2d2f;
-    --text: #f5f5f7;
-    --text-secondary: #86868b;
-    --border: #424245;
-    --accent: #2997ff;
-  }
-}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { background: var(--bg); }
+
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  font-family: var(--font);
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
 }
+
+/* --- Header --- */
+
 header {
   position: sticky; top: 0; z-index: 100;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
-  padding: 12px 20px;
-}
-.header-top {
+  height: var(--header-h);
   display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 10px;
+  padding: 0 24px;
+  background: rgba(17,17,19,0.82);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--border);
 }
-.header-top h1 { font-size: 20px; font-weight: 600; }
-.stats { font-size: 13px; color: var(--text-secondary); }
-.filters {
-  display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+
+.brand {
+  display: flex; align-items: center; gap: 10px;
 }
-.filters select, .filters button {
-  font-family: inherit; font-size: 13px;
-  padding: 5px 10px; border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--bg-secondary);
+
+.brand-icon {
+  width: 28px; height: 28px;
+  background: linear-gradient(135deg, var(--accent), #b47afc);
+  border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+  color: #fff;
+  font-weight: 500;
+  letter-spacing: -0.5px;
+}
+
+.brand h1 {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
   color: var(--text);
+}
+
+.stats {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-faint);
+  letter-spacing: 0.2px;
+}
+
+.filters {
+  display: flex; gap: 6px; align-items: center;
+}
+
+.filters select {
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 400;
+  padding: 6px 28px 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--text-dim);
   cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s, color 0.15s;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2355555e' stroke-width='1.4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
 }
-.filters button.active {
-  background: var(--accent); color: #fff; border-color: var(--accent);
+
+.filters select:hover { border-color: #444; color: var(--text); }
+.filters select:focus { border-color: var(--accent); }
+
+.filters select option {
+  background: var(--bg-raised);
+  color: var(--text);
 }
+
+.filters select option:disabled {
+  color: var(--text-faint);
+  opacity: 0.5;
+}
+
+.filters select.has-value {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.fav-btn {
+  font-family: var(--font);
+  font-size: 12px; font-weight: 400;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex; align-items: center; gap: 5px;
+}
+
+.fav-btn:hover { border-color: #444; color: var(--text); }
+.fav-btn.active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.fav-btn svg { width: 13px; height: 13px; }
+
+.clear-btn {
+  font-family: var(--font);
+  font-size: 11px; font-weight: 400;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: all 0.15s;
+  display: none;
+  white-space: nowrap;
+}
+
+.clear-btn.visible { display: flex; }
+.clear-btn:hover { color: var(--text); border-color: var(--border); }
+
+/* --- Progress bar --- */
+
+.progress-wrap {
+  position: fixed; top: var(--header-h); left: 0; right: 0;
+  height: 3px; z-index: 101;
+  background: var(--border);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.progress-wrap.active { opacity: 1; }
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #b47afc);
+  width: 0%;
+  transition: width 0.4s ease;
+  border-radius: 0 2px 2px 0;
+}
+
+.progress-text {
+  position: fixed; top: calc(var(--header-h) + 8px); right: 24px;
+  font-size: 11px; color: var(--text-faint);
+  z-index: 101;
+  opacity: 0;
+  transition: opacity 0.3s;
+  letter-spacing: 0.2px;
+}
+
+.progress-text.active { opacity: 1; }
+
+/* --- Grid --- */
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--thumb-size), 1fr));
   gap: var(--grid-gap);
   padding: var(--grid-gap);
 }
+
 .thumb {
   aspect-ratio: 1;
   overflow: hidden;
   cursor: pointer;
   position: relative;
-  background: var(--bg-secondary);
+  background: var(--bg-raised);
+  border-radius: 2px;
 }
+
 .thumb img {
   width: 100%; height: 100%;
   object-fit: cover;
   display: block;
-}
-.thumb .badge {
-  position: absolute; bottom: 4px; left: 4px;
-  background: rgba(0,0,0,0.6); color: #fff;
-  font-size: 10px; padding: 2px 5px; border-radius: 3px;
-}
-.thumb .fav {
-  position: absolute; top: 4px; right: 4px;
-  font-size: 12px;
-}
-.thumb .play-indicator {
-  position: absolute; top: 50%; left: 50%;
-  transform: translate(-50%, -50%);
-  width: 40px; height: 40px;
-  background: rgba(0,0,0,0.5);
-  border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  pointer-events: none;
-}
-.thumb .play-indicator::after {
-  content: '';
-  display: block;
-  width: 0; height: 0;
-  border-style: solid;
-  border-width: 8px 0 8px 14px;
-  border-color: transparent transparent transparent #fff;
-  margin-left: 3px;
-}
-.empty {
-  text-align: center; padding: 80px 20px;
-  color: var(--text-secondary); font-size: 15px;
-}
-.loading {
-  text-align: center; padding: 30px;
-  color: var(--text-secondary); font-size: 14px;
+  opacity: 0;
+  transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
-/* Lightbox */
-.lightbox {
-  display: none; position: fixed; inset: 0; z-index: 200;
-  background: rgba(0,0,0,0.92);
-  justify-content: center; align-items: center;
+.thumb img.loaded { opacity: 1; }
+
+.thumb:hover img.loaded {
+  transform: scale(1.04);
 }
-.lightbox.open { display: flex; }
+
+.thumb::after {
+  content: '';
+  position: absolute; inset: 0;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
+  pointer-events: none;
+  transition: box-shadow 0.2s;
+}
+
+.thumb:hover::after {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* Video play indicator */
+.thumb .play-indicator {
+  position: absolute; bottom: 8px; left: 8px;
+  display: flex; align-items: center; gap: 4px;
+  background: rgba(0,0,0,0.65);
+  backdrop-filter: blur(4px);
+  padding: 3px 8px 3px 6px;
+  border-radius: 4px;
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+.thumb .play-indicator svg {
+  width: 10px; height: 10px;
+  fill: #fff;
+}
+
+.thumb .play-indicator span {
+  font-size: 10px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.9);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+/* Favorite badge */
+.thumb .fav-badge {
+  position: absolute; top: 6px; right: 6px;
+  color: #ff6b8a;
+  font-size: 11px;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5));
+  pointer-events: none;
+}
+
+/* --- States --- */
+
+.empty-state {
+  text-align: center;
+  padding: 120px 20px 80px;
+  color: var(--text-faint);
+}
+
+.empty-state .empty-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.4;
+}
+
+.empty-state p {
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.loading-bar {
+  position: fixed; top: var(--header-h); left: 0; right: 0;
+  height: 2px; z-index: 102;
+  background: transparent;
+  overflow: hidden;
+}
+
+.loading-bar.active {
+  background: var(--border);
+}
+
+.loading-bar.active::after {
+  content: '';
+  position: absolute;
+  left: -40%;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: loadSlide 1s ease-in-out infinite;
+}
+
+@keyframes loadSlide {
+  0% { left: -40%; }
+  100% { left: 100%; }
+}
+
+#scrollSentinel { height: 1px; }
+
+/* --- Lightbox --- */
+
+.lightbox {
+  display: none;
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,0.96);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.lightbox.open {
+  display: flex;
+  animation: lbFadeIn 0.2s ease;
+}
+
+@keyframes lbFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .lightbox-content {
   position: relative;
-  max-width: 95vw; max-height: 95vh;
+  max-width: 95vw; max-height: 88vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
+
 .lightbox-content img, .lightbox-content video {
-  max-width: 95vw; max-height: 90vh;
-  object-fit: contain; display: block;
-  border-radius: 4px;
+  max-width: 95vw; max-height: 88vh;
+  object-fit: contain;
+  display: block;
+  border-radius: 3px;
+  animation: lbImgIn 0.25s ease;
 }
+
+@keyframes lbImgIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+
 .lightbox-info {
-  position: absolute; bottom: -30px; left: 0; right: 0;
-  text-align: center; color: #999; font-size: 13px;
+  margin-top: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-faint);
+  font-weight: 400;
+  letter-spacing: 0.2px;
 }
+
 .lightbox-close {
   position: fixed; top: 16px; right: 20px;
-  background: none; border: none; color: #fff;
-  font-size: 28px; cursor: pointer; z-index: 210;
+  background: none; border: none;
+  color: var(--text-dim);
+  font-size: 20px;
+  cursor: pointer;
+  z-index: 210;
+  width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  transition: background 0.15s, color 0.15s;
 }
+
+.lightbox-close:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--text);
+}
+
 .lightbox-nav {
   position: fixed; top: 50%; transform: translateY(-50%);
-  background: none; border: none; color: #fff;
-  font-size: 36px; cursor: pointer; z-index: 210;
-  padding: 20px;
+  background: none; border: none;
+  color: var(--text-dim);
+  font-size: 24px;
+  cursor: pointer;
+  z-index: 210;
+  width: 44px; height: 44px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  transition: background 0.15s, color 0.15s;
 }
-.lightbox-nav.prev { left: 8px; }
-.lightbox-nav.next { right: 8px; }
-.lightbox-nav:hover, .lightbox-close:hover { opacity: 0.7; }
+
+.lightbox-nav:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--text);
+}
+
+.lightbox-nav.prev { left: 12px; }
+.lightbox-nav.next { right: 12px; }
+
+.lightbox-counter {
+  position: fixed; bottom: 20px; left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  color: var(--text-faint);
+  font-weight: 400;
+  letter-spacing: 0.3px;
+  z-index: 210;
+}
 </style>
 </head>
 <body>
 
 <header>
-  <div class="header-top">
-    <h1>Attic Viewer</h1>
+  <div class="brand">
+    <div class="brand-icon">A</div>
+    <h1>Attic</h1>
     <span class="stats" id="stats"></span>
   </div>
   <div class="filters">
@@ -163,81 +432,214 @@ header {
       <option value="photo">Photos</option>
       <option value="video">Videos</option>
     </select>
-    <button id="favFilter">Favorites</button>
+    <button class="fav-btn" id="favFilter">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+      Favorites
+    </button>
+    <button class="clear-btn" id="clearFilters">Clear filters</button>
   </div>
 </header>
 
+<div class="progress-wrap" id="progressWrap"><div class="progress-fill" id="progressFill"></div></div>
+<div class="progress-text" id="progressText"></div>
+<div class="loading-bar" id="loadingBar"></div>
 <div class="grid" id="grid"></div>
-<div class="loading" id="loadingIndicator" style="display:none">Loading more...</div>
-<div id="scrollSentinel" style="height:1px"></div>
-<div class="empty" id="emptyState" style="display:none">No assets match the current filters.</div>
+<div id="scrollSentinel"></div>
+<div class="empty-state" id="emptyState" style="display:none">
+  <div class="empty-icon">&#9744;</div>
+  <p>No assets match the current filters.</p>
+</div>
 
 <div class="lightbox" id="lightbox">
-  <button class="lightbox-close" id="lbClose">&times;</button>
-  <button class="lightbox-nav prev" id="lbPrev">&#8249;</button>
-  <button class="lightbox-nav next" id="lbNext">&#8250;</button>
+  <button class="lightbox-close" id="lbClose">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M12 4L4 12M4 4l8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+  </button>
+  <button class="lightbox-nav prev" id="lbPrev">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+  <button class="lightbox-nav next" id="lbNext">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
   <div class="lightbox-content" id="lbContent"></div>
+  <div class="lightbox-info" id="lbInfo"></div>
+  <div class="lightbox-counter" id="lbCounter"></div>
 </div>
 
 <script>
 const PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 const state = {
   page: 1,
-  pageSize: 50,
+  pageSize: 60,
   totalCount: 0,
   loading: false,
   done: false,
   assets: [],
   filters: { year: '', album: '', type: '', favorites: false },
   lightboxIndex: -1,
+  metadataLoading: true,
+  pollTimer: null,
 };
 
 const grid = document.getElementById('grid');
-const loadingIndicator = document.getElementById('loadingIndicator');
+const loadingBar = document.getElementById('loadingBar');
 const emptyState = document.getElementById('emptyState');
 const statsEl = document.getElementById('stats');
+const progressWrap = document.getElementById('progressWrap');
+const progressFill = document.getElementById('progressFill');
+const progressText = document.getElementById('progressText');
+const clearBtn = document.getElementById('clearFilters');
 
-// --- Filters ---
+// --- Cascading filters ---
 
-async function loadFilters() {
-  const res = await fetch('/api/filters');
+function buildFilterParams() {
+  const params = new URLSearchParams();
+  if (state.filters.year) params.set('year', state.filters.year);
+  if (state.filters.album) params.set('album', state.filters.album);
+  if (state.filters.type) params.set('type', state.filters.type);
+  if (state.filters.favorites) params.set('favorites', 'true');
+  return params;
+}
+
+async function fetchFilters({ reload = false } = {}) {
+  const params = buildFilterParams();
+  const res = await fetch(`/api/filters?${params}`);
   const data = await res.json();
 
-  const yearSelect = document.getElementById('yearFilter');
-  data.years.forEach(y => {
+  updateYearDropdown(data.years);
+  updateAlbumDropdown(data.albums);
+  updateTypeDropdown(data.totalPhotos, data.totalVideos);
+  updateStats(data);
+  updateProgress(data);
+
+  if (data.isLoading && !state.pollTimer) {
+    state.metadataLoading = true;
+    state.pollTimer = setInterval(() => fetchFilters(), 2000);
+  }
+
+  if (!data.isLoading && state.pollTimer) {
+    state.metadataLoading = false;
+    clearInterval(state.pollTimer);
+    state.pollTimer = null;
+    reload = true;
+  }
+
+  if (reload) resetAndLoad();
+}
+
+function updateYearDropdown(years) {
+  const select = document.getElementById('yearFilter');
+  const current = select.value;
+  select.innerHTML = '<option value="">All years</option>';
+  years.forEach(y => {
     const opt = document.createElement('option');
     opt.value = y.year;
     opt.textContent = `${y.year} (${y.count})`;
-    yearSelect.appendChild(opt);
+    select.appendChild(opt);
   });
+  // Restore selection if still available
+  if (current && years.some(y => String(y.year) === current)) {
+    select.value = current;
+  } else if (current) {
+    // Year no longer available with current filters — keep in dropdown as disabled
+    state.filters.year = '';
+    select.value = '';
+  }
+  select.classList.toggle('has-value', !!select.value);
+}
 
-  const albumSelect = document.getElementById('albumFilter');
-  data.albums.forEach(a => {
+function updateAlbumDropdown(albums) {
+  const select = document.getElementById('albumFilter');
+  const current = select.value;
+  select.innerHTML = '<option value="">All albums</option>';
+  albums.forEach(a => {
     const opt = document.createElement('option');
     opt.value = a.album;
     opt.textContent = `${a.album} (${a.count})`;
-    albumSelect.appendChild(opt);
+    select.appendChild(opt);
   });
-
-  statsEl.textContent = `${data.totalAssets.toLocaleString()} assets \u2022 ${data.totalPhotos.toLocaleString()} photos \u2022 ${data.totalVideos.toLocaleString()} videos`;
+  if (current && albums.some(a => a.album === current)) {
+    select.value = current;
+  } else if (current) {
+    state.filters.album = '';
+    select.value = '';
+  }
+  select.classList.toggle('has-value', !!select.value);
 }
+
+function updateTypeDropdown(photoCount, videoCount) {
+  const select = document.getElementById('typeFilter');
+  const opts = select.options;
+  // "Photos" option
+  opts[1].textContent = `Photos (${photoCount.toLocaleString()})`;
+  opts[1].disabled = photoCount === 0;
+  // "Videos" option
+  opts[2].textContent = `Videos (${videoCount.toLocaleString()})`;
+  opts[2].disabled = videoCount === 0;
+  select.classList.toggle('has-value', !!select.value);
+}
+
+function updateStats(data) {
+  const total = data.totalAssets.toLocaleString();
+  const photos = data.totalPhotos.toLocaleString();
+  const videos = data.totalVideos.toLocaleString();
+  if (data.isLoading) {
+    const loaded = data.loaded.toLocaleString();
+    const lib = data.totalInLibrary.toLocaleString();
+    statsEl.textContent = `${total} matching \u00b7 loading ${loaded} / ${lib}`;
+  } else {
+    statsEl.textContent = `${total} assets \u00b7 ${photos} photos \u00b7 ${videos} videos`;
+  }
+}
+
+function updateProgress(data) {
+  if (data.isLoading) {
+    const pct = data.totalInLibrary > 0
+      ? Math.round((data.loaded / data.totalInLibrary) * 100)
+      : 0;
+    progressWrap.classList.add('active');
+    progressFill.style.width = pct + '%';
+    progressText.classList.add('active');
+    progressText.textContent = `Loading metadata\u2026 ${data.loaded.toLocaleString()} / ${data.totalInLibrary.toLocaleString()}`;
+  } else {
+    progressWrap.classList.remove('active');
+    progressText.classList.remove('active');
+  }
+}
+
+function updateClearButton() {
+  const hasFilters = state.filters.year || state.filters.album
+    || state.filters.type || state.filters.favorites;
+  clearBtn.classList.toggle('visible', !!hasFilters);
+}
+
+// --- Filter event handlers ---
 
 document.getElementById('yearFilter').addEventListener('change', e => {
   state.filters.year = e.target.value;
-  resetAndLoad();
+  updateClearButton();
+  fetchFilters({ reload: true });
 });
 document.getElementById('albumFilter').addEventListener('change', e => {
   state.filters.album = e.target.value;
-  resetAndLoad();
+  updateClearButton();
+  fetchFilters({ reload: true });
 });
 document.getElementById('typeFilter').addEventListener('change', e => {
   state.filters.type = e.target.value;
-  resetAndLoad();
+  updateClearButton();
+  fetchFilters({ reload: true });
 });
 document.getElementById('favFilter').addEventListener('click', e => {
   state.filters.favorites = !state.filters.favorites;
-  e.target.classList.toggle('active', state.filters.favorites);
-  resetAndLoad();
+  e.currentTarget.classList.toggle('active', state.filters.favorites);
+  updateClearButton();
+  fetchFilters({ reload: true });
+});
+clearBtn.addEventListener('click', () => {
+  state.filters = { year: '', album: '', type: '', favorites: false };
+  document.getElementById('favFilter').classList.remove('active');
+  updateClearButton();
+  fetchFilters({ reload: true });
 });
 
 function resetAndLoad() {
@@ -254,7 +656,7 @@ function resetAndLoad() {
 async function loadPage() {
   if (state.loading || state.done) return;
   state.loading = true;
-  loadingIndicator.style.display = 'block';
+  loadingBar.classList.add('active');
 
   const params = new URLSearchParams({ page: state.page, pageSize: state.pageSize });
   if (state.filters.year) params.set('year', state.filters.year);
@@ -283,17 +685,21 @@ async function loadPage() {
     img.alt = asset.filename;
     img.dataset.thumbUrl = `/api/thumb/${asset.uuid}`;
     img.src = PLACEHOLDER;
+    img.onload = function() {
+      if (this.src !== PLACEHOLDER) this.classList.add('loaded');
+    };
     div.appendChild(img);
 
     if (asset.isVideo) {
       const play = document.createElement('div');
       play.className = 'play-indicator';
+      play.innerHTML = '<svg viewBox="0 0 10 10"><polygon points="2,1 9,5 2,9"/></svg><span>Video</span>';
       div.appendChild(play);
     }
 
     if (asset.isFavorite) {
       const fav = document.createElement('span');
-      fav.className = 'fav';
+      fav.className = 'fav-badge';
       fav.textContent = '\u2665';
       div.appendChild(fav);
     }
@@ -304,19 +710,19 @@ async function loadPage() {
   });
 
   if (state.assets.length >= data.totalCount) {
-    state.done = true;
+    // If metadata is still loading, more may arrive — don't mark done
+    if (!state.metadataLoading) {
+      state.done = true;
+    }
   } else {
     state.page++;
   }
 
   state.loading = false;
-  loadingIndicator.style.display = 'none';
+  loadingBar.classList.remove('active');
 }
 
 // --- Viewport-based memory management ---
-// Two-zone strategy: load images near viewport, UNLOAD images far from it.
-// A 4032x3024 photo decodes to ~49MB bitmap. Without unloading, scrolling
-// through hundreds of photos accumulates gigabytes and crashes the tab.
 
 const visibilityObserver = new IntersectionObserver((entries) => {
   entries.forEach(entry => {
@@ -326,20 +732,19 @@ const visibilityObserver = new IntersectionObserver((entries) => {
     if (!img) return;
 
     if (entry.isIntersecting) {
-      // Entering the load zone — set the thumbnail src
       if (!img.dataset.active) {
         img.src = img.dataset.thumbUrl || state.assets[idx].imageURL;
         img.dataset.active = '1';
       }
     } else {
-      // Left the load zone — release memory
       if (img.dataset.active) {
         img.src = PLACEHOLDER;
+        img.classList.remove('loaded');
         delete img.dataset.active;
       }
     }
   });
-}, { rootMargin: '800px' }); // load zone: viewport + 800px each side
+}, { rootMargin: '800px' });
 
 // --- Infinite scroll ---
 
@@ -354,15 +759,18 @@ function openLightbox(idx) {
   state.lightboxIndex = idx;
   renderLightbox();
   document.getElementById('lightbox').classList.add('open');
+  document.body.style.overflow = 'hidden';
 }
 
 function closeLightbox() {
   const content = document.getElementById('lbContent');
-  // Stop any playing video before clearing
   const video = content.querySelector('video');
   if (video) { video.pause(); video.src = ''; }
   content.innerHTML = '';
+  document.getElementById('lbInfo').textContent = '';
+  document.getElementById('lbCounter').textContent = '';
   document.getElementById('lightbox').classList.remove('open');
+  document.body.style.overflow = '';
   state.lightboxIndex = -1;
 }
 
@@ -371,12 +779,9 @@ async function renderLightbox() {
   if (!asset) return;
 
   const content = document.getElementById('lbContent');
-
-  // Stop previous video if navigating
   const prevVideo = content.querySelector('video');
   if (prevVideo) { prevVideo.pause(); prevVideo.src = ''; }
 
-  // Fetch fresh pre-signed URL for full-size
   const res = await fetch(`/api/assets/${asset.uuid}`);
   const detail = await res.json();
 
@@ -386,7 +791,7 @@ async function renderLightbox() {
     video.controls = true;
     video.preload = 'metadata';
     video.src = detail.imageURL;
-    video.style.cssText = 'max-width:95vw;max-height:90vh';
+    video.style.cssText = 'max-width:95vw;max-height:88vh';
     content.appendChild(video);
   } else {
     const img = document.createElement('img');
@@ -394,10 +799,10 @@ async function renderLightbox() {
     img.alt = asset.filename;
     content.appendChild(img);
   }
-  const info = document.createElement('div');
-  info.className = 'lightbox-info';
-  info.textContent = asset.filename;
-  content.appendChild(info);
+
+  document.getElementById('lbInfo').textContent = asset.filename;
+  document.getElementById('lbCounter').textContent =
+    `${state.lightboxIndex + 1} / ${state.assets.length}`;
 }
 
 document.getElementById('lbClose').addEventListener('click', closeLightbox);
@@ -433,7 +838,7 @@ document.addEventListener('keydown', e => {
 
 // --- Init ---
 
-loadFilters();
+fetchFilters();
 loadPage();
 </script>
 </body>

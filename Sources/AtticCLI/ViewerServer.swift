@@ -1,6 +1,7 @@
 import AtticCore
 import Foundation
 import Hummingbird
+import HummingbirdCore
 
 /// API response for a paginated asset list.
 struct AssetListResponse: ResponseEncodable {
@@ -56,9 +57,17 @@ struct ViewerServer {
         try await app.runService()
     }
 
+    // swiftlint:disable:next line_length
+    private static let csp = "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' https://*.amazonaws.com; media-src 'self' https://*.amazonaws.com; font-src 'self'; connect-src 'self'"
+
     func buildRouter() -> Router<BasicRequestContext> {
         let router = Router()
+        addHTMLRoute(router)
+        addAPIRoutes(router)
+        return router
+    }
 
+    private func addHTMLRoute(_ router: Router<BasicRequestContext>) {
         router.get("/") { _, _ -> Response in
             let html = loadViewerHTML()
             return Response(
@@ -67,13 +76,24 @@ struct ViewerServer {
                     .contentType: "text/html; charset=utf-8",
                     .init("X-Content-Type-Options")!: "nosniff",
                     .init("X-Frame-Options")!: "DENY",
+                    .init("Content-Security-Policy")!: Self.csp,
                 ],
                 body: .init(byteBuffer: .init(string: html))
             )
         }
+    }
 
-        router.get("/api/filters") { _, _ -> Response in
-            let opts = await dataStore.filterOptions()
+    private func addAPIRoutes(_ router: Router<BasicRequestContext>) {
+        router.get("/api/filters") { request, _ -> Response in
+            let params = request.uri.queryParameters
+            let year = params.get("year", as: Int.self)
+            let album = decodedParam(request.uri, "album")
+            let favorites = params.get("favorites", as: Bool.self)
+            let mediaType = params.get("type", as: String.self)
+
+            let opts = await dataStore.filterOptions(
+                year: year, album: album, favorites: favorites, mediaType: mediaType
+            )
             let data = try JSONEncoder().encode(opts)
             return Response(
                 status: .ok,
@@ -87,7 +107,7 @@ struct ViewerServer {
             let page = max(params.get("page", as: Int.self) ?? 1, 1)
             let pageSize = min(max(params.get("pageSize", as: Int.self) ?? 50, 1), 200)
             let year = params.get("year", as: Int.self)
-            let album = params.get("album", as: String.self)
+            let album = decodedParam(request.uri, "album")
             let favorites = params.get("favorites", as: Bool.self)
             let mediaType = params.get("type", as: String.self)
 
@@ -145,8 +165,6 @@ struct ViewerServer {
                 return Response(status: .notFound)
             }
         }
-
-        return router
     }
 
     private func assetResponse(_ asset: AssetView, expires: Int) -> AssetResponse {
@@ -164,6 +182,13 @@ struct ViewerServer {
                 .absoluteString
         )
     }
+}
+
+/// Decode a query parameter, converting `+` to space.
+/// URLSearchParams encodes spaces as `+` but Hummingbird only decodes `%XX`.
+private func decodedParam(_ uri: URI, _ name: String) -> String? {
+    uri.queryParameters.get(name, as: String.self)?
+        .replacingOccurrences(of: "+", with: " ")
 }
 
 /// Load the embedded viewer HTML from the resource bundle.

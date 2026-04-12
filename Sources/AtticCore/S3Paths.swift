@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 /// S3 key generation and path safety for photo backup storage.
 public enum S3Paths {
@@ -8,19 +9,16 @@ public enum S3Paths {
     private nonisolated(unsafe) static let s3KeyPattern = /^[A-Za-z0-9\/._\-]+$/
     private nonisolated(unsafe) static let extPattern = /^[a-z0-9]+$/
 
-    /// UTI-to-extension lookup table.
-    private static let utiMap: [String: String] = [
-        "public.jpeg": "jpg",
-        "public.heic": "heic",
-        "public.png": "png",
-        "public.tiff": "tiff",
-        "com.compuserve.gif": "gif",
-        "public.mpeg-4": "mp4",
-        "com.apple.quicktime-movie": "mov",
-        "com.apple.m4v-video": "m4v",
-        "public.avi": "avi",
-        "com.olympus.raw-image": "orf",
+    /// Normalize extensions where the system canonical form differs from convention.
+    private static let extensionOverrides: [String: String] = [
+        "jpeg": "jpg",
     ]
+
+    /// Resolve a UTI string to its preferred file extension using the system type database.
+    private static func extensionFromUTI(_ uti: String) -> String? {
+        guard let ext = UTType(uti)?.preferredFilenameExtension else { return nil }
+        return extensionOverrides[ext] ?? ext
+    }
 
     // MARK: - Key generation
 
@@ -73,8 +71,8 @@ public enum S3Paths {
         uti: String?,
         filename: String,
     ) -> String {
-        if let uti, let mapped = utiMap[uti] {
-            return mapped
+        if let uti, let ext = extensionFromUTI(uti) {
+            return ext
         }
 
         if let dotIndex = filename.lastIndex(of: ".") {

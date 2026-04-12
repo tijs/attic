@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 /// Lightweight view of an asset for the viewer UI.
 public struct AssetView: Codable, Sendable {
@@ -38,6 +39,9 @@ public struct FilterOptions: Codable, Sendable {
     public var totalAssets: Int
     public var totalPhotos: Int
     public var totalVideos: Int
+    public var isLoading: Bool
+    public var loaded: Int
+    public var totalInLibrary: Int
 }
 
 /// Year with asset count.
@@ -62,31 +66,39 @@ public struct AssetPage: Sendable {
 public actor ViewerDataStore {
     private var assets: [AssetView] = []
     private var assetsByUUID: [String: AssetView] = [:]
-    private var cachedFilterOptions: FilterOptions?
+    private var _isLoading = false
+    private var _loadedCount = 0
+    private var _expectedTotal = 0
 
     public init() {}
 
+    // MARK: - Loading
+
     /// Load metadata for all manifest entries from S3.
-    /// Calls `onProgress` with (loaded, total) counts.
+    /// Assets become queryable as they arrive. Sorts after completion.
     public func load(
         manifest: Manifest,
         s3: S3Providing,
         onProgress: @escaping @Sendable (Int, Int) -> Void = { _, _ in }
     ) async {
         let entries = Array(manifest.entries.values)
-        let total = entries.count
-        if total == 0 { return }
+        _expectedTotal = entries.count
+        _loadedCount = 0
+        _isLoading = true
+
+        if entries.isEmpty {
+            _isLoading = false
+            return
+        }
 
         let loaded = LoadCounter()
-
         let maxConcurrency = 20
 
         await withTaskGroup(of: AssetView?.self) { group in
             for (index, entry) in entries.enumerated() {
-                // Limit concurrency by waiting for a result before adding more
                 if index >= maxConcurrency {
                     if let view = await group.next() ?? nil {
-                        assets.append(view)
+                        appendAsset(view)
                     }
                 }
 
@@ -96,19 +108,18 @@ public actor ViewerDataStore {
                         let data = try await s3.getObject(key: key)
                         let meta = try JSONDecoder().decode(AssetMetadata.self, from: data)
                         let count = await loaded.increment()
-                        onProgress(count, total)
+                        onProgress(count, entries.count)
                         return Self.assetView(from: meta)
                     } catch {
                         let count = await loaded.increment()
-                        onProgress(count, total)
+                        onProgress(count, entries.count)
                         return nil
                     }
                 }
             }
 
-            // Drain remaining tasks
             for await view in group {
-                if let view { assets.append(view) }
+                if let view { appendAsset(view) }
             }
         }
 
@@ -121,19 +132,22 @@ public actor ViewerDataStore {
             }
         }
 
-        rebuildIndexes()
+        _isLoading = false
     }
 
     /// Load from pre-built asset views (for testing).
     public func load(assets: [AssetView]) {
         self.assets = assets
-        rebuildIndexes()
+        assetsByUUID = Dictionary(uniqueKeysWithValues: assets.map { ($0.uuid, $0) })
     }
 
-    private func rebuildIndexes() {
-        assetsByUUID = Dictionary(uniqueKeysWithValues: assets.map { ($0.uuid, $0) })
-        cachedFilterOptions = buildFilterOptions()
+    private func appendAsset(_ view: AssetView) {
+        assets.append(view)
+        assetsByUUID[view.uuid] = view
+        _loadedCount += 1
     }
+
+    // MARK: - Queries
 
     /// Query assets with optional filters, paginated.
     public func query(
@@ -144,8 +158,84 @@ public actor ViewerDataStore {
         page: Int = 1,
         pageSize: Int = 50
     ) -> AssetPage {
-        var filtered = assets
+        let filtered = applyFilters(
+            year: year, album: album, favorites: favorites, mediaType: mediaType
+        )
 
+        let totalCount = filtered.count
+        let startIndex = (page - 1) * pageSize
+        let endIndex = min(startIndex + pageSize, totalCount)
+        let pageAssets = startIndex < totalCount
+            ? Array(filtered[startIndex..<endIndex])
+            : []
+
+        return AssetPage(assets: pageAssets, totalCount: totalCount)
+    }
+
+    /// Cascading filter options: each dimension is filtered by the OTHER active
+    /// filters, so counts and available options update as filters are applied.
+    /// Single-pass implementation — one loop over assets, three accumulators.
+    public func filterOptions(
+        year: Int? = nil,
+        album: String? = nil,
+        favorites: Bool? = nil,
+        mediaType: String? = nil
+    ) -> FilterOptions {
+        var yearCounts: [Int: Int] = [:]
+        var albumCounts: [String: Int] = [:]
+        var photoCount = 0
+        var videoCount = 0
+
+        for asset in assets {
+            let matchesYear = year == nil || asset.year == year
+            let matchesAlbum = album == nil || asset.albums.contains(album!)
+            let matchesFav = favorites != true || asset.isFavorite
+            let matchesType: Bool
+            switch mediaType {
+            case "photo": matchesType = !asset.isVideo
+            case "video": matchesType = asset.isVideo
+            default: matchesType = true
+            }
+
+            // Year counts: apply all filters except year
+            if matchesAlbum && matchesFav && matchesType {
+                if let y = asset.year { yearCounts[y, default: 0] += 1 }
+            }
+            // Album counts: apply all filters except album
+            if matchesYear && matchesFav && matchesType {
+                for a in asset.albums { albumCounts[a, default: 0] += 1 }
+            }
+            // Totals: all filters applied
+            if matchesYear && matchesAlbum && matchesFav && matchesType {
+                if asset.isVideo { videoCount += 1 } else { photoCount += 1 }
+            }
+        }
+
+        return FilterOptions(
+            years: yearCounts.map { YearCount(year: $0.key, count: $0.value) }
+                .sorted { $0.year > $1.year },
+            albums: albumCounts.map { AlbumCount(album: $0.key, count: $0.value) }
+                .sorted { $0.count > $1.count },
+            totalAssets: photoCount + videoCount,
+            totalPhotos: photoCount,
+            totalVideos: videoCount,
+            isLoading: _isLoading,
+            loaded: _loadedCount,
+            totalInLibrary: _isLoading ? _expectedTotal : assets.count
+        )
+    }
+
+    /// Find a single asset by UUID (O(1) dictionary lookup).
+    public func asset(uuid: String) -> AssetView? {
+        assetsByUUID[uuid]
+    }
+
+    // MARK: - Private
+
+    private func applyFilters(
+        year: Int?, album: String?, favorites: Bool?, mediaType: String?
+    ) -> [AssetView] {
+        var filtered = assets
         if let year {
             filtered = filtered.filter { $0.year == year }
         }
@@ -162,79 +252,24 @@ public actor ViewerDataStore {
             default: break
             }
         }
-
-        let totalCount = filtered.count
-        let startIndex = (page - 1) * pageSize
-        let endIndex = min(startIndex + pageSize, totalCount)
-        let pageAssets = startIndex < totalCount
-            ? Array(filtered[startIndex..<endIndex])
-            : []
-
-        return AssetPage(
-            assets: pageAssets,
-            totalCount: totalCount
-        )
+        return filtered
     }
 
-    /// Available filter options derived from loaded data.
-    public func filterOptions() -> FilterOptions {
-        cachedFilterOptions ?? FilterOptions(
-            years: [], albums: [],
-            totalAssets: 0, totalPhotos: 0, totalVideos: 0
-        )
+    private static func isVideoUTI(_ uti: String) -> Bool {
+        guard let utType = UTType(uti) else { return false }
+        return utType.conforms(to: .movie)
     }
-
-    /// Find a single asset by UUID (O(1) dictionary lookup).
-    public func asset(uuid: String) -> AssetView? {
-        assetsByUUID[uuid]
-    }
-
-    // MARK: - Private
-
-    private func buildFilterOptions() -> FilterOptions {
-        var yearCounts: [Int: Int] = [:]
-        var albumCounts: [String: Int] = [:]
-        var photoCount = 0
-        var videoCount = 0
-
-        for asset in assets {
-            if let year = asset.year {
-                yearCounts[year, default: 0] += 1
-            }
-            for album in asset.albums {
-                albumCounts[album, default: 0] += 1
-            }
-            if asset.isVideo { videoCount += 1 } else { photoCount += 1 }
-        }
-
-        return FilterOptions(
-            years: yearCounts.map { YearCount(year: $0.key, count: $0.value) }
-                .sorted { $0.year > $1.year },
-            albums: albumCounts.map { AlbumCount(album: $0.key, count: $0.value) }
-                .sorted { $0.count > $1.count },
-            totalAssets: assets.count,
-            totalPhotos: photoCount,
-            totalVideos: videoCount
-        )
-    }
-
-    private static let videoUTIs: Set<String> = [
-        "public.mpeg-4", "com.apple.quicktime-movie",
-        "com.apple.m4v-video", "public.avi",
-    ]
-
-    private nonisolated(unsafe) static let isoFormatter = ISO8601DateFormatter()
 
     private static func assetView(from meta: AssetMetadata) -> AssetView {
         let year: Int?
         if let dateStr = meta.dateCreated,
-           let date = isoFormatter.date(from: dateStr) {
+           let date = try? Date.ISO8601FormatStyle().parse(dateStr) {
             year = Calendar.current.component(.year, from: date)
         } else {
             year = nil
         }
 
-        let isVideo = meta.type.map { videoUTIs.contains($0) } ?? false
+        let isVideo = meta.type.map { isVideoUTI($0) } ?? false
 
         return AssetView(
             uuid: meta.uuid,

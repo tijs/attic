@@ -1,5 +1,6 @@
 import Foundation
 import LadderKit
+import UniformTypeIdentifiers
 
 /// Abstraction over the photo export mechanism for testability.
 ///
@@ -39,22 +40,11 @@ public enum ExportProviderError: Error, CustomStringConvertible {
     }
 }
 
-/// Extension-to-content-type lookup table.
-private let contentTypeMap: [String: String] = [
-    "jpg": "image/jpeg",
-    "jpeg": "image/jpeg",
-    "heic": "image/heic",
-    "png": "image/png",
-    "tiff": "image/tiff",
-    "gif": "image/gif",
-    "mp4": "video/mp4",
-    "mov": "video/quicktime",
-    "m4v": "video/x-m4v",
-    "avi": "video/x-msvideo",
-    "orf": "image/x-olympus-orf",
-]
-
-/// Map a file extension to its MIME content type.
+/// Map a file extension to its MIME content type using the system type database.
 public func contentTypeForExtension(_ ext: String) -> String {
-    contentTypeMap[ext] ?? "application/octet-stream"
+    if let utType = UTType(filenameExtension: ext),
+       let mimeType = utType.preferredMIMEType {
+        return mimeType
+    }
+    return "application/octet-stream"
 }

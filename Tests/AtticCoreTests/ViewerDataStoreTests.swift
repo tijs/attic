@@ -166,10 +166,10 @@ struct ViewerDataStoreTests {
         #expect(result.assets.isEmpty)
     }
 
-    @Test func corruptMetadataIsSkipped() async {
+    @Test func corruptMetadataIsSkipped() async throws {
         let store = ViewerDataStore()
         let s3 = MockS3Provider(objects: [
-            "metadata/assets/good-uuid.json": try! JSONEncoder().encode(
+            "metadata/assets/good-uuid.json": try JSONEncoder().encode(
                 AssetMetadata(
                     uuid: "good-uuid", originalFilename: "IMG.HEIC",
                     dateCreated: "2024-01-15T12:00:00Z",
