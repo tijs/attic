@@ -37,7 +37,6 @@ struct ViewerDataStoreTests {
         let result = await store.query()
         #expect(result.totalCount == 5)
         #expect(result.assets.count == 5)
-        #expect(result.page == 1)
     }
 
     @Test func queryFiltersByYear() async {

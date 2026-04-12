@@ -41,10 +41,9 @@ public actor ThumbnailService: ThumbnailProviding {
 
         // 3. Start a generation task (S3 thumbnail → generate from original)
         let task = Task<Data, any Error> { [cache, s3] in
-            // 3a. Check S3 for existing thumbnail
+            // 3a. Check S3 for existing thumbnail (single GET, no HEAD)
             let thumbKey = try S3Paths.thumbnailKey(uuid: uuid)
-            if let meta = try? await s3.headObject(key: thumbKey), meta != nil {
-                let data = try await s3.getObject(key: thumbKey)
+            if let data = try? await s3.getObject(key: thumbKey) {
                 try? cache.put(uuid: uuid, data: data)
                 return data
             }
@@ -55,33 +54,9 @@ public actor ThumbnailService: ThumbnailProviding {
                 throw ThumbnailError.notFound(uuid)
             }
 
-            // Wait for a concurrency slot
-            await self.acquireSlot()
-            defer { Task { await self.releaseSlot() } }
-
-            let originalData: Data
-            do {
-                originalData = try await s3.getObject(key: asset.s3Key)
-            } catch {
-                throw ThumbnailError.s3Failure(uuid, error)
-            }
-
-            let jpegData: Data
-            if asset.isVideo {
-                jpegData = try VideoThumbnailer.thumbnail(from: originalData)
-            } else {
-                jpegData = try ImageThumbnailer.thumbnail(from: originalData)
-            }
-
-            // Save to local cache
-            try? cache.put(uuid: uuid, data: jpegData)
-
-            // Best-effort upload to S3 (don't fail if upload errors)
-            try? await s3.putObject(
-                key: thumbKey, body: jpegData, contentType: "image/jpeg"
+            return try await self.generateThumbnail(
+                for: asset, uuid: uuid, thumbKey: thumbKey
             )
-
-            return jpegData
         }
 
         inFlight[uuid] = task
@@ -96,7 +71,42 @@ public actor ThumbnailService: ThumbnailProviding {
         }
     }
 
-    // MARK: - Concurrency limiting
+    // MARK: - Bounded generation
+
+    /// Download original, generate thumbnail, save to cache + S3.
+    /// Acquires and releases a concurrency slot synchronously within actor context.
+    private func generateThumbnail(
+        for asset: AssetView, uuid: String, thumbKey: String
+    ) async throws -> Data {
+        await acquireSlot()
+        defer { releaseSlot() }
+
+        let originalData: Data
+        do {
+            originalData = try await s3.getObject(key: asset.s3Key)
+        } catch {
+            throw ThumbnailError.s3Failure(uuid, error)
+        }
+
+        let jpegData: Data
+        if asset.isVideo {
+            jpegData = try VideoThumbnailer.thumbnail(from: originalData)
+        } else {
+            jpegData = try ImageThumbnailer.thumbnail(from: originalData)
+        }
+
+        // Save to local cache
+        try? cache.put(uuid: uuid, data: jpegData)
+
+        // Best-effort upload to S3 (don't fail if upload errors)
+        try? await s3.putObject(
+            key: thumbKey, body: jpegData, contentType: "image/jpeg"
+        )
+
+        return jpegData
+    }
+
+    // MARK: - Concurrency limiting (slot-transfer pattern)
 
     private func acquireSlot() async {
         if activeGenerations < maxConcurrent {
@@ -106,14 +116,15 @@ public actor ThumbnailService: ThumbnailProviding {
         await withCheckedContinuation { continuation in
             waiters.append(continuation)
         }
-        activeGenerations += 1
+        // Slot was transferred by releaseSlot — no increment needed
     }
 
     private func releaseSlot() {
-        activeGenerations -= 1
         if !waiters.isEmpty {
             let next = waiters.removeFirst()
-            next.resume()
+            next.resume() // Transfer the slot directly
+        } else {
+            activeGenerations -= 1
         }
     }
 }

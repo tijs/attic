@@ -9,12 +9,7 @@ import Foundation
 /// requires a file URL.
 public enum VideoThumbnailer {
     /// Extract a poster frame from a video file and return as JPEG thumbnail.
-    /// - Parameters:
-    ///   - fileURL: URL to the video file on disk
-    ///   - maxDimension: Maximum width or height in pixels (default 400)
-    ///   - quality: JPEG compression quality 0.0-1.0 (default 0.8)
-    /// - Returns: JPEG data
-    public static func thumbnail(
+    static func thumbnail(
         from fileURL: URL,
         maxDimension: Int = 400,
         quality: Double = 0.8

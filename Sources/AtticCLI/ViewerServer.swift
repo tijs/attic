@@ -4,14 +4,14 @@ import Hummingbird
 
 /// API response for a paginated asset list.
 struct AssetListResponse: ResponseEncodable {
-    var assets: [AssetWithURL]
+    var assets: [AssetResponse]
     var totalCount: Int
     var page: Int
     var pageSize: Int
 }
 
-/// Single asset with a pre-signed image URL.
-struct AssetWithURL: Codable {
+/// Single asset with a pre-signed image URL (used for both list and detail endpoints).
+struct AssetResponse: Codable, ResponseEncodable {
     var uuid: String
     var filename: String
     var dateCreated: String?
@@ -22,42 +22,19 @@ struct AssetWithURL: Codable {
     var width: Int
     var height: Int
     var imageURL: String
-}
-
-/// API response for a single asset detail.
-struct AssetDetailResponse: ResponseEncodable {
-    var uuid: String
-    var filename: String
-    var dateCreated: String?
-    var year: Int?
-    var albums: [String]
-    var isFavorite: Bool
-    var isVideo: Bool
-    var width: Int
-    var height: Int
-    var imageURL: String
-}
-
-/// API response for available filter values.
-struct FilterOptionsResponse: ResponseEncodable {
-    var years: [YearCount]
-    var albums: [AlbumCount]
-    var totalAssets: Int
-    var totalPhotos: Int
-    var totalVideos: Int
 }
 
 /// Localhost HTTP server for the photo viewer.
 struct ViewerServer {
     let dataStore: ViewerDataStore
     let s3: S3Providing
-    let thumbnailProvider: ThumbnailProviding?
+    let thumbnailProvider: ThumbnailProviding
     let port: Int
 
     init(
         dataStore: ViewerDataStore,
         s3: S3Providing,
-        thumbnailProvider: ThumbnailProviding? = nil,
+        thumbnailProvider: ThumbnailProviding,
         port: Int = 0
     ) {
         self.dataStore = dataStore
@@ -86,26 +63,29 @@ struct ViewerServer {
             let html = loadViewerHTML()
             return Response(
                 status: .ok,
-                headers: [.contentType: "text/html; charset=utf-8"],
+                headers: [
+                    .contentType: "text/html; charset=utf-8",
+                    .init("X-Content-Type-Options")!: "nosniff",
+                    .init("X-Frame-Options")!: "DENY",
+                ],
                 body: .init(byteBuffer: .init(string: html))
             )
         }
 
-        router.get("/api/filters") { _, _ -> FilterOptionsResponse in
+        router.get("/api/filters") { _, _ -> Response in
             let opts = await dataStore.filterOptions()
-            return FilterOptionsResponse(
-                years: opts.years,
-                albums: opts.albums,
-                totalAssets: opts.totalAssets,
-                totalPhotos: opts.totalPhotos,
-                totalVideos: opts.totalVideos
+            let data = try JSONEncoder().encode(opts)
+            return Response(
+                status: .ok,
+                headers: [.contentType: "application/json"],
+                body: .init(byteBuffer: .init(data: data))
             )
         }
 
         router.get("/api/assets") { request, _ -> AssetListResponse in
             let params = request.uri.queryParameters
-            let page = params.get("page", as: Int.self) ?? 1
-            let pageSize = params.get("pageSize", as: Int.self) ?? 50
+            let page = max(params.get("page", as: Int.self) ?? 1, 1)
+            let pageSize = min(max(params.get("pageSize", as: Int.self) ?? 50, 1), 200)
             let year = params.get("year", as: Int.self)
             let album = params.get("album", as: String.self)
             let favorites = params.get("favorites", as: Bool.self)
@@ -117,37 +97,27 @@ struct ViewerServer {
             )
 
             let assetsWithURLs = result.assets.map { asset in
-                assetWithURL(asset, expires: 14400)
+                assetResponse(asset, expires: 14400)
             }
 
             return AssetListResponse(
                 assets: assetsWithURLs,
                 totalCount: result.totalCount,
-                page: result.page,
-                pageSize: result.pageSize
+                page: page,
+                pageSize: pageSize
             )
         }
 
         router.get("/api/assets/:uuid") { _, context -> Response in
             let uuid = try context.parameters.require("uuid")
+            guard S3Paths.isValidUUID(uuid) else {
+                return Response(status: .badRequest)
+            }
             guard let asset = await dataStore.asset(uuid: uuid) else {
                 return Response(status: .notFound)
             }
 
-            let detail = AssetDetailResponse(
-                uuid: asset.uuid,
-                filename: asset.filename,
-                dateCreated: asset.dateCreated,
-                year: asset.year,
-                albums: asset.albums,
-                isFavorite: asset.isFavorite,
-                isVideo: asset.isVideo,
-                width: asset.width,
-                height: asset.height,
-                imageURL: s3.presignedURL(key: asset.s3Key, expires: 14400)
-                    .absoluteString
-            )
-
+            let detail = assetResponse(asset, expires: 14400)
             let data = try JSONEncoder().encode(detail)
             return Response(
                 status: .ok,
@@ -156,33 +126,31 @@ struct ViewerServer {
             )
         }
 
-        if let thumbProvider = thumbnailProvider {
-            router.get("/api/thumb/:uuid") { _, context -> Response in
-                let uuid = try context.parameters.require("uuid")
-                guard S3Paths.isValidUUID(uuid) else {
-                    return Response(status: .badRequest)
-                }
-                do {
-                    let data = try await thumbProvider.thumbnail(uuid: uuid)
-                    return Response(
-                        status: .ok,
-                        headers: [
-                            .contentType: "image/jpeg",
-                            .cacheControl: "public, max-age=31536000, immutable",
-                        ],
-                        body: .init(byteBuffer: .init(data: data))
-                    )
-                } catch {
-                    return Response(status: .notFound)
-                }
+        router.get("/api/thumb/:uuid") { _, context -> Response in
+            let uuid = try context.parameters.require("uuid")
+            guard S3Paths.isValidUUID(uuid) else {
+                return Response(status: .badRequest)
+            }
+            do {
+                let data = try await thumbnailProvider.thumbnail(uuid: uuid)
+                return Response(
+                    status: .ok,
+                    headers: [
+                        .contentType: "image/jpeg",
+                        .cacheControl: "public, max-age=31536000, immutable",
+                    ],
+                    body: .init(byteBuffer: .init(data: data))
+                )
+            } catch {
+                return Response(status: .notFound)
             }
         }
 
         return router
     }
 
-    private func assetWithURL(_ asset: AssetView, expires: Int) -> AssetWithURL {
-        AssetWithURL(
+    private func assetResponse(_ asset: AssetView, expires: Int) -> AssetResponse {
+        AssetResponse(
             uuid: asset.uuid,
             filename: asset.filename,
             dateCreated: asset.dateCreated,

@@ -52,17 +52,16 @@ public struct AlbumCount: Codable, Sendable {
     public var count: Int
 }
 
-/// Paginated result from a filtered query.
+/// Result from a filtered query.
 public struct AssetPage: Sendable {
     public var assets: [AssetView]
     public var totalCount: Int
-    public var page: Int
-    public var pageSize: Int
 }
 
 /// Loads all backed-up asset metadata from S3 into memory for fast filtering.
 public actor ViewerDataStore {
     private var assets: [AssetView] = []
+    private var assetsByUUID: [String: AssetView] = [:]
     private var cachedFilterOptions: FilterOptions?
 
     public init() {}
@@ -122,12 +121,17 @@ public actor ViewerDataStore {
             }
         }
 
-        cachedFilterOptions = buildFilterOptions()
+        rebuildIndexes()
     }
 
     /// Load from pre-built asset views (for testing).
     public func load(assets: [AssetView]) {
         self.assets = assets
+        rebuildIndexes()
+    }
+
+    private func rebuildIndexes() {
+        assetsByUUID = Dictionary(uniqueKeysWithValues: assets.map { ($0.uuid, $0) })
         cachedFilterOptions = buildFilterOptions()
     }
 
@@ -168,9 +172,7 @@ public actor ViewerDataStore {
 
         return AssetPage(
             assets: pageAssets,
-            totalCount: totalCount,
-            page: page,
-            pageSize: pageSize
+            totalCount: totalCount
         )
     }
 
@@ -182,9 +184,9 @@ public actor ViewerDataStore {
         )
     }
 
-    /// Find a single asset by UUID.
+    /// Find a single asset by UUID (O(1) dictionary lookup).
     public func asset(uuid: String) -> AssetView? {
-        assets.first { $0.uuid == uuid }
+        assetsByUUID[uuid]
     }
 
     // MARK: - Private
@@ -221,18 +223,12 @@ public actor ViewerDataStore {
         "com.apple.m4v-video", "public.avi",
     ]
 
-    private static let yearExtractor: DateFormatter = {
-        let df = DateFormatter()
-        df.dateFormat = "yyyy"
-        df.timeZone = TimeZone(identifier: "UTC")
-        return df
-    }()
+    private nonisolated(unsafe) static let isoFormatter = ISO8601DateFormatter()
 
     private static func assetView(from meta: AssetMetadata) -> AssetView {
         let year: Int?
         if let dateStr = meta.dateCreated,
-           let date = ISO8601DateFormatter().date(from: dateStr)
-        {
+           let date = isoFormatter.date(from: dateStr) {
             year = Calendar.current.component(.year, from: date)
         } else {
             year = nil

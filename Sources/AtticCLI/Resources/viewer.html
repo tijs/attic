@@ -380,16 +380,24 @@ async function renderLightbox() {
   const res = await fetch(`/api/assets/${asset.uuid}`);
   const detail = await res.json();
 
+  content.innerHTML = '';
   if (asset.isVideo) {
-    content.innerHTML = `
-      <video controls preload="metadata" src="${detail.imageURL}"
-        style="max-width:95vw;max-height:90vh"></video>
-      <div class="lightbox-info">${asset.filename}</div>`;
+    const video = document.createElement('video');
+    video.controls = true;
+    video.preload = 'metadata';
+    video.src = detail.imageURL;
+    video.style.cssText = 'max-width:95vw;max-height:90vh';
+    content.appendChild(video);
   } else {
-    content.innerHTML = `
-      <img src="${detail.imageURL}" alt="${asset.filename}">
-      <div class="lightbox-info">${asset.filename}</div>`;
+    const img = document.createElement('img');
+    img.src = detail.imageURL;
+    img.alt = asset.filename;
+    content.appendChild(img);
   }
+  const info = document.createElement('div');
+  info.className = 'lightbox-info';
+  info.textContent = asset.filename;
+  content.appendChild(info);
 }
 
 document.getElementById('lbClose').addEventListener('click', closeLightbox);
