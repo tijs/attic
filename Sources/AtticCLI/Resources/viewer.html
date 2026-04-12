@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Attic Viewer</title>
+<style>
+:root {
+  --bg: #fff;
+  --bg-secondary: #f5f5f7;
+  --text: #1d1d1f;
+  --text-secondary: #86868b;
+  --border: #d2d2d7;
+  --accent: #0071e3;
+  --grid-gap: 2px;
+  --thumb-size: 200px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1d1d1f;
+    --bg-secondary: #2d2d2f;
+    --text: #f5f5f7;
+    --text-secondary: #86868b;
+    --border: #424245;
+    --accent: #2997ff;
+  }
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+header {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 20px;
+}
+.header-top {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px;
+}
+.header-top h1 { font-size: 20px; font-weight: 600; }
+.stats { font-size: 13px; color: var(--text-secondary); }
+.filters {
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+}
+.filters select, .filters button {
+  font-family: inherit; font-size: 13px;
+  padding: 5px 10px; border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text);
+  cursor: pointer;
+}
+.filters button.active {
+  background: var(--accent); color: #fff; border-color: var(--accent);
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--thumb-size), 1fr));
+  gap: var(--grid-gap);
+  padding: var(--grid-gap);
+}
+.thumb {
+  aspect-ratio: 1;
+  overflow: hidden;
+  cursor: pointer;
+  position: relative;
+  background: var(--bg-secondary);
+}
+.thumb img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.thumb .badge {
+  position: absolute; bottom: 4px; left: 4px;
+  background: rgba(0,0,0,0.6); color: #fff;
+  font-size: 10px; padding: 2px 5px; border-radius: 3px;
+}
+.thumb .fav {
+  position: absolute; top: 4px; right: 4px;
+  font-size: 12px;
+}
+.thumb .play-indicator {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 40px; height: 40px;
+  background: rgba(0,0,0,0.5);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+}
+.thumb .play-indicator::after {
+  content: '';
+  display: block;
+  width: 0; height: 0;
+  border-style: solid;
+  border-width: 8px 0 8px 14px;
+  border-color: transparent transparent transparent #fff;
+  margin-left: 3px;
+}
+.empty {
+  text-align: center; padding: 80px 20px;
+  color: var(--text-secondary); font-size: 15px;
+}
+.loading {
+  text-align: center; padding: 30px;
+  color: var(--text-secondary); font-size: 14px;
+}
+
+/* Lightbox */
+.lightbox {
+  display: none; position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,0.92);
+  justify-content: center; align-items: center;
+}
+.lightbox.open { display: flex; }
+.lightbox-content {
+  position: relative;
+  max-width: 95vw; max-height: 95vh;
+}
+.lightbox-content img, .lightbox-content video {
+  max-width: 95vw; max-height: 90vh;
+  object-fit: contain; display: block;
+  border-radius: 4px;
+}
+.lightbox-info {
+  position: absolute; bottom: -30px; left: 0; right: 0;
+  text-align: center; color: #999; font-size: 13px;
+}
+.lightbox-close {
+  position: fixed; top: 16px; right: 20px;
+  background: none; border: none; color: #fff;
+  font-size: 28px; cursor: pointer; z-index: 210;
+}
+.lightbox-nav {
+  position: fixed; top: 50%; transform: translateY(-50%);
+  background: none; border: none; color: #fff;
+  font-size: 36px; cursor: pointer; z-index: 210;
+  padding: 20px;
+}
+.lightbox-nav.prev { left: 8px; }
+.lightbox-nav.next { right: 8px; }
+.lightbox-nav:hover, .lightbox-close:hover { opacity: 0.7; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-top">
+    <h1>Attic Viewer</h1>
+    <span class="stats" id="stats"></span>
+  </div>
+  <div class="filters">
+    <select id="yearFilter"><option value="">All years</option></select>
+    <select id="albumFilter"><option value="">All albums</option></select>
+    <select id="typeFilter">
+      <option value="">All media</option>
+      <option value="photo">Photos</option>
+      <option value="video">Videos</option>
+    </select>
+    <button id="favFilter">Favorites</button>
+  </div>
+</header>
+
+<div class="grid" id="grid"></div>
+<div class="loading" id="loadingIndicator" style="display:none">Loading more...</div>
+<div id="scrollSentinel" style="height:1px"></div>
+<div class="empty" id="emptyState" style="display:none">No assets match the current filters.</div>
+
+<div class="lightbox" id="lightbox">
+  <button class="lightbox-close" id="lbClose">&times;</button>
+  <button class="lightbox-nav prev" id="lbPrev">&#8249;</button>
+  <button class="lightbox-nav next" id="lbNext">&#8250;</button>
+  <div class="lightbox-content" id="lbContent"></div>
+</div>
+
+<script>
+const PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+const state = {
+  page: 1,
+  pageSize: 50,
+  totalCount: 0,
+  loading: false,
+  done: false,
+  assets: [],
+  filters: { year: '', album: '', type: '', favorites: false },
+  lightboxIndex: -1,
+};
+
+const grid = document.getElementById('grid');
+const loadingIndicator = document.getElementById('loadingIndicator');
+const emptyState = document.getElementById('emptyState');
+const statsEl = document.getElementById('stats');
+
+// --- Filters ---
+
+async function loadFilters() {
+  const res = await fetch('/api/filters');
+  const data = await res.json();
+
+  const yearSelect = document.getElementById('yearFilter');
+  data.years.forEach(y => {
+    const opt = document.createElement('option');
+    opt.value = y.year;
+    opt.textContent = `${y.year} (${y.count})`;
+    yearSelect.appendChild(opt);
+  });
+
+  const albumSelect = document.getElementById('albumFilter');
+  data.albums.forEach(a => {
+    const opt = document.createElement('option');
+    opt.value = a.album;
+    opt.textContent = `${a.album} (${a.count})`;
+    albumSelect.appendChild(opt);
+  });
+
+  statsEl.textContent = `${data.totalAssets.toLocaleString()} assets \u2022 ${data.totalPhotos.toLocaleString()} photos \u2022 ${data.totalVideos.toLocaleString()} videos`;
+}
+
+document.getElementById('yearFilter').addEventListener('change', e => {
+  state.filters.year = e.target.value;
+  resetAndLoad();
+});
+document.getElementById('albumFilter').addEventListener('change', e => {
+  state.filters.album = e.target.value;
+  resetAndLoad();
+});
+document.getElementById('typeFilter').addEventListener('change', e => {
+  state.filters.type = e.target.value;
+  resetAndLoad();
+});
+document.getElementById('favFilter').addEventListener('click', e => {
+  state.filters.favorites = !state.filters.favorites;
+  e.target.classList.toggle('active', state.filters.favorites);
+  resetAndLoad();
+});
+
+function resetAndLoad() {
+  state.page = 1;
+  state.done = false;
+  state.assets = [];
+  grid.innerHTML = '';
+  emptyState.style.display = 'none';
+  loadPage();
+}
+
+// --- Asset loading ---
+
+async function loadPage() {
+  if (state.loading || state.done) return;
+  state.loading = true;
+  loadingIndicator.style.display = 'block';
+
+  const params = new URLSearchParams({ page: state.page, pageSize: state.pageSize });
+  if (state.filters.year) params.set('year', state.filters.year);
+  if (state.filters.album) params.set('album', state.filters.album);
+  if (state.filters.type) params.set('type', state.filters.type);
+  if (state.filters.favorites) params.set('favorites', 'true');
+
+  const res = await fetch(`/api/assets?${params}`);
+  const data = await res.json();
+
+  state.totalCount = data.totalCount;
+
+  if (data.assets.length === 0 && state.page === 1) {
+    emptyState.style.display = 'block';
+  }
+
+  data.assets.forEach(asset => {
+    const idx = state.assets.length;
+    state.assets.push(asset);
+
+    const div = document.createElement('div');
+    div.className = 'thumb';
+    div.dataset.index = idx;
+
+    const img = document.createElement('img');
+    img.alt = asset.filename;
+    img.dataset.thumbUrl = `/api/thumb/${asset.uuid}`;
+    img.src = PLACEHOLDER;
+    div.appendChild(img);
+
+    if (asset.isVideo) {
+      const play = document.createElement('div');
+      play.className = 'play-indicator';
+      div.appendChild(play);
+    }
+
+    if (asset.isFavorite) {
+      const fav = document.createElement('span');
+      fav.className = 'fav';
+      fav.textContent = '\u2665';
+      div.appendChild(fav);
+    }
+
+    div.addEventListener('click', () => openLightbox(idx));
+    grid.appendChild(div);
+    visibilityObserver.observe(div);
+  });
+
+  if (state.assets.length >= data.totalCount) {
+    state.done = true;
+  } else {
+    state.page++;
+  }
+
+  state.loading = false;
+  loadingIndicator.style.display = 'none';
+}
+
+// --- Viewport-based memory management ---
+// Two-zone strategy: load images near viewport, UNLOAD images far from it.
+// A 4032x3024 photo decodes to ~49MB bitmap. Without unloading, scrolling
+// through hundreds of photos accumulates gigabytes and crashes the tab.
+
+const visibilityObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    const div = entry.target;
+    const idx = parseInt(div.dataset.index);
+    const img = div.querySelector('img');
+    if (!img) return;
+
+    if (entry.isIntersecting) {
+      // Entering the load zone — set the thumbnail src
+      if (!img.dataset.active) {
+        img.src = img.dataset.thumbUrl || state.assets[idx].imageURL;
+        img.dataset.active = '1';
+      }
+    } else {
+      // Left the load zone — release memory
+      if (img.dataset.active) {
+        img.src = PLACEHOLDER;
+        delete img.dataset.active;
+      }
+    }
+  });
+}, { rootMargin: '800px' }); // load zone: viewport + 800px each side
+
+// --- Infinite scroll ---
+
+const scrollObserver = new IntersectionObserver((entries) => {
+  if (entries[0].isIntersecting) loadPage();
+}, { rootMargin: '600px' });
+scrollObserver.observe(document.getElementById('scrollSentinel'));
+
+// --- Lightbox ---
+
+function openLightbox(idx) {
+  state.lightboxIndex = idx;
+  renderLightbox();
+  document.getElementById('lightbox').classList.add('open');
+}
+
+function closeLightbox() {
+  const content = document.getElementById('lbContent');
+  // Stop any playing video before clearing
+  const video = content.querySelector('video');
+  if (video) { video.pause(); video.src = ''; }
+  content.innerHTML = '';
+  document.getElementById('lightbox').classList.remove('open');
+  state.lightboxIndex = -1;
+}
+
+async function renderLightbox() {
+  const asset = state.assets[state.lightboxIndex];
+  if (!asset) return;
+
+  const content = document.getElementById('lbContent');
+
+  // Stop previous video if navigating
+  const prevVideo = content.querySelector('video');
+  if (prevVideo) { prevVideo.pause(); prevVideo.src = ''; }
+
+  // Fetch fresh pre-signed URL for full-size
+  const res = await fetch(`/api/assets/${asset.uuid}`);
+  const detail = await res.json();
+
+  if (asset.isVideo) {
+    content.innerHTML = `
+      <video controls preload="metadata" src="${detail.imageURL}"
+        style="max-width:95vw;max-height:90vh"></video>
+      <div class="lightbox-info">${asset.filename}</div>`;
+  } else {
+    content.innerHTML = `
+      <img src="${detail.imageURL}" alt="${asset.filename}">
+      <div class="lightbox-info">${asset.filename}</div>`;
+  }
+}
+
+document.getElementById('lbClose').addEventListener('click', closeLightbox);
+document.getElementById('lightbox').addEventListener('click', e => {
+  if (e.target.id === 'lightbox') closeLightbox();
+});
+
+document.getElementById('lbPrev').addEventListener('click', () => {
+  if (state.lightboxIndex > 0) {
+    state.lightboxIndex--;
+    renderLightbox();
+  }
+});
+document.getElementById('lbNext').addEventListener('click', () => {
+  if (state.lightboxIndex < state.assets.length - 1) {
+    state.lightboxIndex++;
+    renderLightbox();
+  }
+});
+
+document.addEventListener('keydown', e => {
+  if (state.lightboxIndex < 0) return;
+  if (e.key === 'Escape') closeLightbox();
+  if (e.key === 'ArrowLeft' && state.lightboxIndex > 0) {
+    state.lightboxIndex--;
+    renderLightbox();
+  }
+  if (e.key === 'ArrowRight' && state.lightboxIndex < state.assets.length - 1) {
+    state.lightboxIndex++;
+    renderLightbox();
+  }
+});
+
+// --- Init ---
+
+loadFilters();
+loadPage();
+</script>
+</body>
+</html>

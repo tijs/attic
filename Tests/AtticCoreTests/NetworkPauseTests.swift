@@ -48,6 +48,10 @@ actor NetworkFailingS3Provider: S3Providing {
     func listObjects(prefix: String) async throws -> [S3ListObject] {
         try await inner.listObjects(prefix: prefix)
     }
+
+    nonisolated func presignedURL(key: String, expires: Int) -> URL {
+        URL(string: "http://mock-s3/\(key)?expires=\(expires)")!
+    }
 }
 
 /// Throws a real URLError so typed isNetworkDown() detection works end-to-end.
@@ -93,6 +97,10 @@ actor TransientFailingS3Provider: S3Providing {
 
     func listObjects(prefix: String) async throws -> [S3ListObject] {
         try await inner.listObjects(prefix: prefix)
+    }
+
+    nonisolated func presignedURL(key: String, expires: Int) -> URL {
+        URL(string: "http://mock-s3/\(key)?expires=\(expires)")!
     }
 }
 

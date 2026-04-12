@@ -85,6 +85,10 @@ private actor FailingS3Provider: S3Providing {
     func listObjects(prefix: String) async throws -> [S3ListObject] {
         []
     }
+
+    nonisolated func presignedURL(key: String, expires: Int) -> URL {
+        URL(string: "http://mock-s3/\(key)?expires=\(expires)")!
+    }
 }
 
 private enum FailingS3Error: Error {

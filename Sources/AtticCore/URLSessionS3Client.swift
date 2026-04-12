@@ -138,6 +138,14 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         return results
     }
 
+    public func presignedURL(key: String, expires: Int = 14400) -> URL {
+        // makeRequest can only throw for invalid virtual-hosted URLs, which
+        // would have failed at init time. Force-try is safe here.
+        // swiftlint:disable:next force_try
+        let request = try! makeRequest(key: key, method: "GET")
+        return signer.signURL(url: request.url!, method: .GET, expires: expires)
+    }
+
     // MARK: - Helpers
 
     private func makeRequest(key: String, method: String) throws -> URLRequest {

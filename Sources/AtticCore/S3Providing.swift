@@ -38,6 +38,9 @@ public protocol S3Providing: Sendable {
 
     /// List objects with a given prefix.
     func listObjects(prefix: String) async throws -> [S3ListObject]
+
+    /// Generate a pre-signed URL for temporary direct access to an object.
+    func presignedURL(key: String, expires: Int) -> URL
 }
 
 /// Convenience overloads.

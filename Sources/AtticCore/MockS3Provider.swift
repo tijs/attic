@@ -50,6 +50,10 @@ public actor MockS3Provider: S3Providing {
         )
     }
 
+    public nonisolated func presignedURL(key: String, expires: Int) -> URL {
+        URL(string: "http://mock-s3/\(key)?expires=\(expires)")!
+    }
+
     public func listObjects(prefix: String) async throws -> [S3ListObject] {
         objects.keys
             .filter { $0.hasPrefix(prefix) }

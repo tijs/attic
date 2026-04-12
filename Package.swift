@@ -12,6 +12,7 @@ let package = Package(
         .package(url: "https://github.com/adam-fowler/aws-signer-v4.git", from: "3.0.0"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.7.0"),
         .package(url: "https://github.com/tijs/ladder.git", from: "0.3.4"),
+        .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.0.0"),
     ],
     targets: [
         .target(
@@ -27,8 +28,10 @@ let package = Package(
             dependencies: [
                 "AtticCore",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "Hummingbird", package: "hummingbird"),
             ],
-            path: "Sources/AtticCLI"
+            path: "Sources/AtticCLI",
+            resources: [.copy("Resources")]
         ),
         .testTarget(
             name: "AtticCoreTests",
