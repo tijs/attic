@@ -12,9 +12,26 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
     private var startTime: Date?
     private var lastRenderTime: Date?
     private let spinner: PreparationSpinner?
+    private var originalTermios: termios?
 
     init(spinner: PreparationSpinner? = nil) {
         self.spinner = spinner
+    }
+
+    /// Disable stdin echo and canonical mode so keypresses don't disrupt the dashboard.
+    private func disableInputEcho() {
+        var raw = termios()
+        tcgetattr(STDIN_FILENO, &raw)
+        originalTermios = raw
+        raw.c_lflag &= ~UInt(ECHO | ICANON)
+        tcsetattr(STDIN_FILENO, TCSANOW, &raw)
+    }
+
+    /// Restore the original terminal settings.
+    private func restoreInputEcho() {
+        guard var original = originalTermios else { return }
+        tcsetattr(STDIN_FILENO, TCSANOW, &original)
+        originalTermios = nil
     }
 
     private struct RenderState {
@@ -34,12 +51,14 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
         var pauseReason: String = ""
         var pauseStarted: Date?
         var totalPauseDuration: TimeInterval = 0
+        var failedAssets: [(filename: String, message: String)] = []
     }
 
     // MARK: - BackupProgressDelegate
 
     func backupStarted(pending: Int, photos: Int, videos: Int) {
         spinner?.stop()
+        disableInputEcho()
         lock.withLock {
             state.total = pending
             state.photos = photos
@@ -71,6 +90,7 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
         lock.withLock {
             state.failed += 1
             state.currentFile = "\(filename) — \(message)"
+            state.failedAssets.append((filename: filename, message: message))
         }
         render()
     }
@@ -175,6 +195,8 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
     }
 
     private func renderFinal() {
+        restoreInputEcho()
+
         let s: RenderState = lock.withLock { state }
         let elapsed = lock.withLock { startTime.map { Date().timeIntervalSince($0) } ?? 0 }
 
@@ -190,6 +212,13 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
         print("  Uploaded: \(s.uploaded) (\(formatBytes(s.totalBytes)))")
         if s.failed > 0 {
             print("  Failed:   \(s.failed)")
+            print("")
+            print("Failed assets:")
+            for failure in s.failedAssets {
+                print("  ✗ \(failure.filename): \(failure.message)")
+            }
+            print("")
+            print("Tip: Run `attic backup` again to retry failed assets.")
         }
 
         fflush(stdout)
