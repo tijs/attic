@@ -5,7 +5,7 @@ import Foundation
 struct ViewerCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "viewer",
-        abstract: "Browse backed-up photos in your browser."
+        abstract: "Browse backed-up photos in your browser.",
     )
 
     @Option(name: .long, help: "Port to bind to (0 for automatic).")
@@ -24,7 +24,7 @@ struct ViewerCommand: AsyncParsableCommand {
         let thumbnailService = ThumbnailService(s3: s3, dataStore: dataStore)
         let server = ViewerServer(
             dataStore: dataStore, s3: s3,
-            thumbnailProvider: thumbnailService, port: port
+            thumbnailProvider: thumbnailService, port: port,
         )
 
         // Start metadata loading in the background — assets become

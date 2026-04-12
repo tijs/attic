@@ -12,7 +12,7 @@ public enum VideoThumbnailer {
     static func thumbnail(
         from fileURL: URL,
         maxDimension: Int = 400,
-        quality: Double = 0.8
+        quality: Double = 0.8,
     ) throws -> Data {
         let asset = AVURLAsset(url: fileURL)
         let generator = AVAssetImageGenerator(asset: asset)
@@ -43,7 +43,7 @@ public enum VideoThumbnailer {
     public static func thumbnail(
         from data: Data,
         maxDimension: Int = 400,
-        quality: Double = 0.8
+        quality: Double = 0.8,
     ) throws -> Data {
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("attic-video-\(UUID().uuidString).mov")

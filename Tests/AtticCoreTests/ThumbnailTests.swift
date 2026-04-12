@@ -5,7 +5,6 @@ import Testing
 
 // MARK: - ThumbnailCache Tests
 
-@Suite
 struct ThumbnailCacheTests {
     private func makeTempDir() throws -> URL {
         let dir = FileManager.default.temporaryDirectory
@@ -68,7 +67,6 @@ struct ThumbnailCacheTests {
 
 // MARK: - S3Paths.thumbnailKey Tests
 
-@Suite
 struct ThumbnailKeyTests {
     @Test func thumbnailKeyGeneratesCorrectPath() throws {
         let key = try S3Paths.thumbnailKey(uuid: "abc-123")
@@ -87,7 +85,6 @@ struct ThumbnailKeyTests {
 
 // MARK: - ImageThumbnailer Tests
 
-@Suite
 struct ImageThumbnailerTests {
     @Test func thumbnailFromValidJPEGData() throws {
         // Create a minimal valid JPEG via CGImage
@@ -116,7 +113,7 @@ struct ImageThumbnailerTests {
         #expect(data[1] == 0xD8)
     }
 
-    // Helper to create a test JPEG
+    /// Helper to create a test JPEG
     private func createTestJPEG(width: Int, height: Int) throws -> Data {
         let cgImage = try createTestCGImage(width: width, height: height)
         return try ImageThumbnailer.encodeJPEG(image: cgImage, quality: 0.9)
@@ -128,7 +125,7 @@ struct ImageThumbnailerTests {
             data: nil, width: width, height: height,
             bitsPerComponent: 8, bytesPerRow: width * 4,
             space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue,
         ) else {
             throw ThumbnailError.decodeFailed("Could not create test CGContext")
         }
@@ -143,11 +140,10 @@ struct ImageThumbnailerTests {
 
 // MARK: - ThumbnailService Tests
 
-@Suite
 struct ThumbnailServiceTests {
     private func makeAssetView(
         uuid: String,
-        isVideo: Bool = false
+        isVideo: Bool = false,
     ) -> AssetView {
         AssetView(
             uuid: uuid,
@@ -159,7 +155,7 @@ struct ThumbnailServiceTests {
             isVideo: isVideo,
             width: 4032,
             height: 3024,
-            s3Key: "originals/2024/07/\(uuid).heic"
+            s3Key: "originals/2024/07/\(uuid).heic",
         )
     }
 
@@ -169,7 +165,7 @@ struct ThumbnailServiceTests {
             data: nil, width: 100, height: 100,
             bitsPerComponent: 8, bytesPerRow: 400,
             space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue,
         ),
             let image = ctx.makeImage()
         else {
@@ -191,7 +187,7 @@ struct ThumbnailServiceTests {
         let dataStore = ViewerDataStore()
 
         let service = ThumbnailService(
-            cache: cache, s3: s3, dataStore: dataStore
+            cache: cache, s3: s3, dataStore: dataStore,
         )
 
         let result = try await service.thumbnail(uuid: "test-uuid")
@@ -214,7 +210,7 @@ struct ThumbnailServiceTests {
         let cache = ThumbnailCache(directory: dir)
 
         let service = ThumbnailService(
-            cache: cache, s3: s3, dataStore: dataStore
+            cache: cache, s3: s3, dataStore: dataStore,
         )
 
         let result = try await service.thumbnail(uuid: "test-uuid")
@@ -240,7 +236,7 @@ struct ThumbnailServiceTests {
 
         let cache = ThumbnailCache(directory: dir)
         let service = ThumbnailService(
-            cache: cache, s3: s3, dataStore: dataStore
+            cache: cache, s3: s3, dataStore: dataStore,
         )
 
         let result = try await service.thumbnail(uuid: "photo-uuid")
@@ -267,7 +263,7 @@ struct ThumbnailServiceTests {
             _ = try await service.thumbnail(uuid: "nonexistent")
             #expect(Bool(false), "Should have thrown")
         } catch let error as ThumbnailError {
-            if case .notFound(let uuid) = error {
+            if case let .notFound(uuid) = error {
                 #expect(uuid == "nonexistent")
             } else {
                 #expect(Bool(false), "Wrong error case: \(error)")
@@ -290,7 +286,7 @@ struct ThumbnailServiceTests {
 
         let cache = ThumbnailCache(directory: dir)
         let service = ThumbnailService(
-            cache: cache, s3: s3, dataStore: dataStore
+            cache: cache, s3: s3, dataStore: dataStore,
         )
 
         // Launch multiple concurrent requests for the same UUID

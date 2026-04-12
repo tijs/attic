@@ -20,7 +20,7 @@ public actor ThumbnailService: ThumbnailProviding {
         cache: ThumbnailCache = ThumbnailCache(),
         s3: S3Providing,
         dataStore: ViewerDataStore,
-        maxConcurrent: Int = 6
+        maxConcurrent: Int = 6,
     ) {
         self.cache = cache
         self.s3 = s3
@@ -55,7 +55,7 @@ public actor ThumbnailService: ThumbnailProviding {
             }
 
             return try await self.generateThumbnail(
-                for: asset, uuid: uuid, thumbKey: thumbKey
+                for: asset, uuid: uuid, thumbKey: thumbKey,
             )
         }
 
@@ -76,7 +76,7 @@ public actor ThumbnailService: ThumbnailProviding {
     /// Download original, generate thumbnail, save to cache + S3.
     /// Acquires and releases a concurrency slot synchronously within actor context.
     private func generateThumbnail(
-        for asset: AssetView, uuid: String, thumbKey: String
+        for asset: AssetView, uuid: String, thumbKey: String,
     ) async throws -> Data {
         await acquireSlot()
         defer { releaseSlot() }
@@ -88,11 +88,10 @@ public actor ThumbnailService: ThumbnailProviding {
             throw ThumbnailError.s3Failure(uuid, error)
         }
 
-        let jpegData: Data
-        if asset.isVideo {
-            jpegData = try VideoThumbnailer.thumbnail(from: originalData)
+        let jpegData: Data = if asset.isVideo {
+            try VideoThumbnailer.thumbnail(from: originalData)
         } else {
-            jpegData = try ImageThumbnailer.thumbnail(from: originalData)
+            try ImageThumbnailer.thumbnail(from: originalData)
         }
 
         // Save to local cache
@@ -100,7 +99,7 @@ public actor ThumbnailService: ThumbnailProviding {
 
         // Best-effort upload to S3 (don't fail if upload errors)
         try? await s3.putObject(
-            key: thumbKey, body: jpegData, contentType: "image/jpeg"
+            key: thumbKey, body: jpegData, contentType: "image/jpeg",
         )
 
         return jpegData

@@ -36,7 +36,7 @@ struct ViewerServer {
         dataStore: ViewerDataStore,
         s3: S3Providing,
         thumbnailProvider: ThumbnailProviding,
-        port: Int = 0
+        port: Int = 0,
     ) {
         self.dataStore = dataStore
         self.s3 = s3
@@ -52,7 +52,7 @@ struct ViewerServer {
             onServerRunning: { channel in
                 let actualPort = channel.localAddress?.port ?? 8080
                 onReady(actualPort)
-            }
+            },
         )
         try await app.runService()
     }
@@ -78,7 +78,7 @@ struct ViewerServer {
                     .init("X-Frame-Options")!: "DENY",
                     .init("Content-Security-Policy")!: Self.csp,
                 ],
-                body: .init(byteBuffer: .init(string: html))
+                body: .init(byteBuffer: .init(string: html)),
             )
         }
     }
@@ -92,13 +92,13 @@ struct ViewerServer {
             let mediaType = params.get("type", as: String.self)
 
             let opts = await dataStore.filterOptions(
-                year: year, album: album, favorites: favorites, mediaType: mediaType
+                year: year, album: album, favorites: favorites, mediaType: mediaType,
             )
             let data = try JSONEncoder().encode(opts)
             return Response(
                 status: .ok,
                 headers: [.contentType: "application/json"],
-                body: .init(byteBuffer: .init(data: data))
+                body: .init(byteBuffer: .init(data: data)),
             )
         }
 
@@ -113,7 +113,7 @@ struct ViewerServer {
 
             let result = await dataStore.query(
                 year: year, album: album, favorites: favorites,
-                mediaType: mediaType, page: page, pageSize: pageSize
+                mediaType: mediaType, page: page, pageSize: pageSize,
             )
 
             let assetsWithURLs = result.assets.map { asset in
@@ -124,7 +124,7 @@ struct ViewerServer {
                 assets: assetsWithURLs,
                 totalCount: result.totalCount,
                 page: page,
-                pageSize: pageSize
+                pageSize: pageSize,
             )
         }
 
@@ -142,7 +142,7 @@ struct ViewerServer {
             return Response(
                 status: .ok,
                 headers: [.contentType: "application/json"],
-                body: .init(byteBuffer: .init(data: data))
+                body: .init(byteBuffer: .init(data: data)),
             )
         }
 
@@ -159,7 +159,7 @@ struct ViewerServer {
                         .contentType: "image/jpeg",
                         .cacheControl: "public, max-age=31536000, immutable",
                     ],
-                    body: .init(byteBuffer: .init(data: data))
+                    body: .init(byteBuffer: .init(data: data)),
                 )
             } catch {
                 return Response(status: .notFound)
@@ -179,7 +179,7 @@ struct ViewerServer {
             width: asset.width,
             height: asset.height,
             imageURL: s3.presignedURL(key: asset.s3Key, expires: expires)
-                .absoluteString
+                .absoluteString,
         )
     }
 }

@@ -17,7 +17,7 @@ public enum ImageThumbnailer {
     public static func thumbnail(
         from data: Data,
         maxDimension: Int = 400,
-        quality: Double = 0.8
+        quality: Double = 0.8,
     ) throws -> Data {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
             throw ThumbnailError.decodeFailed("CGImageSourceCreateWithData returned nil")
@@ -43,7 +43,7 @@ public enum ImageThumbnailer {
             data as CFMutableData,
             UTType.jpeg.identifier as CFString,
             1,
-            nil
+            nil,
         ) else {
             throw ThumbnailError.decodeFailed("CGImageDestinationCreateWithData failed")
         }

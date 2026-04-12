@@ -2,7 +2,6 @@
 import Foundation
 import Testing
 
-@Suite
 struct ViewerDataStoreTests {
     // MARK: - Test helpers
 
@@ -11,7 +10,7 @@ struct ViewerDataStoreTests {
         year: Int? = 2024,
         albums: [String] = [],
         isFavorite: Bool = false,
-        isVideo: Bool = false
+        isVideo: Bool = false,
     ) -> AssetView {
         AssetView(
             uuid: uuid,
@@ -23,7 +22,7 @@ struct ViewerDataStoreTests {
             isVideo: isVideo,
             width: 4032,
             height: 3024,
-            s3Key: "originals/\(year ?? 0)/07/\(uuid).heic"
+            s3Key: "originals/\(year ?? 0)/07/\(uuid).heic",
         )
     }
 
@@ -31,7 +30,7 @@ struct ViewerDataStoreTests {
 
     @Test func queryReturnsAllAssetsUnfiltered() async {
         let store = ViewerDataStore()
-        let assets = (1...5).map { makeAssetView(uuid: "uuid-\($0)") }
+        let assets = (1 ... 5).map { makeAssetView(uuid: "uuid-\($0)") }
         await store.load(assets: assets)
 
         let result = await store.query()
@@ -77,6 +76,7 @@ struct ViewerDataStoreTests {
 
         let result = await store.query(favorites: true)
         #expect(result.totalCount == 2)
+        // swiftformat:disable:next preferKeyPath
         #expect(result.assets.allSatisfy { $0.isFavorite })
     }
 
@@ -98,7 +98,7 @@ struct ViewerDataStoreTests {
 
     @Test func queryPaginates() async {
         let store = ViewerDataStore()
-        let assets = (1...10).map { makeAssetView(uuid: "uuid-\($0)") }
+        let assets = (1 ... 10).map { makeAssetView(uuid: "uuid-\($0)") }
         await store.load(assets: assets)
 
         let page1 = await store.query(page: 1, pageSize: 3)
@@ -168,8 +168,8 @@ struct ViewerDataStoreTests {
 
     @Test func corruptMetadataIsSkipped() async throws {
         let store = ViewerDataStore()
-        let s3 = MockS3Provider(objects: [
-            "metadata/assets/good-uuid.json": try JSONEncoder().encode(
+        let s3 = try MockS3Provider(objects: [
+            "metadata/assets/good-uuid.json": JSONEncoder().encode(
                 AssetMetadata(
                     uuid: "good-uuid", originalFilename: "IMG.HEIC",
                     dateCreated: "2024-01-15T12:00:00Z",
@@ -180,8 +180,8 @@ struct ViewerDataStoreTests {
                     albums: [], keywords: [], people: [],
                     hasEdit: false, editedAt: nil, editor: nil,
                     s3Key: "originals/2024/01/good-uuid.heic",
-                    checksum: "sha256:abc", backedUpAt: "2024-01-15T12:00:00Z"
-                )
+                    checksum: "sha256:abc", backedUpAt: "2024-01-15T12:00:00Z",
+                ),
             ),
             "metadata/assets/bad-uuid.json": Data("not json".utf8),
         ])
@@ -189,11 +189,11 @@ struct ViewerDataStoreTests {
         var manifest = Manifest()
         manifest.entries["good-uuid"] = ManifestEntry(
             uuid: "good-uuid", s3Key: "originals/2024/01/good-uuid.heic",
-            checksum: "sha256:abc", backedUpAt: "2024-01-15T12:00:00Z"
+            checksum: "sha256:abc", backedUpAt: "2024-01-15T12:00:00Z",
         )
         manifest.entries["bad-uuid"] = ManifestEntry(
             uuid: "bad-uuid", s3Key: "originals/2024/01/bad-uuid.heic",
-            checksum: "sha256:def", backedUpAt: "2024-01-15T12:00:00Z"
+            checksum: "sha256:def", backedUpAt: "2024-01-15T12:00:00Z",
         )
 
         await store.load(manifest: manifest, s3: s3)

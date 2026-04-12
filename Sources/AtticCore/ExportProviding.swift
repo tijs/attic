@@ -43,7 +43,8 @@ public enum ExportProviderError: Error, CustomStringConvertible {
 /// Map a file extension to its MIME content type using the system type database.
 public func contentTypeForExtension(_ ext: String) -> String {
     if let utType = UTType(filenameExtension: ext),
-       let mimeType = utType.preferredMIMEType {
+       let mimeType = utType.preferredMIMEType
+    {
         return mimeType
     }
     return "application/octet-stream"

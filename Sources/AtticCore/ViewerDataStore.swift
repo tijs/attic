@@ -17,7 +17,7 @@ public struct AssetView: Codable, Sendable {
     public init(
         uuid: String, filename: String, dateCreated: String?,
         year: Int?, albums: [String], isFavorite: Bool,
-        isVideo: Bool, width: Int, height: Int, s3Key: String
+        isVideo: Bool, width: Int, height: Int, s3Key: String,
     ) {
         self.uuid = uuid
         self.filename = filename
@@ -79,7 +79,7 @@ public actor ViewerDataStore {
     public func load(
         manifest: Manifest,
         s3: S3Providing,
-        onProgress: @escaping @Sendable (Int, Int) -> Void = { _, _ in }
+        onProgress: @escaping @Sendable (Int, Int) -> Void = { _, _ in },
     ) async {
         let entries = Array(manifest.entries.values)
         _expectedTotal = entries.count
@@ -126,9 +126,9 @@ public actor ViewerDataStore {
         // Sort by date descending (newest first), nil dates last
         assets.sort { a, b in
             switch (a.dateCreated, b.dateCreated) {
-            case let (dateA?, dateB?): return dateA > dateB
-            case (nil, _): return false
-            case (_, nil): return true
+            case let (dateA?, dateB?): dateA > dateB
+            case (nil, _): false
+            case (_, nil): true
             }
         }
 
@@ -156,17 +156,17 @@ public actor ViewerDataStore {
         favorites: Bool? = nil,
         mediaType: String? = nil,
         page: Int = 1,
-        pageSize: Int = 50
+        pageSize: Int = 50,
     ) -> AssetPage {
         let filtered = applyFilters(
-            year: year, album: album, favorites: favorites, mediaType: mediaType
+            year: year, album: album, favorites: favorites, mediaType: mediaType,
         )
 
         let totalCount = filtered.count
         let startIndex = (page - 1) * pageSize
         let endIndex = min(startIndex + pageSize, totalCount)
         let pageAssets = startIndex < totalCount
-            ? Array(filtered[startIndex..<endIndex])
+            ? Array(filtered[startIndex ..< endIndex])
             : []
 
         return AssetPage(assets: pageAssets, totalCount: totalCount)
@@ -179,7 +179,7 @@ public actor ViewerDataStore {
         year: Int? = nil,
         album: String? = nil,
         favorites: Bool? = nil,
-        mediaType: String? = nil
+        mediaType: String? = nil,
     ) -> FilterOptions {
         var yearCounts: [Int: Int] = [:]
         var albumCounts: [String: Int] = [:]
@@ -190,23 +190,24 @@ public actor ViewerDataStore {
             let matchesYear = year == nil || asset.year == year
             let matchesAlbum = album == nil || asset.albums.contains(album!)
             let matchesFav = favorites != true || asset.isFavorite
-            let matchesType: Bool
-            switch mediaType {
-            case "photo": matchesType = !asset.isVideo
-            case "video": matchesType = asset.isVideo
-            default: matchesType = true
+            let matchesType: Bool = switch mediaType {
+            case "photo": !asset.isVideo
+            case "video": asset.isVideo
+            default: true
             }
 
             // Year counts: apply all filters except year
-            if matchesAlbum && matchesFav && matchesType {
+            if matchesAlbum, matchesFav, matchesType {
                 if let y = asset.year { yearCounts[y, default: 0] += 1 }
             }
             // Album counts: apply all filters except album
-            if matchesYear && matchesFav && matchesType {
-                for a in asset.albums { albumCounts[a, default: 0] += 1 }
+            if matchesYear, matchesFav, matchesType {
+                for a in asset.albums {
+                    albumCounts[a, default: 0] += 1
+                }
             }
             // Totals: all filters applied
-            if matchesYear && matchesAlbum && matchesFav && matchesType {
+            if matchesYear, matchesAlbum, matchesFav, matchesType {
                 if asset.isVideo { videoCount += 1 } else { photoCount += 1 }
             }
         }
@@ -221,7 +222,7 @@ public actor ViewerDataStore {
             totalVideos: videoCount,
             isLoading: _isLoading,
             loaded: _loadedCount,
-            totalInLibrary: _isLoading ? _expectedTotal : assets.count
+            totalInLibrary: _isLoading ? _expectedTotal : assets.count,
         )
     }
 
@@ -233,7 +234,7 @@ public actor ViewerDataStore {
     // MARK: - Private
 
     private func applyFilters(
-        year: Int?, album: String?, favorites: Bool?, mediaType: String?
+        year: Int?, album: String?, favorites: Bool?, mediaType: String?,
     ) -> [AssetView] {
         var filtered = assets
         if let year {
@@ -243,12 +244,12 @@ public actor ViewerDataStore {
             filtered = filtered.filter { $0.albums.contains(album) }
         }
         if let favorites, favorites {
-            filtered = filtered.filter { $0.isFavorite }
+            filtered = filtered.filter(\.isFavorite)
         }
         if let mediaType {
             switch mediaType {
             case "photo": filtered = filtered.filter { !$0.isVideo }
-            case "video": filtered = filtered.filter { $0.isVideo }
+            case "video": filtered = filtered.filter(\.isVideo)
             default: break
             }
         }
@@ -261,12 +262,12 @@ public actor ViewerDataStore {
     }
 
     private static func assetView(from meta: AssetMetadata) -> AssetView {
-        let year: Int?
-        if let dateStr = meta.dateCreated,
-           let date = try? Date.ISO8601FormatStyle().parse(dateStr) {
-            year = Calendar.current.component(.year, from: date)
+        let year: Int? = if let dateStr = meta.dateCreated,
+                            let date = try? Date.ISO8601FormatStyle().parse(dateStr)
+        {
+            Calendar.current.component(.year, from: date)
         } else {
-            year = nil
+            nil
         }
 
         let isVideo = meta.type.map { isVideoUTI($0) } ?? false
@@ -281,7 +282,7 @@ public actor ViewerDataStore {
             isVideo: isVideo,
             width: meta.width,
             height: meta.height,
-            s3Key: meta.s3Key
+            s3Key: meta.s3Key,
         )
     }
 }
