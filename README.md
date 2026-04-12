@@ -144,6 +144,23 @@ Rebuild the manifest from S3 metadata files (disaster recovery).
 attic rebuild
 ```
 
+### viewer
+
+Browse your backed-up library in a local web UI. Starts a localhost HTTP server
+that loads metadata from S3 and serves a photo grid with filtering and lightbox.
+
+```bash
+attic viewer
+```
+
+| Flag       | Description                        |
+| ---------- | ---------------------------------- |
+| `--port N` | HTTP port (default: random unused) |
+
+The viewer loads metadata progressively in the background — you can start
+browsing immediately while the full library loads. Filters (year, album,
+favorites, photo/video) update dynamically as metadata arrives.
+
 ## Configuration
 
 Attic stores its configuration at `~/.attic/config.json`:

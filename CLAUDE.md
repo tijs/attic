@@ -63,6 +63,7 @@ All external dependencies are behind protocols (`S3Providing`, `ManifestStoring`
 | `verify` | Verify S3 objects against manifest |
 | `refresh-metadata` | Re-upload metadata JSON |
 | `rebuild` | Rebuild manifest from S3 metadata |
+| `viewer` | Browse backed-up library in local web UI |
 | `init` | Interactive S3 setup |
 
 ## Testing Patterns
