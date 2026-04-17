@@ -64,7 +64,7 @@ func uploadSingleAsset(
                     fileURL: fileURL,
                     contentType: contentTypeForExtension(ext),
                 )
-            }
+            },
         )
 
         // Build and upload metadata

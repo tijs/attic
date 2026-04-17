@@ -1,10 +1,9 @@
+@testable import AtticCore
 import Foundation
 import LadderKit
 import Testing
 
-@testable import AtticCore
-
-@Suite struct StagingReclaimTests {
+struct StagingReclaimTests {
     private func makeTempDir() throws -> URL {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("staging-reclaim-test-\(UUID().uuidString)")
@@ -68,7 +67,7 @@ import Testing
 
         // Only one file should remain in the dir
         let remaining = try FileManager.default.contentsOfDirectory(
-            at: dir, includingPropertiesForKeys: nil
+            at: dir, includingPropertiesForKeys: nil,
         )
         #expect(remaining.count == 1)
     }
@@ -86,7 +85,7 @@ import Testing
 
         // The other-uuid file should still exist (untouched)
         let allFiles = try FileManager.default.contentsOfDirectory(
-            at: dir, includingPropertiesForKeys: nil
+            at: dir, includingPropertiesForKeys: nil,
         )
         #expect(allFiles.count == 2)
     }

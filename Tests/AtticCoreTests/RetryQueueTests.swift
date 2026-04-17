@@ -1,9 +1,8 @@
+@testable import AtticCore
 import Foundation
 import Testing
 
-@testable import AtticCore
-
-@Suite struct RetryQueueTests {
+struct RetryQueueTests {
     private func makeTempDir() throws -> URL {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("retry-queue-test-\(UUID().uuidString)")
@@ -26,7 +25,7 @@ import Testing
         let store = FileRetryQueueStore(directory: dir)
         let queue = RetryQueue(
             failedUUIDs: ["uuid-1", "uuid-2", "uuid-3"],
-            updatedAt: "2025-01-15T12:00:00Z"
+            updatedAt: "2025-01-15T12:00:00Z",
         )
         try store.save(queue)
 
