@@ -12,3 +12,7 @@ Package.resolved
 # Internal working docs
 docs/brainstorms/
 docs/plans/
+
+# Local agent config
+.impeccable.md
+compound-engineering.local.md
