@@ -41,10 +41,9 @@ struct BackupCommand: AsyncParsableCommand {
         default: nil
         }
 
-        let stagingDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("attic-staging-\(UUID().uuidString)")
+        // Stable staging dir — files persist across runs for reuse, cleaned per-asset after upload
+        let stagingDir = FileConfigProvider.defaultDirectory.appendingPathComponent("staging")
         try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: stagingDir) }
 
         let exporter = LadderKitExportProvider(stagingDir: stagingDir)
 
@@ -61,6 +60,7 @@ struct BackupCommand: AsyncParsableCommand {
             limit: limit,
             type: assetKind,
             dryRun: dryRun,
+            stagingDir: stagingDir,
         )
 
         // Prevent idle sleep during backup (released automatically via deinit)
@@ -75,6 +75,7 @@ struct BackupCommand: AsyncParsableCommand {
             options: options,
             progress: progress,
             networkMonitor: NWPathNetworkMonitor(),
+            retryQueue: FileRetryQueueStore(),
         )
 
         _ = powerAssertion // prevent unused warning, released in deinit
@@ -95,6 +96,14 @@ struct LogProgressDelegate: BackupProgressDelegate {
 
     func batchStarted(batchNumber: Int, totalBatches: Int, assetCount: Int) {
         print("Batch \(batchNumber)/\(totalBatches) (\(assetCount) assets)")
+    }
+
+    func assetStarting(uuid: String, filename: String, size: Int) {
+        print("  → \(filename) (\(formatBytes(size)))")
+    }
+
+    func assetRetrying(uuid: String, filename: String, attempt: Int, maxAttempts: Int) {
+        print("  ↻ \(filename) — retry \(attempt)/\(maxAttempts)")
     }
 
     func assetUploaded(uuid: String, filename: String, type: AssetKind, size: Int) {

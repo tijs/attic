@@ -10,6 +10,7 @@ public func withRetry<T: Sendable>(
     maxAttempts: Int = 3,
     baseDelay: Duration = .seconds(1),
     maxDelay: Duration = .seconds(30),
+    onRetry: (@Sendable (_ attempt: Int, _ maxAttempts: Int) -> Void)? = nil,
     operation: @Sendable () async throws -> T,
 ) async throws -> T {
     for attempt in 1 ... maxAttempts {
@@ -26,6 +27,8 @@ public func withRetry<T: Sendable>(
 
             // Only retry on transient server errors
             guard isTransient(error) else { throw error }
+
+            onRetry?(attempt + 1, maxAttempts)
 
             // Exponential backoff with jitter
             let exponential = baseDelay * Int(pow(2.0, Double(attempt - 1)))

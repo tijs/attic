@@ -1,19 +1,6 @@
 import Foundation
 import LadderKit
 
-/// Shared ISO8601 formatter — reused across all pipeline operations.
-nonisolated(unsafe) let isoFormatter = ISO8601DateFormatter()
-
-/// Shared JSON encoder for metadata uploads.
-let metadataEncoder: JSONEncoder = {
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    return encoder
-}()
-
-/// Maximum number of errors to keep in a report (prevents unbounded growth).
-let maxReportErrors = 1000
-
 /// Options controlling backup behavior.
 public struct BackupOptions: Sendable {
     public var batchSize: Int
@@ -24,16 +11,18 @@ public struct BackupOptions: Sendable {
     public var concurrency: Int
     public var networkTimeout: Duration
     public var maxPauseRetries: Int
+    public var stagingDir: URL?
 
     public init(
-        batchSize: Int = 50,
+        batchSize: Int = 10,
         limit: Int = 0,
         type: AssetKind? = nil,
         dryRun: Bool = false,
-        saveInterval: Int = 50,
+        saveInterval: Int = 25,
         concurrency: Int = 6,
         networkTimeout: Duration = .seconds(900),
         maxPauseRetries: Int = 3,
+        stagingDir: URL? = nil,
     ) {
         self.batchSize = batchSize
         self.limit = limit
@@ -43,6 +32,7 @@ public struct BackupOptions: Sendable {
         self.concurrency = concurrency
         self.networkTimeout = networkTimeout
         self.maxPauseRetries = maxPauseRetries
+        self.stagingDir = stagingDir
     }
 }
 
@@ -72,12 +62,19 @@ public func runBackup(
     options: BackupOptions = BackupOptions(),
     progress: any BackupProgressDelegate = NullProgressDelegate(),
     networkMonitor: (any NetworkMonitoring)? = nil,
+    retryQueue: (any RetryQueueProviding)? = nil,
 ) async throws -> BackupReport {
     // Filter to pending assets, optionally by type
     var pending = assets.filter { asset in
         if manifest.isBackedUp(asset.uuid) { return false }
         if let type = options.type, asset.kind != type { return false }
         return true
+    }
+
+    // Partition retry-queue UUIDs to the front so failed assets are retried first
+    if let retryUUIDs = retryQueue?.load()?.failedUUIDs {
+        let retrySet = Set(retryUUIDs)
+        _ = pending.partition { !retrySet.contains($0.uuid) }
     }
 
     // Apply limit
@@ -140,59 +137,75 @@ public func runBackup(
                 assetCount: batch.count,
             )
 
-            // 1. Export via LadderKit
+            // 1. Reclaim previously-staged files, then export the rest via LadderKit
+            var reclaimedResults: [ExportResult] = []
+            var uuidsToExport = batchUUIDs
+            if let stagingDir = options.stagingDir {
+                let reclaim = reclaimStagedFiles(uuids: batchUUIDs, stagingDir: stagingDir)
+                reclaimedResults = reclaim.reclaimed
+                uuidsToExport = reclaim.remaining
+            }
+
             let batchResult: ExportResponse
-            do {
-                batchResult = try await exporter.exportBatch(uuids: batchUUIDs)
-            } catch let error as ExportProviderError where error.isTimeout {
-                // Batch timeout: retry each asset individually
-                var combinedResults: [ExportResult] = []
-                var combinedErrors: [LadderKit.ExportError] = []
-                for uuid in batchUUIDs {
-                    try Task.checkCancellation()
-                    do {
-                        let result = try await exporter.exportBatch(uuids: [uuid])
-                        combinedResults.append(contentsOf: result.results)
-                        combinedErrors.append(contentsOf: result.errors)
-                    } catch let innerError as ExportProviderError where innerError.isTimeout {
-                        deferred.append(uuid)
-                    } catch {
-                        let msg = String(describing: error)
+            if uuidsToExport.isEmpty {
+                batchResult = ExportResponse(results: reclaimedResults, errors: [])
+            } else {
+                do {
+                    let exported = try await exporter.exportBatch(uuids: uuidsToExport)
+                    batchResult = ExportResponse(
+                        results: reclaimedResults + exported.results,
+                        errors: exported.errors,
+                    )
+                } catch let error as ExportProviderError where error.isTimeout {
+                    // Batch timeout: retry each asset individually
+                    var combinedResults: [ExportResult] = reclaimedResults
+                    var combinedErrors: [LadderKit.ExportError] = []
+                    for uuid in uuidsToExport {
+                        try Task.checkCancellation()
+                        do {
+                            let result = try await exporter.exportBatch(uuids: [uuid])
+                            combinedResults.append(contentsOf: result.results)
+                            combinedErrors.append(contentsOf: result.errors)
+                        } catch let innerError as ExportProviderError where innerError.isTimeout {
+                            deferred.append(uuid)
+                        } catch {
+                            let msg = String(describing: error)
+                            report.appendError(uuid: uuid, message: msg)
+                            report.failed += 1
+                            let filename = assetByUUID[uuid]?.originalFilename ?? uuid
+                            progress.assetFailed(uuid: uuid, filename: filename, message: msg)
+                        }
+                    }
+                    let combined = ExportResponse(results: combinedResults, errors: combinedErrors)
+                    try await uploadExported(
+                        combined, ctx: ctx,
+                        manifest: &manifest, report: &report,
+                        sinceLastSave: &sinceLastSave,
+                    )
+                    continue
+                } catch let error as ExportProviderError where error.isPermission {
+                    // Permission error: abort all remaining batches
+                    let msg = String(describing: error)
+                    for uuid in batchUUIDs {
+                        report.appendError(uuid: uuid, message: msg)
+                        report.failed += 1
+                    }
+                    for asset in pending[end...] {
+                        report.appendError(uuid: asset.uuid, message: msg)
+                        report.failed += 1
+                    }
+                    break
+                } catch {
+                    // Non-timeout error: fail the whole batch
+                    let msg = String(describing: error)
+                    for uuid in batchUUIDs {
                         report.appendError(uuid: uuid, message: msg)
                         report.failed += 1
                         let filename = assetByUUID[uuid]?.originalFilename ?? uuid
                         progress.assetFailed(uuid: uuid, filename: filename, message: msg)
                     }
+                    continue
                 }
-                let combined = ExportResponse(results: combinedResults, errors: combinedErrors)
-                try await uploadExported(
-                    combined, ctx: ctx,
-                    manifest: &manifest, report: &report,
-                    sinceLastSave: &sinceLastSave,
-                )
-                continue
-            } catch let error as ExportProviderError where error.isPermission {
-                // Permission error: abort all remaining batches
-                let msg = String(describing: error)
-                for uuid in batchUUIDs {
-                    report.appendError(uuid: uuid, message: msg)
-                    report.failed += 1
-                }
-                for asset in pending[end...] {
-                    report.appendError(uuid: asset.uuid, message: msg)
-                    report.failed += 1
-                }
-                break
-            } catch {
-                // Non-timeout error: fail the whole batch
-                let msg = String(describing: error)
-                for uuid in batchUUIDs {
-                    report.appendError(uuid: uuid, message: msg)
-                    report.failed += 1
-                    let filename = assetByUUID[uuid]?.originalFilename ?? uuid
-                    progress.assetFailed(uuid: uuid, filename: filename, message: msg)
-                }
-                continue
             }
 
             // 2. Upload exported assets
@@ -236,6 +249,26 @@ public func runBackup(
     if sinceLastSave > 0 {
         try await manifestStore.save(manifest)
         progress.manifestSaved(entriesCount: manifest.entries.count)
+    }
+
+    // Update retry queue: save failed UUIDs for next run, or clear on full success
+    if report.errors.isEmpty {
+        do {
+            try retryQueue?.clear()
+        } catch {
+            debugPrint("Failed to clear retry queue: \(error)")
+        }
+    } else {
+        let failedUUIDs = report.errors.map(\.uuid)
+        let queue = RetryQueue(
+            failedUUIDs: failedUUIDs,
+            updatedAt: formatISO8601(Date()),
+        )
+        do {
+            try retryQueue?.save(queue)
+        } catch {
+            debugPrint("Failed to save retry queue: \(error)")
+        }
     }
 
     progress.backupCompleted(
@@ -317,8 +350,13 @@ private func uploadExported(
         for _ in 0 ..< min(effectiveConcurrency, inputs.count) {
             let input = inputs[cursor]
             cursor += 1
+            ctx.progress.assetStarting(
+                uuid: input.asset.uuid,
+                filename: input.asset.originalFilename ?? "unknown",
+                size: actualFileSize(input),
+            )
             group.addTask {
-                await uploadSingleAsset(input: input, s3: ctx.s3)
+                await uploadSingleAsset(input: input, s3: ctx.s3, progress: ctx.progress)
             }
         }
 
@@ -383,8 +421,13 @@ private func uploadExported(
             if !networkPaused, cursor < inputs.count {
                 let input = inputs[cursor]
                 cursor += 1
+                ctx.progress.assetStarting(
+                    uuid: input.asset.uuid,
+                    filename: input.asset.originalFilename ?? "unknown",
+                    size: actualFileSize(input),
+                )
                 group.addTask {
-                    await uploadSingleAsset(input: input, s3: ctx.s3)
+                    await uploadSingleAsset(input: input, s3: ctx.s3, progress: ctx.progress)
                 }
             }
         }

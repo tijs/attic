@@ -97,3 +97,30 @@ Uses Swift Testing framework (`@Test`, `#expect`, `@Suite`).
   traversal prevention)
 - All dependencies injected via protocols
 - Swift 6 strict concurrency — all types are `Sendable` where needed
+
+## Design Context
+
+### Users
+Photo-enthusiast developers — people at the intersection of "comfortable running
+S3 infrastructure" and "cares deeply about their photo library." They use Attic
+to verify and browse their backed-up iCloud Photos library through a local web
+viewer.
+
+### Brand Personality
+**Precise, trustworthy, quiet.** Attic fades into the background and just works.
+Every element serves a purpose — nothing decorative, nothing performative.
+
+### Aesthetic Direction
+- **Tone:** Confident and precise — like a well-made instrument.
+- **References:** Transmit/Panic apps (detail-obsessed, personality without
+  frivolity), Linear/Raycast (fast, minimal chrome, every pixel earned).
+- **Anti-references:** No generic dark SaaS (blue-on-dark card grids). No dev
+  dashboard aesthetics (no monospace, no terminal vibes in the web UI).
+- **Theme:** Designer's choice — serve the "quiet, precise" personality.
+
+### Design Principles
+1. **Photos first** — Minimize chrome, maximize content.
+2. **Earned trust** — Reliable, precise status and metadata. No vague states.
+3. **Quiet confidence** — Hierarchy through spacing, weight, and restraint.
+4. **Intentional details** — Small touches that reward attention.
+5. **Not a prototype** — Handles empty states, loading, and edge cases.

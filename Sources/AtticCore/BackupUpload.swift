@@ -22,6 +22,16 @@ struct UploadInput {
     let ext: String
 }
 
+/// Actual file size on disk (export metadata size can be stale for iCloud-downloaded assets).
+func actualFileSize(_ input: UploadInput) -> Int {
+    if let attrs = try? FileManager.default.attributesOfItem(atPath: input.exported.path),
+       let size = attrs[.size] as? Int, size > 0
+    {
+        return size
+    }
+    return Int(input.exported.size)
+}
+
 /// Upload a single asset (original + metadata) to S3. Returns an UploadResult.
 ///
 /// This is a pure `@Sendable` function — no mutation of shared state.
@@ -29,26 +39,36 @@ struct UploadInput {
 func uploadSingleAsset(
     input: UploadInput,
     s3: any S3Providing,
+    progress: (any BackupProgressDelegate)? = nil,
 ) async -> UploadResult {
     let exported = input.exported
     let asset = input.asset
     let s3Key = input.s3Key
     let ext = input.ext
+    let filename = asset.originalFilename ?? "unknown"
+
+    let fileURL = URL(fileURLWithPath: exported.path)
+    let actualSize = actualFileSize(input)
 
     do {
         // Upload original via file URL (avoids loading into memory)
-        let fileURL = URL(fileURLWithPath: exported.path)
-        try await withRetry {
-            try await s3.putObject(
-                key: s3Key,
-                fileURL: fileURL,
-                contentType: contentTypeForExtension(ext),
-            )
-        }
+        try await withRetry(
+            onRetry: { attempt, max in
+                progress?.assetRetrying(
+                    uuid: asset.uuid, filename: filename, attempt: attempt, maxAttempts: max,
+                )
+            },
+            operation: {
+                try await s3.putObject(
+                    key: s3Key,
+                    fileURL: fileURL,
+                    contentType: contentTypeForExtension(ext),
+                )
+            }
+        )
 
-        // Build and upload metadata (per-call formatter for thread safety)
-        let formatter = ISO8601DateFormatter()
-        let isoNow = formatter.string(from: Date())
+        // Build and upload metadata
+        let isoNow = formatISO8601(Date())
         let meta = buildMetadataJSON(
             asset: asset,
             s3Key: s3Key,
@@ -71,9 +91,9 @@ func uploadSingleAsset(
             uuid: asset.uuid,
             s3Key: s3Key,
             checksum: "sha256:\(exported.sha256)",
-            filename: asset.originalFilename ?? "unknown",
+            filename: filename,
             type: asset.kind,
-            size: Int(exported.size),
+            size: actualSize,
             error: nil,
             isNetworkDownError: false,
             path: exported.path,
@@ -83,9 +103,9 @@ func uploadSingleAsset(
             uuid: asset.uuid,
             s3Key: s3Key,
             checksum: nil,
-            filename: asset.originalFilename ?? "unknown",
+            filename: filename,
             type: asset.kind,
-            size: Int(exported.size),
+            size: actualSize,
             error: String(describing: error),
             isNetworkDownError: isNetworkDown(error),
             path: exported.path,

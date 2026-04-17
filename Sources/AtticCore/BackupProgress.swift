@@ -11,8 +11,14 @@ public protocol BackupProgressDelegate: Sendable {
     /// A batch is starting.
     func batchStarted(batchNumber: Int, totalBatches: Int, assetCount: Int)
 
+    /// A single asset is about to start uploading.
+    func assetStarting(uuid: String, filename: String, size: Int)
+
     /// A single asset was uploaded successfully.
     func assetUploaded(uuid: String, filename: String, type: AssetKind, size: Int)
+
+    /// A single asset upload is being retried after a transient error.
+    func assetRetrying(uuid: String, filename: String, attempt: Int, maxAttempts: Int)
 
     /// A single asset failed.
     func assetFailed(uuid: String, filename: String, message: String)
@@ -32,6 +38,8 @@ public protocol BackupProgressDelegate: Sendable {
 
 /// Default no-op implementations for optional delegate methods.
 public extension BackupProgressDelegate {
+    func assetStarting(uuid: String, filename: String, size: Int) {}
+    func assetRetrying(uuid: String, filename: String, attempt: Int, maxAttempts: Int) {}
     func backupPaused(reason: String) {}
     func backupResumed() {}
 }
@@ -41,6 +49,8 @@ public struct NullProgressDelegate: BackupProgressDelegate {
     public init() {}
     public func backupStarted(pending: Int, photos: Int, videos: Int) {}
     public func batchStarted(batchNumber: Int, totalBatches: Int, assetCount: Int) {}
+    public func assetStarting(uuid: String, filename: String, size: Int) {}
+    public func assetRetrying(uuid: String, filename: String, attempt: Int, maxAttempts: Int) {}
     public func assetUploaded(uuid: String, filename: String, type: AssetKind, size: Int) {}
     public func assetFailed(uuid: String, filename: String, message: String) {}
     public func manifestSaved(entriesCount: Int) {}

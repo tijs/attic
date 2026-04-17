@@ -139,6 +139,14 @@ final class RecordingProgressDelegate: BackupProgressDelegate, @unchecked Sendab
         record("batch(\(batchNumber))")
     }
 
+    func assetStarting(uuid: String, filename: String, size: Int) {
+        record("starting(\(uuid))")
+    }
+
+    func assetRetrying(uuid: String, filename: String, attempt: Int, maxAttempts: Int) {
+        record("retrying(\(uuid),\(attempt)/\(maxAttempts))")
+    }
+
     func assetUploaded(uuid: String, filename: String, type: AssetKind, size: Int) {
         record("uploaded(\(uuid))")
     }

@@ -152,7 +152,9 @@ private func refreshSingle(
             checksum: entry.checksum,
             backedUpAt: entry.backedUpAt,
         )
-        let data = try metadataEncoder.encode(meta)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(meta)
         let metaKey = try S3Paths.metadataKey(uuid: asset.uuid)
 
         try await withRetry {

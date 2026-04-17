@@ -42,7 +42,7 @@ public func runRebuildManifest(
                 uuid: parsed.uuid,
                 s3Key: parsed.s3Key,
                 checksum: parsed.checksum,
-                backedUpAt: parsed.backedUpAt ?? isoFormatter.string(from: Date()),
+                backedUpAt: parsed.backedUpAt ?? formatISO8601(Date()),
             )
             report.recovered += 1
         } catch {

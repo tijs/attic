@@ -58,7 +58,7 @@ public func buildMetadataJSON(
     AssetMetadata(
         uuid: asset.uuid,
         originalFilename: asset.originalFilename ?? "unknown",
-        dateCreated: asset.creationDate.map { isoFormatter.string(from: $0) },
+        dateCreated: asset.creationDate.map { formatISO8601($0) },
         width: asset.pixelWidth,
         height: asset.pixelHeight,
         latitude: asset.latitude,
@@ -72,7 +72,7 @@ public func buildMetadataJSON(
         keywords: asset.keywords,
         people: asset.people.map { PersonRef(uuid: $0.uuid, displayName: $0.displayName) },
         hasEdit: asset.hasEdit,
-        editedAt: asset.editedAt.map { isoFormatter.string(from: $0) },
+        editedAt: asset.editedAt.map { formatISO8601($0) },
         editor: asset.editor,
         s3Key: s3Key,
         checksum: checksum,

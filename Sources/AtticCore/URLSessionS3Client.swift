@@ -37,8 +37,8 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         signer = AWSSigner(credentials: creds, name: "s3", region: region)
 
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 600
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 3600
         session = URLSession(configuration: config)
     }
 

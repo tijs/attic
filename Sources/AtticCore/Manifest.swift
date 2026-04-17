@@ -48,7 +48,7 @@ public struct Manifest: Codable, Sendable {
             uuid: uuid,
             s3Key: s3Key,
             checksum: checksum,
-            backedUpAt: backedUpAt ?? isoFormatter.string(from: Date()),
+            backedUpAt: backedUpAt ?? formatISO8601(Date()),
             size: size,
         )
     }

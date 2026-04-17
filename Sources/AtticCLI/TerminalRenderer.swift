@@ -13,6 +13,7 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
     private var lastRenderTime: Date?
     private let spinner: PreparationSpinner?
     private var originalTermios: termios?
+    private var tickTask: Task<Void, Never>?
 
     init(spinner: PreparationSpinner? = nil) {
         self.spinner = spinner
@@ -66,12 +67,31 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
             startTime = Date()
         }
         render()
+        startTick()
+    }
+
+    /// Refresh the display every second so elapsed time and speed stay current.
+    private func startTick() {
+        tickTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { break }
+                self?.render()
+            }
+        }
     }
 
     func batchStarted(batchNumber: Int, totalBatches: Int, assetCount: Int) {
         lock.withLock {
             state.currentBatch = batchNumber
             state.totalBatches = totalBatches
+        }
+        render()
+    }
+
+    func assetStarting(uuid: String, filename: String, size: Int) {
+        lock.withLock {
+            state.currentFile = "\(filename) (\(formatBytes(size)))"
         }
         render()
     }
@@ -86,11 +106,20 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
         render()
     }
 
+    func assetRetrying(uuid: String, filename: String, attempt: Int, maxAttempts: Int) {
+        lock.withLock {
+            state.currentFile = "\u{1b}[33m\(filename) — retry \(attempt)/\(maxAttempts)\u{1b}[0m"
+        }
+        render()
+    }
+
     func assetFailed(uuid: String, filename: String, message: String) {
         lock.withLock {
             state.failed += 1
             state.currentFile = "\(filename) — \(message)"
-            state.failedAssets.append((filename: filename, message: message))
+            if state.failedAssets.count < 50 {
+                state.failedAssets.append((filename: filename, message: message))
+            }
         }
         render()
     }
@@ -121,6 +150,8 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
     }
 
     func backupCompleted(uploaded: Int, failed: Int, totalBytes: Int) {
+        tickTask?.cancel()
+        tickTask = nil
         lock.withLock {
             state.uploaded = uploaded
             state.failed = failed
@@ -199,26 +230,38 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
 
         let s: RenderState = lock.withLock { state }
         let elapsed = lock.withLock { startTime.map { Date().timeIntervalSince($0) } ?? 0 }
+        let speed = elapsed > 0 ? Double(s.totalBytes) / elapsed : 0
 
-        // Clear the live display
+        // Overwrite the live display in-place
         let lineCount = 8
         print("\u{1b}[\(lineCount)A", terminator: "")
-        for _ in 0 ..< lineCount {
-            print("\u{1b}[2K")
-        }
-        print("\u{1b}[\(lineCount)A", terminator: "")
 
-        print("Backup complete in \(formatDuration(elapsed))")
-        print("  Uploaded: \(s.uploaded) (\(formatBytes(s.totalBytes)))")
+        let status = s.failed > 0 ? "Completed with \(s.failed) error\(s.failed == 1 ? "" : "s")" : "Complete"
+        print("\u{1b}[2K  \u{1b}[32m✓\u{1b}[0m \(status) — \(formatBytes(s.totalBytes)) in \(formatDuration(elapsed))")
+        print("\u{1b}[2K  Photos    \(s.uploadedPhotos) uploaded")
+        print("\u{1b}[2K  Videos    \(s.uploadedVideos) uploaded")
+        print("\u{1b}[2K  Speed     \(formatBytes(Int(speed)))/s avg")
+        print("\u{1b}[2K  Errors    \(s.failed)")
+
+        // Use remaining lines for failures or clear them
         if s.failed > 0 {
-            print("  Failed:   \(s.failed)")
-            print("")
-            print("Failed assets:")
+            print("\u{1b}[2K")
+            print("\u{1b}[2K  Failed assets:")
+            // Clear the last live-display line (Elapsed) before printing failure details
+            print("\u{1b}[2K", terminator: "")
             for failure in s.failedAssets {
                 print("  ✗ \(failure.filename): \(failure.message)")
             }
+            if s.failed > s.failedAssets.count {
+                print("  ... and \(s.failed - s.failedAssets.count) more")
+            }
             print("")
             print("Tip: Run `attic backup` again to retry failed assets.")
+        } else {
+            // Clear the remaining 3 lines (blank, Current, Elapsed)
+            for _ in 0 ..< 3 {
+                print("\u{1b}[2K")
+            }
         }
 
         fflush(stdout)
