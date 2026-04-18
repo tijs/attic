@@ -63,59 +63,112 @@ both null.
 
 ## The backup pipeline
 
-`BackupPipeline.swift` orchestrates the full flow: filter → batch → export →
-upload → manifest.
+`BackupPipeline.swift` orchestrates the full flow: filter → staging reuse →
+adaptive export → upload (with network pause/resume) → manifest.
+
+Internally `runBackup` decomposes into `filterPending`, `exportBatchWithFallback`,
+the upload loop (`BackupUpload.swift`), and `finalizeBackup`. Each reads
+top-to-bottom — no hidden state threaded through shared mutables.
 
 ### 1. Filter
 
-Assets are filtered against the manifest to find pending work. Optional filters
-narrow by type (`--type photo|video`) or count (`--limit N`). Dry run mode stops
-here.
+`filterPending` combines four inputs:
 
-### 2. Batch and export
+1. Library assets from LadderKit.
+2. Current manifest (already-backed-up UUIDs → skip).
+3. Retry queue (previous run's failures → retry *first* on this run).
+4. Unavailable store (permanently-unreachable assets → skip forever).
 
-Pending assets are processed in batches (default 50). Each batch is exported via
-LadderKit's `PhotoExporter`, which uses PhotoKit to export original files. When
-PhotoKit can't find an asset (typically iCloud-only with Optimize Storage),
-LadderKit falls back to AppleScript via Photos.app, which handles the iCloud
-download transparently.
+Optional filters narrow by type (`--type photo|video`) or count (`--limit N`).
+Dry run stops here.
 
-Each export result includes the file path, size, and SHA-256 hash.
+### 2. Staging reuse
 
-### 3. Upload
+`StagingReclaim` scans the staging directory for files from a prior aborted run
+and matches them against pending UUIDs. Reclaimed files skip the PhotoKit
+export round-trip — a meaningful speedup on resume.
 
-For each exported file, attic:
+### 3. Adaptive export
 
-1. Uploads the original to `originals/{year}/{month}/{uuid}.{ext}` using
-   memory-mapped I/O to avoid loading entire files into heap
-2. Builds and uploads a metadata JSON to `metadata/assets/{uuid}.json` (see
-   `docs/metadata.md`)
-3. Updates the in-memory manifest
-4. Cleans up the staged file
+Pending assets are processed in batches (default 50). Each batch is passed to
+LadderKit's `PhotoExporter`, which:
+
+- Partitions the batch into **local** (cached originals) and **iCloud**
+  (Optimize Storage) lanes via `LocalAvailabilityProviding`
+  (`PhotosDatabaseLocalAvailability` reads `ZINTERNALRESOURCE.ZLOCALAVAILABILITY`).
+- Runs the local lane at full `maxConcurrency`.
+- Runs the iCloud lane at a limit polled from attic's `AIMDController`
+  (observation-only; implements LadderKit's `AdaptiveConcurrencyControlling`).
+  The controller maintains a sliding 20-outcome window: >30% transient failure
+  rate → halve the limit; ≤5% → +1. Permanent failures (`-1728` asset
+  unavailable, shared-album tombstones) are ignored as lane-health signals.
+- Falls back to AppleScript via Photos.app when PhotoKit can't find an asset.
+  `-1728` errors are classified `.permanentlyUnavailable` and recorded in the
+  unavailable store.
+
+Each export result includes the file path, size, and SHA-256 hash (computed
+inline during the streaming write — no second pass).
+
+### 4. Upload
+
+`BackupUpload.swift` runs bounded-concurrency uploads with retry. For each
+exported file, attic:
+
+1. Uploads the original to `originals/{year}/{month}/{uuid}.{ext}` via
+   `URLSessionS3Client.putObject(key:fileURL:contentType:)`, streaming from
+   disk (no memory load).
+2. Builds and uploads metadata JSON to `metadata/assets/{uuid}.json` (see
+   `docs/metadata.md`).
+3. Updates the in-memory manifest.
+4. Cleans up the staged file.
 
 S3 keys are built from UUID and extension, both validated with regex
 (`/^[A-Za-z0-9._-]+$/` and `/^[a-z0-9]+$/`) to prevent path traversal.
-Extensions are resolved from the asset's UTI via a lookup table, falling back to
-the filename extension.
+Extensions are resolved from the asset's UTI via a lookup table, falling back
+to the filename extension.
 
-### 4. Manifest
+**Network pause/resume**: on a network-down error, the upload loop drains the
+current pass, queues the failed inputs, waits for `NetworkMonitoring` to
+report recovery (with timeout), then restarts the pass. Capped by
+`maxPauseRetries`. The manifest is saved before each pause so a long outage
+doesn't lose progress.
 
-The manifest is stored on S3 at `manifest.json` in the bucket root, mapping UUID
-to `{ s3Key, checksum, backedUpAt }`. S3 is the single source of truth — there
-is no local manifest file. This enables cross-machine and cross-app (CLI ↔ menu
-bar app) continuity.
+**Retries**: S3 requests use exponential backoff on transient errors
+(timeouts, `ECONNRESET`, etc.). Per-request timeouts scale with body size so
+large video uploads don't trip a dead-connection check.
 
-On backup start, the manifest is downloaded from S3. It's saved back to S3
-periodically (every 50 assets by default) for crash resilience, and always at
+### 5. Manifest
+
+The manifest is stored on S3 at `manifest.json` in the bucket root, mapping
+UUID to `{ s3Key, checksum, backedUpAt }`. S3 is the single source of truth —
+no local manifest. This enables cross-machine and cross-app (CLI ↔ future
+menu bar app) continuity.
+
+On backup start, the manifest is downloaded from S3. It's saved at **batch
+boundaries** (and before network pauses) for crash resilience, and always at
 the end of a run.
 
 **Migration**: existing local manifests at `~/.attic/manifest.json` (from the
-Deno CLI) are automatically uploaded to S3 on first run via
+earlier Deno CLI) are uploaded to S3 on first run via
 `loadManifestWithMigration()`.
 
-The manifest can be reconstructed from S3 via `attic rebuild`, which reads every
-`metadata/assets/*.json` file and validates UUID format, S3 key pattern, and
-checksum format before accepting an entry.
+The manifest can be reconstructed from S3 via `attic rebuild`, which reads
+every `metadata/assets/*.json` file and validates UUID, S3 key, and checksum
+format before accepting an entry.
+
+### 6. Retry queue and unavailable store
+
+Two auxiliary JSON files persist failure state across runs:
+
+- **`retry-queue.json`** — transient failures. Each entry carries
+  `classification`, `attempts`, `firstFailedAt`, `lastFailedAt`, `lastMessage`.
+  Merge semantics preserve `firstFailedAt` and increment `attempts`, so the
+  UI can surface "stuck for 3 days". Entries attempted-and-succeeded on a
+  later run are removed; entries never attempted (e.g. when `--limit` cut
+  the run short) survive with their full history.
+- **`unavailable-assets.json`** — `.permanentlyUnavailable` assets
+  (typically shared-album derivatives gone server-side). Never auto-cleared.
+  Retrying is pointless; only user action (via a future command) clears.
 
 ## Verification
 
@@ -146,15 +199,21 @@ Security framework — never stored in env vars, config files, or code.
 
 All external dependencies are behind protocols:
 
-| Protocol            | Real implementation       | Mock                                       |
-| ------------------- | ------------------------- | ------------------------------------------ |
-| `S3Providing`       | `AWSS3Client`             | `MockS3Provider` (in-memory actor)         |
-| `ExportProviding`   | `LadderKitExportProvider` | `MockExportProvider` / `TimeoutExportProvider` |
-| `ManifestStoring`   | `S3ManifestStore`         | Uses MockS3Provider                        |
-| `ConfigProviding`   | `FileConfigProvider`      | Direct struct construction in tests        |
-| `KeychainProviding` | `SecurityKeychain`        | Direct struct construction in tests        |
+| Protocol                          | Real implementation                      | Mock                                           |
+| --------------------------------- | ---------------------------------------- | ---------------------------------------------- |
+| `S3Providing`                     | `URLSessionS3Client` (SigV4 via aws-signer-v4; no AWS SDK) | `MockS3Provider` (in-memory actor, ships in AtticCore) |
+| `ExportProviding`                 | `LadderKitExportProvider` (in AtticCLI)  | `MockExportProvider` / `TimeoutExportProvider` |
+| `ManifestStoring`                 | `S3ManifestStore`                        | Uses `MockS3Provider`                          |
+| `ConfigProviding`                 | `FileConfigProvider`                     | Direct struct construction in tests            |
+| `KeychainProviding`               | `SecurityKeychain`                       | Direct struct construction in tests            |
+| `NetworkMonitoring`               | `NWPathNetworkMonitor` (Network framework) | `MockNetworkMonitor`                         |
+| `AdaptiveConcurrencyControlling` (LadderKit) | `AIMDController` (AtticCore)    | Any stub conforming to the protocol            |
+| `LocalAvailabilityProviding` (LadderKit)     | `PhotosDatabaseLocalAvailability`       | Any stub conforming to the protocol            |
+| `ThumbnailProviding`              | `ThumbnailService` (viewer thumbnails)   | —                                              |
 
 Tests never hit external services, credentials, or the real Photos library.
+AtticCore ships `MockS3Provider` as a public type so the menu bar app can
+wire fake S3 for SwiftUI previews without duplicating test infrastructure.
 
 ## What attic doesn't do
 

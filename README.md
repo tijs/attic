@@ -84,8 +84,9 @@ attic scan
 
 ### status
 
-Compare the Photos library against the S3 manifest to show how many assets are
-backed up vs pending.
+Compare the Photos library against the S3 manifest. Shows assets backed up vs
+pending, broken down by local-cache vs iCloud-only lane, and a retry-queue
+summary (count, max attempts, oldest first-failed timestamp).
 
 ```bash
 attic status
@@ -107,8 +108,27 @@ attic backup
 | `--type photo\|video` | Only back up photos or videos              |
 
 During a backup, a live-updating terminal dashboard shows progress, speed,
-current file, and elapsed time. Non-TTY output (pipes, CI) falls back to
-line-by-line progress.
+current file, elapsed time, and the adaptive iCloud-lane concurrency limit.
+Non-TTY output (pipes, CI) falls back to line-by-line progress.
+
+Attic is crash- and network-resilient:
+
+- **Adaptive iCloud throttling** — local-cache and iCloud-only exports run
+  in separate lanes. The iCloud lane uses an AIMD controller (attic's
+  `AIMDController` implementing LadderKit's `AdaptiveConcurrencyControlling`)
+  to back off when Photos.app or iCloud pushes back, and to ramp up on a
+  clean lane.
+- **Retry queue** — transient failures are remembered on S3
+  (`retry-queue.json`) and retried first on the next run, carrying
+  attempts/first-seen/last-message for each UUID.
+- **Permanent-unavailable store** — shared-album assets whose derivative has
+  gone server-side (Photos.app error `-1728`) are recorded in
+  `unavailable-assets.json` and skipped on subsequent runs.
+- **Network pause/resume** — loss of connectivity pauses uploads instead of
+  failing them. The manifest is saved before waiting so a long outage doesn't
+  lose progress.
+- **Staging reuse** — exported files left behind by an aborted run are
+  re-used on the next run instead of re-exported from Photos.app.
 
 ### verify
 
@@ -197,14 +217,19 @@ Photos Library → PhotoKit (LadderKit) → AssetInfo[]
 
 The project is a Swift package with three targets:
 
-- **AtticCore** — shared library: S3 provider, manifest, config, keychain,
-  metadata, backup/verify/refresh pipelines. Designed for reuse by both the CLI
-  and a planned macOS menu bar app.
-- **AtticCLI** — executable: ArgumentParser commands, terminal renderer
-- **AtticCoreTests** — tests using Swift Testing framework
+- **AtticCore** — shared library (public SPM product): S3 client
+  (`URLSessionS3Client`, SigV4 via `aws-signer-v4` — no full AWS SDK),
+  manifest, config, keychain, metadata, backup/verify/refresh pipelines,
+  `AIMDController` (adaptive concurrency), `RetryQueue`, `UnavailableStore`,
+  `NWPathNetworkMonitor`, viewer data store, and thumbnailing. Consumed by
+  the CLI and designed for reuse by a future macOS menu bar app.
+- **AtticCLI** — executable: ArgumentParser commands, terminal dashboard,
+  Hummingbird-based viewer server, `LadderKitExportProvider` bridge.
+- **AtticCoreTests** — 178 tests using the Swift Testing framework.
 
 All external dependencies are behind protocols (`S3Providing`, `ManifestStoring`,
-`ConfigProviding`, `KeychainProviding`, `ExportProviding`) for testability.
+`ConfigProviding`, `KeychainProviding`, `ExportProviding`, `NetworkMonitoring`,
+`ThumbnailProviding`) for testability.
 
 ## Development
 
@@ -220,11 +245,17 @@ MockExportProvider) — no external services or credentials needed.
 
 ## Dependencies
 
-- [LadderKit](https://github.com/tijs/ladder) — PhotoKit access, Photos.sqlite
-  enrichment, and photo export with AppleScript fallback
-- [aws-sdk-swift](https://github.com/awslabs/aws-sdk-swift) — S3 client
+- [LadderKit](https://github.com/tijs/ladder) (≥ 0.5.1) — PhotoKit access,
+  Photos.sqlite enrichment, photo export with AppleScript fallback,
+  local/iCloud lane partitioning, and the
+  `AdaptiveConcurrencyControlling` protocol.
+- [aws-signer-v4](https://github.com/adam-fowler/aws-signer-v4) — SigV4
+  request signing. Attic ships a URLSession-based S3 client instead of the
+  full AWS SDK (smaller binary, fewer transitive deps).
 - [swift-argument-parser](https://github.com/apple/swift-argument-parser) —
-  CLI command parsing
+  CLI command parsing.
+- [Hummingbird](https://github.com/hummingbird-project/hummingbird) — HTTP
+  server for `attic viewer`.
 
 ## Documentation
 

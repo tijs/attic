@@ -27,32 +27,58 @@ swift test --filter "testName" 2>&1 | xcsift
 
 Swift package with three targets:
 
-- `AtticCore` — shared library: S3 provider, manifest, config, keychain,
-  metadata, backup/verify/refresh pipelines. Used by both CLI and menu bar app.
-- `AtticCLI` — executable: ArgumentParser commands, terminal renderer
-- `AtticCoreTests` — tests using Swift Testing framework
+- `AtticCore` — shared library (public product): S3 client, manifest, config,
+  keychain, metadata, backup/verify/refresh pipelines, AIMD concurrency
+  controller, retry queue, unavailable-asset store, network monitor, viewer
+  data store, thumbnailing. Designed for reuse by the CLI and a future macOS
+  menu bar app — both consume `AtticCore` as an SPM library.
+- `AtticCLI` — executable: ArgumentParser commands, terminal dashboard,
+  Hummingbird-based viewer server, `LadderKitExportProvider` bridge.
+- `AtticCoreTests` — tests using Swift Testing framework (178 tests).
 
-Dependencies: `aws-sdk-swift` (AWSS3), `swift-argument-parser`, `LadderKit`
-(path dependency from `../ladder`).
+Dependencies: `aws-signer-v4` (SigV4 signing for `URLSessionS3Client` — no full
+AWS SDK), `swift-argument-parser`, `Hummingbird` (viewer), and `LadderKit`
+pinned to `0.5.1+` via `https://github.com/tijs/ladder.git`.
 
 Platform: macOS 14+, Swift 6.x, Apple Silicon only.
 
 ## Architecture
 
 The backup pipeline:
-`Photos Library → LadderKit (PhotoKit + enrichment) → AssetInfo[] → BackupPipeline → S3 upload → manifest update`
+`Photos Library → LadderKit (PhotoKit + enrichment) → AssetInfo[] → BackupPipeline → (adaptive export + upload) → manifest update`
 
 - **LadderKit** provides `PhotoLibrary` (PhotoKit), `PhotosDatabase`
-  (Photos.sqlite enrichment), and `PhotoExporter` (export with SHA-256 hashing +
-  AppleScript fallback for iCloud-only assets). Called directly as a library.
+  (Photos.sqlite enrichment), `PhotoExporter` (export + SHA-256 + AppleScript
+  fallback), `LocalAvailabilityProviding` (local vs. iCloud split), and the
+  `AdaptiveConcurrencyControlling` protocol.
+- **AIMDController** (`Sources/AtticCore/AIMDController.swift`) is attic's
+  implementation of the adaptive controller. Observation-only: the exporter
+  polls `currentLimit()` and reports `ExportOutcome` via `record(_:)`. Policy
+  is additive-increase / multiplicative-decrease over a sliding 20-outcome
+  window. Permanent failures (`.permanentlyUnavailable`) are ignored — not a
+  lane-health signal. Local-only assets run at full `maxConcurrency`; iCloud
+  assets are gated by the controller.
+- **RetryQueue** (`retry-queue.json` on S3) — UUIDs of assets that failed in a
+  previous run, with attempts/classification/first-seen/last-seen/message per
+  entry. Merged across runs; unattempted entries are preserved when `--limit`
+  cuts a run short. Retried first on the next run.
+- **UnavailableStore** (`unavailable-assets.json` on S3) — shared-album or
+  otherwise permanently-unreachable assets. Never auto-cleared — skip-forever.
 - **S3 key format** — originals: `originals/{year}/{month}/{uuid}.{ext}`,
-  metadata: `metadata/assets/{uuid}.json`
+  metadata: `metadata/assets/{uuid}.json`.
 - **Manifest** (`manifest.json` on S3) — maps UUID →
-  `{ s3Key, checksum, backedUpAt }`. S3 is the single source of truth. Saved to
-  S3 every 50 assets during backup.
+  `{ s3Key, checksum, backedUpAt }`. S3 is the single source of truth. Saved
+  at batch boundaries during backup.
+- **Network pause/resume** — `NetworkMonitoring` (backed by `NWPath`) detects
+  network loss mid-upload; the upload loop waits and resumes from the retry
+  set.
+- **Staging reuse** — `StagingReclaim` finds previously-exported files on disk
+  and reuses them instead of re-exporting (saves PhotoKit round-trips on
+  resume).
 
 All external dependencies are behind protocols (`S3Providing`, `ManifestStoring`,
-`ConfigProviding`, `KeychainProviding`, `ExportProviding`) for testability.
+`ConfigProviding`, `KeychainProviding`, `ExportProviding`, `NetworkMonitoring`,
+`ThumbnailProviding`) for testability.
 
 ## CLI Commands
 
@@ -70,9 +96,10 @@ All external dependencies are behind protocols (`S3Providing`, `ManifestStoring`
 
 Tests use mock implementations — never external services or credentials:
 
-- `MockS3Provider` — in-memory `[String: Data]`
+- `MockS3Provider` — in-memory actor-backed `[String: Data]` (ships in `AtticCore`)
 - `MockExportProvider` — returns canned export results
 - `TimeoutExportProvider` — simulates batch timeouts + deferred retry
+- `MockNetworkMonitor` — simulates network up/down for pause-resume tests
 
 Uses Swift Testing framework (`@Test`, `#expect`, `@Suite`).
 
