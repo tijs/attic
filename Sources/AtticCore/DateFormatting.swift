@@ -7,6 +7,3 @@ import Foundation
 func formatISO8601(_ date: Date) -> String {
     date.formatted(.iso8601)
 }
-
-/// Maximum number of errors to keep in a report (prevents unbounded growth).
-let maxReportErrors = 1000

@@ -7,7 +7,6 @@ public struct BackupOptions: Sendable {
     public var limit: Int
     public var type: AssetKind?
     public var dryRun: Bool
-    public var saveInterval: Int
     public var concurrency: Int
     public var networkTimeout: Duration
     public var maxPauseRetries: Int
@@ -18,7 +17,6 @@ public struct BackupOptions: Sendable {
         limit: Int = 0,
         type: AssetKind? = nil,
         dryRun: Bool = false,
-        saveInterval: Int = 25,
         concurrency: Int = 6,
         networkTimeout: Duration = .seconds(900),
         maxPauseRetries: Int = 3,
@@ -28,13 +26,16 @@ public struct BackupOptions: Sendable {
         self.limit = limit
         self.type = type
         self.dryRun = dryRun
-        self.saveInterval = saveInterval
         self.concurrency = concurrency
         self.networkTimeout = networkTimeout
         self.maxPauseRetries = maxPauseRetries
         self.stagingDir = stagingDir
     }
 }
+
+/// Cap on stored error detail to prevent unbounded report growth on very
+/// large runs with many failures.
+let maxReportErrors = 1000
 
 /// Result of a backup run.
 public struct BackupReport: Sendable {
@@ -182,7 +183,6 @@ public func runBackup(
         assetByUUID: assetByUUID,
         s3: s3,
         manifestStore: manifestStore,
-        saveInterval: options.saveInterval,
         concurrency: options.concurrency,
         progress: progress,
         networkMonitor: networkMonitor,
@@ -205,25 +205,22 @@ public func runBackup(
 
     let totalBatches = (pending.count + options.batchSize - 1) / options.batchSize
 
-    // Emit initial and between-batch concurrency limit updates.
+    // Emit the adaptive concurrency limit when it changes between batches.
     var lastEmittedLimit: Int?
-    if let controller = adaptiveController {
+    func emitLimitIfChanged() async {
+        guard let controller = adaptiveController else { return }
         let limit = await controller.currentLimit()
-        progress.concurrencyChanged(limit: limit)
-        lastEmittedLimit = limit
+        if limit != lastEmittedLimit {
+            progress.concurrencyChanged(limit: limit)
+            lastEmittedLimit = limit
+        }
     }
+    await emitLimitIfChanged()
 
     do {
         for batchIndex in 0 ..< totalBatches {
             try Task.checkCancellation()
-
-            if let controller = adaptiveController {
-                let limit = await controller.currentLimit()
-                if limit != lastEmittedLimit {
-                    progress.concurrencyChanged(limit: limit)
-                    lastEmittedLimit = limit
-                }
-            }
+            await emitLimitIfChanged()
 
             let start = batchIndex * options.batchSize
             let end = min(start + options.batchSize, pending.count)
@@ -261,6 +258,18 @@ public func runBackup(
                 manifest: &manifest, report: &report,
                 sinceLastSave: &sinceLastSave,
             )
+
+            // Save manifest at batch boundaries so progress survives crashes
+            // and cancellations. Cheap — bounded by `batchSize` uploads.
+            if sinceLastSave > 0 {
+                do {
+                    try await manifestStore.save(manifest)
+                    progress.manifestSaved(entriesCount: manifest.entries.count)
+                    sinceLastSave = 0
+                } catch {
+                    debugPrint("Batch manifest save failed: \(error)")
+                }
+            }
         }
 
         // Retry deferred assets (single-asset timeouts from batch fallback)

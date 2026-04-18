@@ -12,7 +12,7 @@ struct ViewerCommand: AsyncParsableCommand {
     var port: Int = 0
 
     func run() async throws {
-        let (_, s3, manifestStore) = try Dependencies.makeBackupDeps()
+        let (config, s3, manifestStore) = try Dependencies.makeBackupDeps()
         let manifest = try await Dependencies.loadManifest(store: manifestStore)
 
         if manifest.entries.isEmpty {
@@ -20,11 +20,15 @@ struct ViewerCommand: AsyncParsableCommand {
             return
         }
 
+        let endpointHost = URL(string: config.endpoint)?.host ?? "s3.amazonaws.com"
+
         let dataStore = ViewerDataStore()
         let thumbnailService = ThumbnailService(s3: s3, dataStore: dataStore)
         let server = ViewerServer(
             dataStore: dataStore, s3: s3,
-            thumbnailProvider: thumbnailService, port: port,
+            thumbnailProvider: thumbnailService,
+            endpointHost: endpointHost,
+            port: port,
         )
 
         // Start metadata loading in the background — assets become

@@ -41,9 +41,15 @@ struct BackupCommand: AsyncParsableCommand {
         default: nil
         }
 
-        // Stable staging dir — files persist across runs for reuse, cleaned per-asset after upload
+        // Stable staging dir — files persist across runs for reuse, cleaned per-asset after upload.
+        // 0o700: staged originals are plaintext copies of the user's photos; keep them out of
+        // other local accounts.
         let stagingDir = FileConfigProvider.defaultDirectory.appendingPathComponent("staging")
-        try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: stagingDir,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700],
+        )
 
         // Adaptive export: partition by local vs iCloud availability, and let
         // the AIMD controller throttle the iCloud lane when PhotoKit pushes back.

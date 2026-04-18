@@ -25,6 +25,14 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         guard let endpointURL = URL(string: endpoint) else {
             throw S3ClientError.unexpectedResponse("Invalid endpoint URL: \(endpoint)")
         }
+        // Virtual-hosted style and dots in bucket name don't mix: TLS cert
+        // covers *.s3.amazonaws.com (one label) and "my.bucket" would need
+        // two wildcards. AWS rejects these at request time; catch it at init.
+        if !pathStyle, bucket.contains(".") {
+            throw S3ClientError.unexpectedResponse(
+                "Bucket name \"\(bucket)\" contains a dot — use path-style URLs instead.",
+            )
+        }
         self.bucket = bucket
         self.endpoint = endpointURL
         self.region = region
@@ -39,6 +47,9 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 60
         config.timeoutIntervalForResource = 3600
+        // Default is 6, which throttles concurrent uploads to one bucket host.
+        // Align with our bounded-concurrency upload group (effectively ~16).
+        config.httpMaximumConnectionsPerHost = 32
         session = URLSession(configuration: config)
     }
 

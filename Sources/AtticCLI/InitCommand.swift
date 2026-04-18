@@ -24,7 +24,7 @@ struct InitCommand: AsyncParsableCommand {
         let pathStyle = pathStyleInput.lowercased() != "n"
 
         let accessKey = prompt("Access key ID: ")
-        let secretKey = promptSecret("Secret access key: ")
+        let secretKey = try promptSecret("Secret access key: ")
 
         let config = AtticConfig(
             endpoint: endpoint,
@@ -62,19 +62,31 @@ private func prompt(_ message: String) -> String {
     return readLine(strippingNewline: true) ?? ""
 }
 
-private func promptSecret(_ message: String) -> String {
+private struct TerminalEchoError: LocalizedError {
+    let errorDescription: String? =
+        "Cannot disable terminal echo — refusing to read secret. Run in an interactive terminal."
+}
+
+private func promptSecret(_ message: String) throws -> String {
     print(message, terminator: "")
 
-    // Disable echo for secret input
+    // Fail closed: if we can't disable echo (e.g. stdin is not a TTY), we
+    // won't silently read the secret in plaintext and leak it to the screen
+    // or a pipe's tee.
     var oldTermios = termios()
-    tcgetattr(STDIN_FILENO, &oldTermios)
+    guard tcgetattr(STDIN_FILENO, &oldTermios) == 0 else {
+        print("")
+        throw TerminalEchoError()
+    }
     var newTermios = oldTermios
     newTermios.c_lflag &= ~UInt(ECHO)
-    tcsetattr(STDIN_FILENO, TCSANOW, &newTermios)
+    guard tcsetattr(STDIN_FILENO, TCSANOW, &newTermios) == 0 else {
+        print("")
+        throw TerminalEchoError()
+    }
 
     let value = readLine(strippingNewline: true) ?? ""
 
-    // Restore echo
     tcsetattr(STDIN_FILENO, TCSANOW, &oldTermios)
     print("") // newline after hidden input
     return value

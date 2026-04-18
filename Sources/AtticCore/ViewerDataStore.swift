@@ -262,12 +262,11 @@ public actor ViewerDataStore {
     }
 
     private static func assetView(from meta: AssetMetadata) -> AssetView {
-        let year: Int? = if let dateStr = meta.dateCreated,
-                            let date = try? Date.ISO8601FormatStyle().parse(dateStr)
-        {
-            Calendar.current.component(.year, from: date)
-        } else {
-            nil
+        // Year from ISO8601 "YYYY-MM-DD..." prefix — avoids allocating a
+        // formatter per asset (load path hits this N times for N backed-up
+        // assets, so Date.ISO8601FormatStyle().parse is a real hot spot).
+        let year: Int? = meta.dateCreated.flatMap { dateStr in
+            dateStr.count >= 4 ? Int(dateStr.prefix(4)) : nil
         }
 
         let isVideo = meta.type.map { isVideoUTI($0) } ?? false

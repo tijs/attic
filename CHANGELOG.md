@@ -1,5 +1,55 @@
 # Changelog
 
+## 1.0.0-beta.7
+
+Architectural cleanup, security hardening, and pipeline simplification. No
+behavior changes for the golden path.
+
+### Architecture
+- `RetryQueue`: dropped the legacy `failedUUIDs: [String]` decoder and the
+  custom `Codable` conformance. Uses compiler-synthesized coding now.
+- `BackupPipeline`: extracted `filterPending`, `exportBatchWithFallback`, and
+  `finalizeBackup` helpers so `runBackup` reads top-to-bottom. Removed the
+  dead `ExportProviderError.isPermission` catch — permission is a pre-flight
+  check, never raised during `exportBatch`.
+- `BackupUpload`: network-pause retry is now a loop instead of recursion.
+  No more stack-depth coupling with `maxPauseRetries`.
+- `BackupOptions`: removed `saveInterval`. The manifest now saves at batch
+  boundaries, which is simpler and survives crashes just as well.
+- Check `ExportClassification` directly everywhere instead of the legacy
+  `ExportError.unavailable` boolean.
+- Removed the `normalizeUUID(...)` defensive splits in attic — LadderKit
+  preserves caller-provided UUIDs at source now (no more `UUID/L0/001`
+  leakage), so the splits were dead code.
+- File renames: `AdaptiveConcurrency.swift` → `AIMDController.swift` (matches
+  the type it holds), `BackupConstants.swift` → `DateFormatting.swift`.
+
+### Security
+- `attic init` fails closed if `tcgetattr`/`tcsetattr` can't disable terminal
+  echo (e.g. stdin isn't a TTY). Previously, a piped/redirected stdin would
+  read the secret in plaintext and could leak it to the screen or a tee'd
+  log.
+- Viewer `Content-Security-Policy` is now scoped to the configured S3
+  endpoint host instead of hardcoded `*.amazonaws.com`. Custom endpoints
+  (R2, Backblaze, MinIO) no longer rely on a permissive fallback.
+- Viewer presigned-URL lifetime cut from 4h to 1h.
+- `URLSessionS3Client` rejects bucket names containing a dot when
+  `pathStyle = false` — AWS's virtual-hosted TLS cert only covers one label,
+  so these requests would fail at connect time with a confusing cert error.
+- Staging directory created with `0o700` so other local users can't read
+  in-flight plaintext copies of the user's photos.
+
+### Performance
+- `ViewerDataStore` load path: parse year from the `YYYY-` prefix instead of
+  allocating a `Date.ISO8601FormatStyle` per asset. Noticeable on large
+  libraries.
+- `URLSessionS3Client` bumps `httpMaximumConnectionsPerHost` from the default
+  6 to 32 so the bounded upload group isn't re-serialized at the socket
+  layer.
+- Per-asset metadata uploads drop `.prettyPrinted` JSON formatting — ~40%
+  smaller payloads. Manifest, config, and retry-queue stay pretty-printed
+  (user-inspected).
+
 ## 1.0.0-beta.6
 
 Adaptive export: separate local-cache and iCloud lanes, with the iCloud lane

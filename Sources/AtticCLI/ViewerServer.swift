@@ -31,17 +31,38 @@ struct ViewerServer {
     let s3: S3Providing
     let thumbnailProvider: ThumbnailProviding
     let port: Int
+    /// Pre-built CSP header scoped to the configured S3 endpoint.
+    private let csp: String
+
+    /// Presigned-URL lifetime. 1h balances "long enough for a browsing
+    /// session" against "short enough that a leaked URL stops working soon."
+    static let presignedURLExpiry = 3600
 
     init(
         dataStore: ViewerDataStore,
         s3: S3Providing,
         thumbnailProvider: ThumbnailProviding,
+        endpointHost: String,
         port: Int = 0,
     ) {
         self.dataStore = dataStore
         self.s3 = s3
         self.thumbnailProvider = thumbnailProvider
         self.port = port
+        self.csp = Self.buildCSP(endpointHost: endpointHost)
+    }
+
+    private static func buildCSP(endpointHost: String) -> String {
+        let source = "https://\(endpointHost)"
+        return [
+            "default-src 'self'",
+            "script-src 'unsafe-inline'",
+            "style-src 'unsafe-inline'",
+            "img-src 'self' \(source)",
+            "media-src 'self' \(source)",
+            "font-src 'self'",
+            "connect-src 'self'",
+        ].joined(separator: "; ")
     }
 
     func start(onReady: @escaping @Sendable (Int) -> Void = { _ in }) async throws {
@@ -56,9 +77,6 @@ struct ViewerServer {
         )
         try await app.runService()
     }
-
-    // swiftlint:disable:next line_length
-    private static let csp = "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' https://*.amazonaws.com; media-src 'self' https://*.amazonaws.com; font-src 'self'; connect-src 'self'"
 
     func buildRouter() -> Router<BasicRequestContext> {
         let router = Router()
@@ -76,7 +94,7 @@ struct ViewerServer {
                     .contentType: "text/html; charset=utf-8",
                     .init("X-Content-Type-Options")!: "nosniff",
                     .init("X-Frame-Options")!: "DENY",
-                    .init("Content-Security-Policy")!: Self.csp,
+                    .init("Content-Security-Policy")!: csp,
                 ],
                 body: .init(byteBuffer: .init(string: html)),
             )
@@ -117,7 +135,7 @@ struct ViewerServer {
             )
 
             let assetsWithURLs = result.assets.map { asset in
-                assetResponse(asset, expires: 14400)
+                assetResponse(asset, expires: Self.presignedURLExpiry)
             }
 
             return AssetListResponse(
@@ -137,7 +155,7 @@ struct ViewerServer {
                 return Response(status: .notFound)
             }
 
-            let detail = assetResponse(asset, expires: 14400)
+            let detail = assetResponse(asset, expires: Self.presignedURLExpiry)
             let data = try JSONEncoder().encode(detail)
             return Response(
                 status: .ok,

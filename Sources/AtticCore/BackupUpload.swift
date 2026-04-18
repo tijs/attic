@@ -6,7 +6,6 @@ struct UploadContext {
     let assetByUUID: [String: AssetInfo]
     let s3: any S3Providing
     let manifestStore: any ManifestStoring
-    let saveInterval: Int
     let concurrency: Int
     let progress: any BackupProgressDelegate
     let networkMonitor: (any NetworkMonitoring)?
@@ -100,16 +99,6 @@ func uploadExported(
                         type: result.type,
                         size: result.size,
                     )
-
-                    if sinceLastSave >= ctx.saveInterval {
-                        do {
-                            try await ctx.manifestStore.save(manifest)
-                            ctx.progress.manifestSaved(entriesCount: manifest.entries.count)
-                            sinceLastSave = 0
-                        } catch {
-                            debugPrint("Periodic manifest save failed: \(error)")
-                        }
-                    }
                 } else if result.isNetworkDownError,
                           let monitor = ctx.networkMonitor,
                           await !monitor.isNetworkAvailable
@@ -267,7 +256,7 @@ func uploadSingleAsset(
             backedUpAt: isoNow,
         )
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.outputFormatting = .sortedKeys
         let metaData = try encoder.encode(meta)
         let metaKey = try S3Paths.metadataKey(uuid: asset.uuid)
         try await withRetry {

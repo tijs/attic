@@ -153,7 +153,7 @@ private func refreshSingle(
             backedUpAt: entry.backedUpAt,
         )
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.outputFormatting = .sortedKeys
         let data = try encoder.encode(meta)
         let metaKey = try S3Paths.metadataKey(uuid: asset.uuid)
 
