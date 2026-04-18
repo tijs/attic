@@ -45,7 +45,16 @@ struct BackupCommand: AsyncParsableCommand {
         let stagingDir = FileConfigProvider.defaultDirectory.appendingPathComponent("staging")
         try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
 
-        let exporter = LadderKitExportProvider(stagingDir: stagingDir)
+        // Adaptive export: partition by local vs iCloud availability, and let
+        // the AIMD controller throttle the iCloud lane when PhotoKit pushes back.
+        let localAvailability = Dependencies.loadLocalAvailability()
+        let adaptiveController = AIMDController()
+
+        let exporter = LadderKitExportProvider(
+            stagingDir: stagingDir,
+            localAvailability: localAvailability,
+            adaptiveController: adaptiveController,
+        )
 
         // Pre-flight permission check
         try await exporter.checkPermissions()
@@ -77,6 +86,7 @@ struct BackupCommand: AsyncParsableCommand {
             networkMonitor: NWPathNetworkMonitor(),
             retryQueue: FileRetryQueueStore(),
             unavailableStore: FileUnavailableAssetStore(),
+            adaptiveController: adaptiveController,
         )
 
         _ = powerAssertion // prevent unused warning, released in deinit
@@ -129,5 +139,9 @@ struct LogProgressDelegate: BackupProgressDelegate {
 
     func backupCompleted(uploaded: Int, failed: Int, totalBytes: Int) {
         print("Done: \(uploaded) uploaded, \(failed) failed (\(formatBytes(totalBytes)))")
+    }
+
+    func concurrencyChanged(limit: Int) {
+        print("  ⚙ Concurrency → \(limit) lane\(limit == 1 ? "" : "s")")
     }
 }

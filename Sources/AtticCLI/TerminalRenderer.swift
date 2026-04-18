@@ -53,6 +53,7 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
         var pauseStarted: Date?
         var totalPauseDuration: TimeInterval = 0
         var failedAssets: [(filename: String, message: String)] = []
+        var concurrencyLimit: Int?
     }
 
     // MARK: - BackupProgressDelegate
@@ -149,6 +150,13 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
         render()
     }
 
+    func concurrencyChanged(limit: Int) {
+        lock.withLock {
+            state.concurrencyLimit = limit
+        }
+        render()
+    }
+
     func backupCompleted(uploaded: Int, failed: Int, totalBytes: Int) {
         tickTask?.cancel()
         tickTask = nil
@@ -191,7 +199,9 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
         lines.append("  Progress  [\(bar)] \(completed)/\(s.total)")
         lines.append("  Photos    \(s.uploadedPhotos) uploaded")
         lines.append("  Videos    \(s.uploadedVideos) uploaded")
-        lines.append("  Speed     \(s.isPaused ? "—" : "\(formatBytes(Int(speed)))/s")")
+        let speedText = s.isPaused ? "—" : "\(formatBytes(Int(speed)))/s"
+        let lanesSuffix = s.concurrencyLimit.map { "  ·  \($0) lane\($0 == 1 ? "" : "s")" } ?? ""
+        lines.append("  Speed     \(speedText)\(lanesSuffix)")
         lines.append("  Errors    \(s.failed)")
         lines.append("")
         if s.isPaused, let pauseStart = s.pauseStarted {

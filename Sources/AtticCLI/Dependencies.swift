@@ -74,6 +74,17 @@ enum Dependencies {
 
         return assets
     }
+
+    /// Load the set of asset UUIDs whose originals are cached locally (fast
+    /// lane). Returns `nil` if the Photos.sqlite can't be located or read — the
+    /// exporter then treats everything as cloud-only, which is safe but slower.
+    static func loadLocalAvailability() -> (any LocalAvailabilityProviding)? {
+        guard let dbPath = PhotosLibraryPath.databasePath(for: defaultLibraryURL) else {
+            return nil
+        }
+        let localUUIDs = PhotosDatabase.localAvailableUUIDs(dbPath: dbPath)
+        return PhotosDatabaseLocalAvailability(localUUIDs: localUUIDs)
+    }
 }
 
 enum CLIError: Error, CustomStringConvertible {

@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.0.0-beta.6
+
+Adaptive export: separate local-cache and iCloud lanes, with the iCloud lane
+throttled by an AIMD controller when PhotoKit pushes back.
+
+- `AIMDController` (in AtticCore) — additive-increase / multiplicative-decrease
+  concurrency policy with a sliding 20-outcome window. Backs off the limit by
+  half when the transient-failure rate exceeds 30%, grows it by 1 when the
+  rate drops to 5% or below, and clears the window on every limit change so
+  stale pre-change outcomes don't immediately re-trigger.
+- `BackupCommand` wires `PhotosDatabaseLocalAvailability` (from Photos.sqlite's
+  `ZLOCALAVAILABILITY` flag) + an `AIMDController` into the exporter. Local
+  assets run at full `maxConcurrency`; iCloud assets are gated by the
+  controller.
+- `BackupProgressDelegate.concurrencyChanged(limit:)` — new delegate callback
+  emitted between batches whenever the controller adjusts.
+- Terminal dashboard shows the current lane count next to upload speed.
+- Bumps LadderKit dependency to 0.5.0 for adaptive export and local
+  availability APIs.
+
 ## 1.0.0-beta.5
 
 - **Shared-album unavailable tracking** — assets in iCloud Shared Albums whose

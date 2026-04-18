@@ -64,6 +64,7 @@ public func runBackup(
     networkMonitor: (any NetworkMonitoring)? = nil,
     retryQueue: (any RetryQueueProviding)? = nil,
     unavailableStore: (any UnavailableAssetStoring)? = nil,
+    adaptiveController: (any AdaptiveConcurrencyControlling)? = nil,
 ) async throws -> BackupReport {
     var unavailable = unavailableStore?.load() ?? UnavailableAssets()
 
@@ -142,9 +143,26 @@ public func runBackup(
     // Process in batches (wrapped to save manifest on cancellation)
     let totalBatches = (pending.count + options.batchSize - 1) / options.batchSize
 
+    // Emit an initial concurrency limit for UIs that want to show it, then
+    // re-emit between batches whenever the AIMD controller adjusts.
+    var lastEmittedLimit: Int?
+    if let controller = adaptiveController {
+        let limit = await controller.currentLimit()
+        progress.concurrencyChanged(limit: limit)
+        lastEmittedLimit = limit
+    }
+
     do {
         for batchIndex in 0 ..< totalBatches {
             try Task.checkCancellation()
+
+            if let controller = adaptiveController {
+                let limit = await controller.currentLimit()
+                if limit != lastEmittedLimit {
+                    progress.concurrencyChanged(limit: limit)
+                    lastEmittedLimit = limit
+                }
+            }
 
             let start = batchIndex * options.batchSize
             let end = min(start + options.batchSize, pending.count)

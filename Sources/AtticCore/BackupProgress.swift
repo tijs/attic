@@ -34,6 +34,10 @@ public protocol BackupProgressDelegate: Sendable {
 
     /// Backup resumed after a pause.
     func backupResumed()
+
+    /// Adaptive export concurrency limit changed (AIMD controller backed off
+    /// or recovered).
+    func concurrencyChanged(limit: Int)
 }
 
 /// Default no-op implementations for optional delegate methods.
@@ -42,6 +46,7 @@ public extension BackupProgressDelegate {
     func assetRetrying(uuid: String, filename: String, attempt: Int, maxAttempts: Int) {}
     func backupPaused(reason: String) {}
     func backupResumed() {}
+    func concurrencyChanged(limit: Int) {}
 }
 
 /// No-op delegate for quiet/test runs.
@@ -55,4 +60,5 @@ public struct NullProgressDelegate: BackupProgressDelegate {
     public func assetFailed(uuid: String, filename: String, message: String) {}
     public func manifestSaved(entriesCount: Int) {}
     public func backupCompleted(uploaded: Int, failed: Int, totalBytes: Int) {}
+    public func concurrencyChanged(limit: Int) {}
 }
