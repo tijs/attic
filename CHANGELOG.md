@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.0-beta.5
+
+- **Shared-album unavailable tracking** — assets in iCloud Shared Albums whose
+  derivative has failed server-side are detected, marked as unavailable, and
+  skipped on subsequent backups instead of being retried forever
+- **Persistent unavailable store** — records live at
+  `~/.attic/unavailable-assets.json` with attempt counts and last-failure
+  reason; entries are never auto-cleared (unlike the retry queue)
+- Bumps LadderKit dependency to 0.4.0 for the new `isShared` and
+  `ExportError.unavailable` APIs
+
 ## 1.0.0-alpha.2
 
 Animated preparation spinner for the backup command.

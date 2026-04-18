@@ -76,6 +76,7 @@ struct BackupCommand: AsyncParsableCommand {
             progress: progress,
             networkMonitor: NWPathNetworkMonitor(),
             retryQueue: FileRetryQueueStore(),
+            unavailableStore: FileUnavailableAssetStore(),
         )
 
         _ = powerAssertion // prevent unused warning, released in deinit

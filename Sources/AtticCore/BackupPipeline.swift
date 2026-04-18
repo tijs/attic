@@ -63,10 +63,14 @@ public func runBackup(
     progress: any BackupProgressDelegate = NullProgressDelegate(),
     networkMonitor: (any NetworkMonitoring)? = nil,
     retryQueue: (any RetryQueueProviding)? = nil,
+    unavailableStore: (any UnavailableAssetStoring)? = nil,
 ) async throws -> BackupReport {
+    var unavailable = unavailableStore?.load() ?? UnavailableAssets()
+
     // Filter to pending assets, optionally by type
     var pending = assets.filter { asset in
         if manifest.isBackedUp(asset.uuid) { return false }
+        if unavailable.contains(asset.uuid) { return false }
         if let type = options.type, asset.kind != type { return false }
         return true
     }
@@ -118,6 +122,22 @@ public func runBackup(
         networkTimeout: options.networkTimeout,
         maxPauseRetries: options.maxPauseRetries,
     )
+
+    // Helper: record a classified "unavailable" error. Returns true if the
+    // error was an unavailable-marker (already tracked; should not be retried).
+    // LadderKit may report errors using the full PhotoKit identifier
+    // ("UUID/L0/001"); normalize to bare UUID so `pending` filter matches.
+    func recordIfUnavailable(_ err: LadderKit.ExportError) -> Bool {
+        guard err.unavailable else { return false }
+        let bareUUID = err.uuid.split(separator: "/").first.map(String.init) ?? err.uuid
+        let asset = assetByUUID[bareUUID] ?? assetByUUID[err.uuid]
+        unavailable.record(
+            uuid: bareUUID,
+            filename: asset?.originalFilename,
+            reason: err.message,
+        )
+        return true
+    }
 
     // Process in batches (wrapped to save manifest on cancellation)
     let totalBatches = (pending.count + options.batchSize - 1) / options.batchSize
@@ -176,6 +196,9 @@ public func runBackup(
                             progress.assetFailed(uuid: uuid, filename: filename, message: msg)
                         }
                     }
+                    for err in combinedErrors {
+                        _ = recordIfUnavailable(err)
+                    }
                     let combined = ExportResponse(results: combinedResults, errors: combinedErrors)
                     try await uploadExported(
                         combined, ctx: ctx,
@@ -208,6 +231,10 @@ public func runBackup(
                 }
             }
 
+            for err in batchResult.errors {
+                _ = recordIfUnavailable(err)
+            }
+
             // 2. Upload exported assets
             try await uploadExported(
                 batchResult, ctx: ctx,
@@ -222,6 +249,9 @@ public func runBackup(
                 try Task.checkCancellation()
                 do {
                     let result = try await exporter.exportBatch(uuids: [uuid])
+                    for err in result.errors {
+                        _ = recordIfUnavailable(err)
+                    }
                     try await uploadExported(
                         result, ctx: ctx,
                         manifest: &manifest, report: &report,
@@ -242,6 +272,7 @@ public func runBackup(
             try? await manifestStore.save(manifest)
             progress.manifestSaved(entriesCount: manifest.entries.count)
         }
+        try? unavailableStore?.save(unavailable)
         throw CancellationError()
     }
 
@@ -251,15 +282,24 @@ public func runBackup(
         progress.manifestSaved(entriesCount: manifest.entries.count)
     }
 
-    // Update retry queue: save failed UUIDs for next run, or clear on full success
-    if report.errors.isEmpty {
+    // Persist unavailable set so these assets are skipped on future runs.
+    do {
+        try unavailableStore?.save(unavailable)
+    } catch {
+        debugPrint("Failed to save unavailable assets store: \(error)")
+    }
+
+    // Update retry queue: save failed UUIDs for next run, or clear on full success.
+    // Exclude UUIDs we just marked unavailable — retrying them is futile.
+    let retryableErrors = report.errors.filter { !unavailable.contains($0.uuid) }
+    if retryableErrors.isEmpty {
         do {
             try retryQueue?.clear()
         } catch {
             debugPrint("Failed to clear retry queue: \(error)")
         }
     } else {
-        let failedUUIDs = report.errors.map(\.uuid)
+        let failedUUIDs = retryableErrors.map(\.uuid)
         let queue = RetryQueue(
             failedUUIDs: failedUUIDs,
             updatedAt: formatISO8601(Date()),

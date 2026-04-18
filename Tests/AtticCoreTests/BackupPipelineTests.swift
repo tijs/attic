@@ -437,4 +437,94 @@ struct BackupPipelineTests {
         let loaded = try await manifestStore.load()
         #expect(loaded.isBackedUp("uuid-1"))
     }
+
+    @Test func recordsUnavailableErrorsAndSkipsThemNextRun() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("unavailable-pipeline-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let exporter = UnavailableMarkingExporter(
+            unavailableUUIDs: ["shared-1"],
+            availableAssets: ["ok-1": ("a.jpg", Data("a".utf8))],
+        )
+        let store = FileUnavailableAssetStore(directory: tempDir)
+        let (s3, manifestStore) = try await createTestContext()
+        var manifest = try await manifestStore.load()
+
+        let assets = [makeTestAsset(uuid: "shared-1"), makeTestAsset(uuid: "ok-1")]
+        let report = try await runBackup(
+            assets: assets,
+            manifest: &manifest,
+            manifestStore: manifestStore,
+            exporter: exporter,
+            s3: s3,
+            options: BackupOptions(batchSize: 10),
+            unavailableStore: store,
+        )
+
+        #expect(report.uploaded == 1)
+        #expect(report.failed == 1)
+        #expect(store.load().contains("shared-1"))
+
+        // Second run with the same assets should not re-attempt the unavailable one.
+        let report2 = try await runBackup(
+            assets: assets,
+            manifest: &manifest,
+            manifestStore: manifestStore,
+            exporter: exporter,
+            s3: s3,
+            options: BackupOptions(batchSize: 10),
+            unavailableStore: store,
+        )
+        #expect(report2.uploaded == 0)
+        #expect(report2.failed == 0)
+    }
+}
+
+/// Exporter that marks configured UUIDs as `unavailable` errors.
+struct UnavailableMarkingExporter: ExportProviding {
+    let unavailableUUIDs: Set<String>
+    let availableAssets: [String: (filename: String, data: Data)]
+    let stagingDir: URL
+
+    init(
+        unavailableUUIDs: Set<String>,
+        availableAssets: [String: (filename: String, data: Data)],
+    ) {
+        self.unavailableUUIDs = unavailableUUIDs
+        self.availableAssets = availableAssets
+        stagingDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("unav-exporter-\(UUID().uuidString)")
+    }
+
+    func exportBatch(uuids: [String]) async throws -> ExportResponse {
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: stagingDir.path) {
+            try fm.createDirectory(at: stagingDir, withIntermediateDirectories: true)
+        }
+        var results: [ExportResult] = []
+        var errors: [LadderKit.ExportError] = []
+        for uuid in uuids {
+            if unavailableUUIDs.contains(uuid) {
+                errors.append(LadderKit.ExportError(
+                    uuid: uuid,
+                    message: "Shared-album asset unavailable",
+                    unavailable: true,
+                ))
+            } else if let asset = availableAssets[uuid] {
+                let path = stagingDir.appendingPathComponent(asset.filename)
+                try asset.data.write(to: path)
+                results.append(ExportResult(
+                    uuid: uuid, path: path.path,
+                    size: Int64(asset.data.count), sha256: "fake_\(uuid)",
+                ))
+            } else {
+                errors.append(LadderKit.ExportError(uuid: uuid, message: "missing"))
+            }
+        }
+        return ExportResponse(results: results, errors: errors)
+    }
+
+    func checkPermissions() async throws {}
 }
