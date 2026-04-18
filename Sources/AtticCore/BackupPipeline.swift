@@ -111,6 +111,14 @@ public func runBackup(
     var report = BackupReport()
     var sinceLastSave = 0
     var deferred: [String] = []
+    // Classifications for the subset of failures LadderKit reports. Everything
+    // else (upload errors, network timeouts) defaults to `.other` when the
+    // retry queue is written.
+    var failureClassifications: [String: ExportClassification] = [:]
+
+    func normalizeUUID(_ uuid: String) -> String {
+        uuid.split(separator: "/").first.map(String.init) ?? uuid
+    }
 
     let ctx = UploadContext(
         assetByUUID: assetByUUID,
@@ -215,6 +223,7 @@ public func runBackup(
                         }
                     }
                     for err in combinedErrors {
+                        failureClassifications[normalizeUUID(err.uuid)] = err.classification
                         _ = recordIfUnavailable(err)
                     }
                     let combined = ExportResponse(results: combinedResults, errors: combinedErrors)
@@ -250,6 +259,7 @@ public func runBackup(
             }
 
             for err in batchResult.errors {
+                failureClassifications[normalizeUUID(err.uuid)] = err.classification
                 _ = recordIfUnavailable(err)
             }
 
@@ -268,6 +278,7 @@ public func runBackup(
                 do {
                     let result = try await exporter.exportBatch(uuids: [uuid])
                     for err in result.errors {
+                        failureClassifications[normalizeUUID(err.uuid)] = err.classification
                         _ = recordIfUnavailable(err)
                     }
                     try await uploadExported(
@@ -307,9 +318,10 @@ public func runBackup(
         debugPrint("Failed to save unavailable assets store: \(error)")
     }
 
-    // Update retry queue: save failed UUIDs for next run, or clear on full success.
-    // Exclude UUIDs we just marked unavailable — retrying them is futile.
-    let retryableErrors = report.errors.filter { !unavailable.contains($0.uuid) }
+    // Update retry queue: merge this run's failures into the previous queue so
+    // attempt counts and firstFailedAt survive across runs. UUIDs we just
+    // marked unavailable are excluded — retrying them is futile.
+    let retryableErrors = report.errors.filter { !unavailable.contains(normalizeUUID($0.uuid)) }
     if retryableErrors.isEmpty {
         do {
             try retryQueue?.clear()
@@ -317,13 +329,22 @@ public func runBackup(
             debugPrint("Failed to clear retry queue: \(error)")
         }
     } else {
-        let failedUUIDs = retryableErrors.map(\.uuid)
-        let queue = RetryQueue(
-            failedUUIDs: failedUUIDs,
-            updatedAt: formatISO8601(Date()),
+        let now = formatISO8601(Date())
+        let failures: [FailureRecord] = retryableErrors.map { entry in
+            let bare = normalizeUUID(entry.uuid)
+            return FailureRecord(
+                uuid: bare,
+                classification: failureClassifications[bare] ?? .other,
+                message: entry.message,
+            )
+        }
+        let merged = RetryQueue.merged(
+            previous: retryQueue?.load(),
+            failures: failures,
+            now: now,
         )
         do {
-            try retryQueue?.save(queue)
+            try retryQueue?.save(merged)
         } catch {
             debugPrint("Failed to save retry queue: \(error)")
         }

@@ -17,6 +17,16 @@ throttled by an AIMD controller when PhotoKit pushes back.
 - `BackupProgressDelegate.concurrencyChanged(limit:)` — new delegate callback
   emitted between batches whenever the controller adjusts.
 - Terminal dashboard shows the current lane count next to upload speed.
+- Retry queue schema upgrade: each entry now tracks `classification`,
+  `attempts`, `firstFailedAt`, `lastFailedAt`, and `lastMessage`. Merging
+  across runs preserves `firstFailedAt` and increments `attempts`, so the
+  UI can surface how long an asset has been stuck. The legacy
+  `failedUUIDs: [String]` payload decodes transparently — existing stores
+  are upgraded on next write.
+- `BackupUpload` now normalizes PhotoKit's full-path identifiers
+  (`UUID/L0/001`) to bare UUIDs before appending to `report.errors`, so
+  the retry-first partition actually matches failed assets on the next
+  run.
 - Bumps LadderKit dependency to 0.5.0 for adaptive export and local
   availability APIs.
 

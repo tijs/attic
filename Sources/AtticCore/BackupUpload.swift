@@ -25,11 +25,15 @@ func uploadExported(
     sinceLastSave: inout Int,
     pauseRetryCount: Int = 0,
 ) async throws {
-    // Record export errors
+    // Record export errors. LadderKit reports full PhotoKit identifiers
+    // ("UUID/L0/001"); normalize to bare UUID so retry partitioning and the
+    // assetByUUID lookup line up with the pending list.
     for err in batchResult.errors {
-        let filename = ctx.assetByUUID[err.uuid]?.originalFilename ?? err.uuid
-        ctx.progress.assetFailed(uuid: err.uuid, filename: filename, message: err.message)
-        report.appendError(uuid: err.uuid, message: err.message)
+        let bareUUID = err.uuid.split(separator: "/").first.map(String.init) ?? err.uuid
+        let asset = ctx.assetByUUID[bareUUID] ?? ctx.assetByUUID[err.uuid]
+        let filename = asset?.originalFilename ?? bareUUID
+        ctx.progress.assetFailed(uuid: bareUUID, filename: filename, message: err.message)
+        report.appendError(uuid: bareUUID, message: err.message)
         report.failed += 1
     }
 

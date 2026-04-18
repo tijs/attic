@@ -1,5 +1,6 @@
 @testable import AtticCore
 import Foundation
+import LadderKit
 import Testing
 
 struct RetryQueueTests {
@@ -66,5 +67,110 @@ struct RetryQueueTests {
 
         let loaded = store.load()
         #expect(loaded?.failedUUIDs == ["new-1", "new-2"])
+    }
+
+    @Test("Legacy `failedUUIDs: [String]` payload decodes into entries")
+    func decodesLegacySchema() throws {
+        let json = """
+        {
+            "failedUUIDs": ["uuid-1", "uuid-2"],
+            "updatedAt": "2025-01-15T12:00:00Z"
+        }
+        """
+        let data = Data(json.utf8)
+        let queue = try JSONDecoder().decode(RetryQueue.self, from: data)
+
+        #expect(queue.failedUUIDs == ["uuid-1", "uuid-2"])
+        #expect(queue.entries.count == 2)
+        #expect(queue.entries[0].attempts == 1)
+        #expect(queue.entries[0].classification == .other)
+        #expect(queue.entries[0].firstFailedAt == "2025-01-15T12:00:00Z")
+    }
+
+    @Test("New schema roundtrips with classification, attempts, and timestamps")
+    func roundtripsNewSchema() throws {
+        let entry = RetryEntry(
+            uuid: "uuid-1",
+            classification: .transientCloud,
+            attempts: 3,
+            firstFailedAt: "2025-01-01T00:00:00Z",
+            lastFailedAt: "2025-01-03T00:00:00Z",
+            lastMessage: "throttled",
+        )
+        let queue = RetryQueue(entries: [entry], updatedAt: "2025-01-03T00:00:00Z")
+
+        let data = try JSONEncoder().encode(queue)
+        let decoded = try JSONDecoder().decode(RetryQueue.self, from: data)
+
+        #expect(decoded.entries == [entry])
+        #expect(decoded.updatedAt == "2025-01-03T00:00:00Z")
+    }
+
+    @Test("`merged` preserves firstFailedAt and increments attempts across runs")
+    func mergedIncrementsAttempts() {
+        let previous = RetryQueue(
+            entries: [
+                RetryEntry(
+                    uuid: "uuid-1",
+                    classification: .transientCloud,
+                    attempts: 2,
+                    firstFailedAt: "2025-01-01T00:00:00Z",
+                    lastFailedAt: "2025-01-02T00:00:00Z",
+                    lastMessage: "throttled",
+                ),
+            ],
+            updatedAt: "2025-01-02T00:00:00Z",
+        )
+        let failures = [
+            FailureRecord(uuid: "uuid-1", classification: .transientCloud, message: "still throttled"),
+            FailureRecord(uuid: "uuid-2", classification: .other, message: "upload failed"),
+        ]
+
+        let merged = RetryQueue.merged(
+            previous: previous,
+            failures: failures,
+            now: "2025-01-03T00:00:00Z",
+        )
+
+        let byUUID = Dictionary(uniqueKeysWithValues: merged.entries.map { ($0.uuid, $0) })
+        #expect(byUUID["uuid-1"]?.attempts == 3)
+        #expect(byUUID["uuid-1"]?.firstFailedAt == "2025-01-01T00:00:00Z")
+        #expect(byUUID["uuid-1"]?.lastFailedAt == "2025-01-03T00:00:00Z")
+        #expect(byUUID["uuid-1"]?.lastMessage == "still throttled")
+
+        #expect(byUUID["uuid-2"]?.attempts == 1)
+        #expect(byUUID["uuid-2"]?.firstFailedAt == "2025-01-03T00:00:00Z")
+    }
+
+    @Test("`merged` drops UUIDs that aren't in the new failure set")
+    func mergedDropsResolvedUUIDs() {
+        let previous = RetryQueue(
+            failedUUIDs: ["uuid-1", "uuid-2"],
+            updatedAt: "2025-01-01T00:00:00Z",
+        )
+
+        let merged = RetryQueue.merged(
+            previous: previous,
+            failures: [FailureRecord(uuid: "uuid-2", classification: .other, message: "still failing")],
+            now: "2025-01-02T00:00:00Z",
+        )
+
+        #expect(merged.failedUUIDs == ["uuid-2"])
+    }
+
+    @Test("`merged` with nil previous starts everything at attempts = 1")
+    func mergedFromNothing() {
+        let merged = RetryQueue.merged(
+            previous: nil,
+            failures: [
+                FailureRecord(uuid: "uuid-1", classification: .transientCloud, message: "boom"),
+            ],
+            now: "2025-02-01T00:00:00Z",
+        )
+
+        #expect(merged.entries.count == 1)
+        #expect(merged.entries[0].attempts == 1)
+        #expect(merged.entries[0].firstFailedAt == "2025-02-01T00:00:00Z")
+        #expect(merged.entries[0].classification == .transientCloud)
     }
 }
