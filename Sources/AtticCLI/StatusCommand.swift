@@ -15,6 +15,8 @@ struct StatusCommand: AsyncParsableCommand {
 
         let library = StatusStats.computeLibraryStats(assets)
         let types = StatusStats.computeUTIBreakdown(assets)
+        let localAvailability = Dependencies.loadLocalAvailability()
+        let retry = StatusStats.computeRetryInfo(FileRetryQueueStore().load())
 
         var backup: BackupStats?
         var s3: S3Info?
@@ -22,7 +24,11 @@ struct StatusCommand: AsyncParsableCommand {
         do {
             let (config, _, manifestStore) = try Dependencies.makeBackupDeps()
             let manifest = try await Dependencies.loadManifest(store: manifestStore)
-            backup = StatusStats.computeBackupStats(assets: assets, manifest: manifest)
+            backup = StatusStats.computeBackupStats(
+                assets: assets,
+                manifest: manifest,
+                localAvailability: localAvailability,
+            )
             s3 = StatusStats.computeS3Info(bucket: config.bucket, manifest: manifest)
         } catch CLIError.notInitialized {
             // No config — show library only with init hint
@@ -34,6 +40,7 @@ struct StatusCommand: AsyncParsableCommand {
             backup: backup,
             s3: s3,
             types: types,
+            retry: retry,
         )
 
         StatusRenderer(isTTY: isTTY).render(data)

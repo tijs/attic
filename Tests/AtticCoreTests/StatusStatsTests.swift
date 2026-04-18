@@ -160,6 +160,72 @@ struct StatusStatsTests {
         #expect(stats.total == 0)
     }
 
+    @Test("Pending lane split counts only not-yet-backed-up locals")
+    func backupStatsLaneSplit() {
+        let assets = [
+            makeAsset(uuid: "a"), // local, not backed up → pendingLocal
+            makeAsset(uuid: "b"), // cloud-only, not backed up → pendingCloud
+            makeAsset(uuid: "c"), // local but already backed up → doesn't count
+        ]
+        let manifest = Manifest(entries: [
+            "c": ManifestEntry(uuid: "c", s3Key: "k", checksum: "x", backedUpAt: "2026-01-01"),
+        ])
+        let availability = PhotosDatabaseLocalAvailability(localUUIDs: ["a", "c"])
+
+        let stats = StatusStats.computeBackupStats(
+            assets: assets,
+            manifest: manifest,
+            localAvailability: availability,
+        )
+
+        #expect(stats.pending == 2)
+        #expect(stats.pendingLocal == 1)
+        #expect(stats.pendingCloud == 1)
+    }
+
+    @Test("Lane split stays nil when availability can't be determined")
+    func backupStatsLaneSplitNilWithoutAvailability() {
+        let assets = [makeAsset(uuid: "a")]
+        let stats = StatusStats.computeBackupStats(assets: assets, manifest: Manifest())
+        #expect(stats.pendingLocal == nil)
+        #expect(stats.pendingCloud == nil)
+    }
+
+    // MARK: - Retry Info
+
+    @Test("Retry info surfaces count, max attempts, and oldest firstFailedAt")
+    func retryInfoSummary() {
+        let queue = RetryQueue(
+            entries: [
+                RetryEntry(
+                    uuid: "old",
+                    classification: .transientCloud,
+                    attempts: 4,
+                    firstFailedAt: "2025-01-01T00:00:00Z",
+                    lastFailedAt: "2025-01-05T00:00:00Z",
+                ),
+                RetryEntry(
+                    uuid: "new",
+                    classification: .other,
+                    attempts: 1,
+                    firstFailedAt: "2025-01-05T00:00:00Z",
+                    lastFailedAt: "2025-01-05T00:00:00Z",
+                ),
+            ],
+            updatedAt: "2025-01-05T00:00:00Z",
+        )
+        let info = StatusStats.computeRetryInfo(queue)
+        #expect(info?.count == 2)
+        #expect(info?.maxAttempts == 4)
+        #expect(info?.oldestFirstFailedAt == "2025-01-01T00:00:00Z")
+    }
+
+    @Test("Retry info is nil for an empty or missing queue")
+    func retryInfoNilWhenEmpty() {
+        #expect(StatusStats.computeRetryInfo(nil) == nil)
+        #expect(StatusStats.computeRetryInfo(RetryQueue(entries: [], updatedAt: "")) == nil)
+    }
+
     // MARK: - S3 Info
 
     @Test func s3InfoDerivesLastBackup() {

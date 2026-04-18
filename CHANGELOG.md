@@ -17,6 +17,8 @@ throttled by an AIMD controller when PhotoKit pushes back.
 - `BackupProgressDelegate.concurrencyChanged(limit:)` — new delegate callback
   emitted between batches whenever the controller adjusts.
 - Terminal dashboard shows the current lane count next to upload speed.
+- `attic status` now surfaces the pending-asset lane split (local vs iCloud)
+  and a retry-queue summary (count, max attempts, oldest firstFailedAt).
 - Retry queue schema upgrade: each entry now tracks `classification`,
   `attempts`, `firstFailedAt`, `lastFailedAt`, and `lastMessage`. Merging
   across runs preserves `firstFailedAt` and increments `attempts`, so the

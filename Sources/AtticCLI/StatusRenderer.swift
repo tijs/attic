@@ -37,6 +37,21 @@ struct StatusRenderer {
             print("  \(bar)  \(pctColor)\(String(format: "%.1f", backup.percentage))%\(reset)")
             print("  Backed up  \(padLeft(format(backup.backedUp), width: 8))  (\(formatBytes(backup.backedUpBytes)))")
             print("  Pending    \(padLeft(format(backup.pending), width: 8))")
+            if let local = backup.pendingLocal, let cloud = backup.pendingCloud {
+                let laneDetail = "\(format(local)) local \(dim)·\(reset) \(format(cloud)) iCloud"
+                print("  Lanes      \(laneDetail)")
+            }
+        }
+
+        // Retry queue section
+        if let retry = data.retry {
+            print("")
+            print("\(bold)Retries\(reset)")
+            print("  Queued     \(padLeft(format(retry.count), width: 8))  (max \(retry.maxAttempts) attempt\(retry.maxAttempts == 1 ? "" : "s"))")
+            if let oldest = retry.oldestFirstFailedAt {
+                let day = String(oldest.prefix(10))
+                print("  Since      \(day)")
+            }
         }
 
         // S3 section
@@ -82,6 +97,18 @@ struct StatusRenderer {
             print("  Progress:    \(String(format: "%.1f", backup.percentage))%")
             print("  Backed up:   \(format(backup.backedUp)) (\(formatBytes(backup.backedUpBytes)))")
             print("  Pending:     \(format(backup.pending))")
+            if let local = backup.pendingLocal, let cloud = backup.pendingCloud {
+                print("  Lanes:       \(format(local)) local / \(format(cloud)) iCloud")
+            }
+        }
+
+        if let retry = data.retry {
+            print("")
+            print("Retries")
+            print("  Queued:      \(format(retry.count)) (max \(retry.maxAttempts) attempt\(retry.maxAttempts == 1 ? "" : "s"))")
+            if let oldest = retry.oldestFirstFailedAt {
+                print("  Since:       \(String(oldest.prefix(10)))")
+            }
         }
 
         if let s3 = data.s3 {
