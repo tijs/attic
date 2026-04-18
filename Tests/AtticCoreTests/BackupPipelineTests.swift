@@ -510,7 +510,7 @@ struct UnavailableMarkingExporter: ExportProviding {
                 errors.append(LadderKit.ExportError(
                     uuid: uuid,
                     message: "Shared-album asset unavailable",
-                    unavailable: true,
+                    classification: .permanentlyUnavailable,
                 ))
             } else if let asset = availableAssets[uuid] {
                 let path = stagingDir.appendingPathComponent(asset.filename)
