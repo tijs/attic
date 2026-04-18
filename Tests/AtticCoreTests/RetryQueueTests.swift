@@ -19,13 +19,17 @@ struct RetryQueueTests {
         #expect(store.load() == nil)
     }
 
+    private func makeEntry(_ uuid: String, at timestamp: String = "2025-01-15T12:00:00Z") -> RetryEntry {
+        RetryEntry(uuid: uuid, firstFailedAt: timestamp, lastFailedAt: timestamp)
+    }
+
     @Test func saveAndLoadRoundTrip() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let store = FileRetryQueueStore(directory: dir)
         let queue = RetryQueue(
-            failedUUIDs: ["uuid-1", "uuid-2", "uuid-3"],
+            entries: ["uuid-1", "uuid-2", "uuid-3"].map { makeEntry($0) },
             updatedAt: "2025-01-15T12:00:00Z",
         )
         try store.save(queue)
@@ -41,7 +45,7 @@ struct RetryQueueTests {
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let store = FileRetryQueueStore(directory: dir)
-        let queue = RetryQueue(failedUUIDs: ["uuid-1"], updatedAt: "2025-01-15T12:00:00Z")
+        let queue = RetryQueue(entries: [makeEntry("uuid-1")], updatedAt: "2025-01-15T12:00:00Z")
         try store.save(queue)
         #expect(store.load() != nil)
 
@@ -62,29 +66,14 @@ struct RetryQueueTests {
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let store = FileRetryQueueStore(directory: dir)
-        try store.save(RetryQueue(failedUUIDs: ["old"], updatedAt: "2025-01-01T00:00:00Z"))
-        try store.save(RetryQueue(failedUUIDs: ["new-1", "new-2"], updatedAt: "2025-01-02T00:00:00Z"))
+        try store.save(RetryQueue(entries: [makeEntry("old")], updatedAt: "2025-01-01T00:00:00Z"))
+        try store.save(RetryQueue(
+            entries: [makeEntry("new-1"), makeEntry("new-2")],
+            updatedAt: "2025-01-02T00:00:00Z",
+        ))
 
         let loaded = store.load()
         #expect(loaded?.failedUUIDs == ["new-1", "new-2"])
-    }
-
-    @Test("Legacy `failedUUIDs: [String]` payload decodes into entries")
-    func decodesLegacySchema() throws {
-        let json = """
-        {
-            "failedUUIDs": ["uuid-1", "uuid-2"],
-            "updatedAt": "2025-01-15T12:00:00Z"
-        }
-        """
-        let data = Data(json.utf8)
-        let queue = try JSONDecoder().decode(RetryQueue.self, from: data)
-
-        #expect(queue.failedUUIDs == ["uuid-1", "uuid-2"])
-        #expect(queue.entries.count == 2)
-        #expect(queue.entries[0].attempts == 1)
-        #expect(queue.entries[0].classification == .other)
-        #expect(queue.entries[0].firstFailedAt == "2025-01-15T12:00:00Z")
     }
 
     @Test("New schema roundtrips with classification, attempts, and timestamps")
@@ -146,7 +135,7 @@ struct RetryQueueTests {
     @Test("`merged` drops attempted UUIDs that succeeded this run")
     func mergedDropsResolvedUUIDs() {
         let previous = RetryQueue(
-            failedUUIDs: ["uuid-1", "uuid-2"],
+            entries: [makeEntry("uuid-1", at: "2025-01-01T00:00:00Z"), makeEntry("uuid-2", at: "2025-01-01T00:00:00Z")],
             updatedAt: "2025-01-01T00:00:00Z",
         )
 

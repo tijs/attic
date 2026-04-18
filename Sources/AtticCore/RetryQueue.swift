@@ -26,32 +26,6 @@ public struct RetryEntry: Codable, Sendable, Equatable {
         self.lastFailedAt = lastFailedAt
         self.lastMessage = lastMessage
     }
-
-    private enum CodingKeys: String, CodingKey {
-        case uuid, classification, attempts, firstFailedAt, lastFailedAt, lastMessage
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        uuid = try container.decode(String.self, forKey: .uuid)
-        attempts = try container.decodeIfPresent(Int.self, forKey: .attempts) ?? 1
-        firstFailedAt = try container.decodeIfPresent(String.self, forKey: .firstFailedAt) ?? ""
-        lastFailedAt = try container.decodeIfPresent(String.self, forKey: .lastFailedAt) ?? firstFailedAt
-        lastMessage = try container.decodeIfPresent(String.self, forKey: .lastMessage)
-        classification = try container.decodeIfPresent(
-            ExportClassification.self, forKey: .classification,
-        ) ?? .other
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(uuid, forKey: .uuid)
-        try container.encode(classification, forKey: .classification)
-        try container.encode(attempts, forKey: .attempts)
-        try container.encode(firstFailedAt, forKey: .firstFailedAt)
-        try container.encode(lastFailedAt, forKey: .lastFailedAt)
-        try container.encodeIfPresent(lastMessage, forKey: .lastMessage)
-    }
 }
 
 /// Assets that failed in recent runs, persisted so the next run retries them
@@ -65,61 +39,10 @@ public struct RetryQueue: Codable, Sendable, Equatable {
         self.updatedAt = updatedAt
     }
 
-    /// Convenience initializer for call sites that only care about UUIDs
-    /// (mainly tests). Each UUID gets a fresh entry with attempts = 1.
-    public init(failedUUIDs: [String], updatedAt: String) {
-        self.entries = failedUUIDs.map {
-            RetryEntry(
-                uuid: $0,
-                classification: .other,
-                attempts: 1,
-                firstFailedAt: updatedAt,
-                lastFailedAt: updatedAt,
-            )
-        }
-        self.updatedAt = updatedAt
-    }
-
     /// UUIDs in insertion order. Used by the pipeline to partition pending
     /// assets so failed ones are retried first.
     public var failedUUIDs: [String] {
         entries.map(\.uuid)
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case entries, failedUUIDs, updatedAt
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let decodedUpdatedAt = try container.decodeIfPresent(String.self, forKey: .updatedAt) ?? ""
-
-        let decodedEntries: [RetryEntry]
-        if let entries = try container.decodeIfPresent([RetryEntry].self, forKey: .entries) {
-            decodedEntries = entries
-        } else if let legacy = try container.decodeIfPresent([String].self, forKey: .failedUUIDs) {
-            // Migrate from pre-beta.6 schema: `failedUUIDs: [String]`.
-            decodedEntries = legacy.map {
-                RetryEntry(
-                    uuid: $0,
-                    classification: .other,
-                    attempts: 1,
-                    firstFailedAt: decodedUpdatedAt,
-                    lastFailedAt: decodedUpdatedAt,
-                )
-            }
-        } else {
-            decodedEntries = []
-        }
-
-        updatedAt = decodedUpdatedAt
-        entries = decodedEntries
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(entries, forKey: .entries)
-        try container.encode(updatedAt, forKey: .updatedAt)
     }
 
     /// Merge a run's outcome into a previous queue.
@@ -140,7 +63,7 @@ public struct RetryQueue: Codable, Sendable, Equatable {
         now: String,
     ) -> RetryQueue {
         let priorEntries = previous?.entries ?? []
-        let priorByUUID = Dictionary(uniqueKeysWithValues: priorEntries.map { ($0.uuid, $0) })
+        let priorByUUID = Dictionary(priorEntries.map { ($0.uuid, $0) }, uniquingKeysWith: { a, _ in a })
 
         // Carry forward prior entries we didn't attempt.
         var entries = priorEntries.filter { !attempted.contains($0.uuid) }

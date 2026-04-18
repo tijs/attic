@@ -32,6 +32,17 @@ struct LadderKitExportProvider: ExportProviding {
     }
 
     func checkPermissions() async throws {
-        try await exporter.checkPermissions()
+        do {
+            try await exporter.checkPermissions()
+        } catch AppleScriptError.automationPermissionDenied {
+            throw ExportProviderError.permissionDenied(
+                AppleScriptError.automationPermissionDenied.localizedDescription
+            )
+        } catch let err as AppleScriptError {
+            if case .timeout(_, let seconds) = err {
+                throw ExportProviderError.timeout(seconds: Int(seconds))
+            }
+            throw err
+        }
     }
 }

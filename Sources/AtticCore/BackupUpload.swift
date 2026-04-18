@@ -1,8 +1,7 @@
 import Foundation
 import LadderKit
 
-/// Bundles the non-mutating dependencies for uploadExported, reducing parameter count
-/// and making the recursive retry call less error-prone.
+/// Bundles the non-mutating dependencies for uploadExported.
 struct UploadContext {
     let assetByUUID: [String: AssetInfo]
     let s3: any S3Providing
@@ -23,17 +22,12 @@ func uploadExported(
     manifest: inout Manifest,
     report: inout BackupReport,
     sinceLastSave: inout Int,
-    pauseRetryCount: Int = 0,
 ) async throws {
-    // Record export errors. LadderKit reports full PhotoKit identifiers
-    // ("UUID/L0/001"); normalize to bare UUID so retry partitioning and the
-    // assetByUUID lookup line up with the pending list.
+    // Record export errors for reporting (failures handled upstream by callers).
     for err in batchResult.errors {
-        let bareUUID = err.uuid.split(separator: "/").first.map(String.init) ?? err.uuid
-        let asset = ctx.assetByUUID[bareUUID] ?? ctx.assetByUUID[err.uuid]
-        let filename = asset?.originalFilename ?? bareUUID
-        ctx.progress.assetFailed(uuid: bareUUID, filename: filename, message: err.message)
-        report.appendError(uuid: bareUUID, message: err.message)
+        let filename = ctx.assetByUUID[err.uuid]?.originalFilename ?? err.uuid
+        ctx.progress.assetFailed(uuid: err.uuid, filename: filename, message: err.message)
+        report.appendError(uuid: err.uuid, message: err.message)
         report.failed += 1
     }
 
@@ -59,89 +53,23 @@ func uploadExported(
     // Track inputs by UUID for retry lookup
     let inputByUUID = Dictionary(uniqueKeysWithValues: inputs.map { ($0.exported.uuid, $0) })
 
-    // Concurrent uploads with bounded TaskGroup
+    // Concurrent uploads. On a network-down failure we drain the current pass,
+    // wait for recovery, then loop with the queued retry set as the next pass.
     let effectiveConcurrency = max(1, ctx.concurrency)
-    var networkPaused = false
-    var retryInputs: [UploadInput] = []
-    var retryUUIDs: Set<String> = []
+    var passInputs = inputs
+    var pauseRetryCount = 0
 
-    try await withThrowingTaskGroup(of: UploadResult.self) { group in
-        var cursor = 0
+    while !passInputs.isEmpty {
+        var networkPaused = false
+        var retryInputs: [UploadInput] = []
+        var retryUUIDs: Set<String> = []
+        let inputByUUID = Dictionary(uniqueKeysWithValues: passInputs.map { ($0.exported.uuid, $0) })
 
-        // Seed initial tasks
-        for _ in 0 ..< min(effectiveConcurrency, inputs.count) {
-            let input = inputs[cursor]
-            cursor += 1
-            ctx.progress.assetStarting(
-                uuid: input.asset.uuid,
-                filename: input.asset.originalFilename ?? "unknown",
-                size: actualFileSize(input),
-            )
-            group.addTask {
-                await uploadSingleAsset(input: input, s3: ctx.s3, progress: ctx.progress)
-            }
-        }
+        try await withThrowingTaskGroup(of: UploadResult.self) { group in
+            var cursor = 0
 
-        // Process results and enqueue next
-        for try await result in group {
-            try Task.checkCancellation()
-
-            if let checksum = result.checksum, result.error == nil {
-                manifest.markBackedUp(
-                    uuid: result.uuid,
-                    s3Key: result.s3Key,
-                    checksum: checksum,
-                    size: result.size,
-                )
-                sinceLastSave += 1
-                report.uploaded += 1
-                report.totalBytes += result.size
-                ctx.progress.assetUploaded(
-                    uuid: result.uuid,
-                    filename: result.filename,
-                    type: result.type,
-                    size: result.size,
-                )
-
-                // Periodic manifest save
-                if sinceLastSave >= ctx.saveInterval {
-                    do {
-                        try await ctx.manifestStore.save(manifest)
-                        ctx.progress.manifestSaved(entriesCount: manifest.entries.count)
-                        sinceLastSave = 0
-                    } catch {
-                        debugPrint("Periodic manifest save failed: \(error)")
-                    }
-                }
-            } else if result.isNetworkDownError,
-                      let monitor = ctx.networkMonitor,
-                      await !monitor.isNetworkAvailable
-            { // swiftlint:disable:this opening_brace
-                // Network-down failure: queue for retry after recovery
-                networkPaused = true
-                if let input = inputByUUID[result.uuid] {
-                    retryInputs.append(input)
-                    retryUUIDs.insert(result.uuid)
-                }
-            } else {
-                // Permanent or non-network failure
-                ctx.progress.assetFailed(
-                    uuid: result.uuid,
-                    filename: result.filename,
-                    message: result.error ?? "Unknown error",
-                )
-                report.appendError(uuid: result.uuid, message: result.error ?? "Unknown error")
-                report.failed += 1
-            }
-
-            // Clean up staged file (skip if queued for retry)
-            if !retryUUIDs.contains(result.uuid) {
-                try? FileManager.default.removeItem(atPath: result.path)
-            }
-
-            // Enqueue next upload (skip if network is down — let group drain)
-            if !networkPaused, cursor < inputs.count {
-                let input = inputs[cursor]
+            for _ in 0 ..< min(effectiveConcurrency, passInputs.count) {
+                let input = passInputs[cursor]
                 cursor += 1
                 ctx.progress.assetStarting(
                     uuid: input.asset.uuid,
@@ -152,22 +80,85 @@ func uploadExported(
                     await uploadSingleAsset(input: input, s3: ctx.s3, progress: ctx.progress)
                 }
             }
-        }
 
-        // After drain: queue any remaining un-enqueued inputs for retry
-        if networkPaused {
-            while cursor < inputs.count {
-                retryInputs.append(inputs[cursor])
-                cursor += 1
+            for try await result in group {
+                try Task.checkCancellation()
+
+                if let checksum = result.checksum, result.error == nil {
+                    manifest.markBackedUp(
+                        uuid: result.uuid,
+                        s3Key: result.s3Key,
+                        checksum: checksum,
+                        size: result.size,
+                    )
+                    sinceLastSave += 1
+                    report.uploaded += 1
+                    report.totalBytes += result.size
+                    ctx.progress.assetUploaded(
+                        uuid: result.uuid,
+                        filename: result.filename,
+                        type: result.type,
+                        size: result.size,
+                    )
+
+                    if sinceLastSave >= ctx.saveInterval {
+                        do {
+                            try await ctx.manifestStore.save(manifest)
+                            ctx.progress.manifestSaved(entriesCount: manifest.entries.count)
+                            sinceLastSave = 0
+                        } catch {
+                            debugPrint("Periodic manifest save failed: \(error)")
+                        }
+                    }
+                } else if result.isNetworkDownError,
+                          let monitor = ctx.networkMonitor,
+                          await !monitor.isNetworkAvailable
+                { // swiftlint:disable:this opening_brace
+                    networkPaused = true
+                    if let input = inputByUUID[result.uuid] {
+                        retryInputs.append(input)
+                        retryUUIDs.insert(result.uuid)
+                    }
+                } else {
+                    ctx.progress.assetFailed(
+                        uuid: result.uuid,
+                        filename: result.filename,
+                        message: result.error ?? "Unknown error",
+                    )
+                    report.appendError(uuid: result.uuid, message: result.error ?? "Unknown error")
+                    report.failed += 1
+                }
+
+                if !retryUUIDs.contains(result.uuid) {
+                    try? FileManager.default.removeItem(atPath: result.path)
+                }
+
+                if !networkPaused, cursor < passInputs.count {
+                    let input = passInputs[cursor]
+                    cursor += 1
+                    ctx.progress.assetStarting(
+                        uuid: input.asset.uuid,
+                        filename: input.asset.originalFilename ?? "unknown",
+                        size: actualFileSize(input),
+                    )
+                    group.addTask {
+                        await uploadSingleAsset(input: input, s3: ctx.s3, progress: ctx.progress)
+                    }
+                }
+            }
+
+            if networkPaused {
+                while cursor < passInputs.count {
+                    retryInputs.append(passInputs[cursor])
+                    cursor += 1
+                }
             }
         }
-    }
 
-    // Network pause/resume: wait for recovery and retry
-    if networkPaused, !retryInputs.isEmpty {
+        guard networkPaused, !retryInputs.isEmpty else { return }
         guard let monitor = ctx.networkMonitor else { return }
 
-        // Save manifest before waiting (preserve progress)
+        // Save progress before waiting
         if sinceLastSave > 0 {
             do {
                 try await ctx.manifestStore.save(manifest)
@@ -183,37 +174,21 @@ func uploadExported(
         ctx.progress.backupResumed()
 
         if recovered, pauseRetryCount < ctx.maxPauseRetries {
-            // Build a synthetic ExportResponse from retry inputs
-            let retryResults = retryInputs.map(\.exported)
-            let retryResponse = ExportResponse(results: retryResults, errors: [])
-
-            do {
-                try await uploadExported(
-                    retryResponse, ctx: ctx,
-                    manifest: &manifest, report: &report,
-                    sinceLastSave: &sinceLastSave,
-                    pauseRetryCount: pauseRetryCount + 1,
-                )
-            } catch {
-                // Clean up staged files before propagating
-                for input in retryInputs {
-                    try? FileManager.default.removeItem(atPath: input.exported.path)
-                }
-                throw error
-            }
-        } else {
-            // Timeout or max retries — record failures
-            let reason = recovered
-                ? "Max network pause retries exceeded"
-                : "Network unavailable"
-            for input in retryInputs {
-                let filename = input.asset.originalFilename ?? input.exported.uuid
-                ctx.progress.assetFailed(uuid: input.exported.uuid, filename: filename, message: reason)
-                report.appendError(uuid: input.exported.uuid, message: reason)
-                report.failed += 1
-                try? FileManager.default.removeItem(atPath: input.exported.path)
-            }
+            pauseRetryCount += 1
+            passInputs = retryInputs
+            continue
         }
+
+        // Timeout or max retries — record failures and clean up staged files.
+        let reason = recovered ? "Max network pause retries exceeded" : "Network unavailable"
+        for input in retryInputs {
+            let filename = input.asset.originalFilename ?? input.exported.uuid
+            ctx.progress.assetFailed(uuid: input.exported.uuid, filename: filename, message: reason)
+            report.appendError(uuid: input.exported.uuid, message: reason)
+            report.failed += 1
+            try? FileManager.default.removeItem(atPath: input.exported.path)
+        }
+        return
     }
 }
 
