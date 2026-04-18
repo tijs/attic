@@ -41,10 +41,12 @@ public actor AIMDController: AdaptiveConcurrencyControlling {
 
     public init(config: Config = Config()) {
         self.config = config
-        self.limit = max(config.minLimit, min(config.maxLimit, config.initialLimit))
+        limit = max(config.minLimit, min(config.maxLimit, config.initialLimit))
     }
 
-    public func currentLimit() -> Int { limit }
+    public func currentLimit() -> Int {
+        limit
+    }
 
     public func record(_ outcome: ExportOutcome) {
         switch outcome {
@@ -64,7 +66,7 @@ public actor AIMDController: AdaptiveConcurrencyControlling {
         }
         guard window.count >= Self.windowSize else { return }
 
-        let failures = window.lazy.filter { $0 }.count
+        let failures = window.lazy.count(where: { $0 })
         let rate = Double(failures) / Double(window.count)
 
         if rate > Self.backoffThreshold {

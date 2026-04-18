@@ -1,8 +1,7 @@
+@testable import AtticCore
 import Foundation
 import LadderKit
 import Testing
-
-@testable import AtticCore
 
 @Suite("AIMDController")
 struct AIMDControllerTests {
@@ -25,15 +24,21 @@ struct AIMDControllerTests {
         let c = AIMDController(config: .init(initialLimit: 8, minLimit: 1, maxLimit: 12))
         // 10 failures then 10 successes: once the window fills (20 items),
         // the rate is 0.5 → backoff.
-        for _ in 0 ..< 10 { await c.record(.transientFailure) }
-        for _ in 0 ..< 10 { await c.record(.success) }
+        for _ in 0 ..< 10 {
+            await c.record(.transientFailure)
+        }
+        for _ in 0 ..< 10 {
+            await c.record(.success)
+        }
         #expect(await c.currentLimit() == 4)
     }
 
     @Test("Permanent failures are ignored")
     func permanentIgnored() async {
         let c = AIMDController(config: .init(initialLimit: 8, minLimit: 1, maxLimit: 12))
-        for _ in 0 ..< 40 { await c.record(.permanentFailure) }
+        for _ in 0 ..< 40 {
+            await c.record(.permanentFailure)
+        }
         #expect(await c.currentLimit() == 8)
     }
 
@@ -41,7 +46,9 @@ struct AIMDControllerTests {
     func recover() async {
         let c = AIMDController(config: .init(initialLimit: 4, minLimit: 1, maxLimit: 12))
         // 20 successes fills the window with rate 0 → +1.
-        for _ in 0 ..< 20 { await c.record(.success) }
+        for _ in 0 ..< 20 {
+            await c.record(.success)
+        }
         #expect(await c.currentLimit() == 5)
     }
 
@@ -53,12 +60,18 @@ struct AIMDControllerTests {
         let c = AIMDController(config: .init(initialLimit: 8, minLimit: 1, maxLimit: 12))
         // First fill the window with 14 successes + 6 failures (rate 0.30 —
         // not > threshold, no change).
-        for _ in 0 ..< 14 { await c.record(.success) }
-        for _ in 0 ..< 6 { await c.record(.transientFailure) }
+        for _ in 0 ..< 14 {
+            await c.record(.success)
+        }
+        for _ in 0 ..< 6 {
+            await c.record(.transientFailure)
+        }
         #expect(await c.currentLimit() == 8)
         // Now slide in 6 more failures; oldest successes drop, rate climbs
         // above 0.30 and triggers backoff.
-        for _ in 0 ..< 6 { await c.record(.transientFailure) }
+        for _ in 0 ..< 6 {
+            await c.record(.transientFailure)
+        }
         #expect(await c.currentLimit() == 4)
     }
 
@@ -66,8 +79,12 @@ struct AIMDControllerTests {
     func windowClearsOnChange() async {
         let c = AIMDController(config: .init(initialLimit: 8, minLimit: 1, maxLimit: 12))
         // Force backoff.
-        for _ in 0 ..< 10 { await c.record(.transientFailure) }
-        for _ in 0 ..< 10 { await c.record(.success) }
+        for _ in 0 ..< 10 {
+            await c.record(.transientFailure)
+        }
+        for _ in 0 ..< 10 {
+            await c.record(.success)
+        }
         #expect(await c.currentLimit() == 4)
         // Immediately feeding another failure must not re-backoff — the window
         // is empty post-change. It takes another full window to re-trigger.
@@ -78,14 +95,18 @@ struct AIMDControllerTests {
     @Test("Respects minLimit floor")
     func minLimitFloor() async {
         let c = AIMDController(config: .init(initialLimit: 2, minLimit: 2, maxLimit: 12))
-        for _ in 0 ..< 40 { await c.record(.transientFailure) }
+        for _ in 0 ..< 40 {
+            await c.record(.transientFailure)
+        }
         #expect(await c.currentLimit() == 2)
     }
 
     @Test("Respects maxLimit ceiling")
     func maxLimitCeiling() async {
         let c = AIMDController(config: .init(initialLimit: 3, minLimit: 1, maxLimit: 3))
-        for _ in 0 ..< 40 { await c.record(.success) }
+        for _ in 0 ..< 40 {
+            await c.record(.success)
+        }
         #expect(await c.currentLimit() == 3)
     }
 }

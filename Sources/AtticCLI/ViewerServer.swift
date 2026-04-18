@@ -49,7 +49,7 @@ struct ViewerServer {
         self.s3 = s3
         self.thumbnailProvider = thumbnailProvider
         self.port = port
-        self.csp = Self.buildCSP(endpointHost: endpointHost)
+        csp = Self.buildCSP(endpointHost: endpointHost)
     }
 
     private static func buildCSP(endpointHost: String) -> String {

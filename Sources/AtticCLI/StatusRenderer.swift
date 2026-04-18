@@ -47,7 +47,9 @@ struct StatusRenderer {
         if let retry = data.retry {
             print("")
             print("\(bold)Retries\(reset)")
-            print("  Queued     \(padLeft(format(retry.count), width: 8))  (max \(retry.maxAttempts) attempt\(retry.maxAttempts == 1 ? "" : "s"))")
+            print(
+                "  Queued     \(padLeft(format(retry.count), width: 8))  (max \(retry.maxAttempts) attempt\(retry.maxAttempts == 1 ? "" : "s"))",
+            )
             if let oldest = retry.oldestFirstFailedAt {
                 let day = String(oldest.prefix(10))
                 print("  Since      \(day)")
@@ -105,7 +107,9 @@ struct StatusRenderer {
         if let retry = data.retry {
             print("")
             print("Retries")
-            print("  Queued:      \(format(retry.count)) (max \(retry.maxAttempts) attempt\(retry.maxAttempts == 1 ? "" : "s"))")
+            print(
+                "  Queued:      \(format(retry.count)) (max \(retry.maxAttempts) attempt\(retry.maxAttempts == 1 ? "" : "s"))",
+            )
             if let oldest = retry.oldestFirstFailedAt {
                 print("  Since:       \(String(oldest.prefix(10)))")
             }
