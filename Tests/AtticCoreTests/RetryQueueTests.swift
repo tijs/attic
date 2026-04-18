@@ -128,6 +128,7 @@ struct RetryQueueTests {
 
         let merged = RetryQueue.merged(
             previous: previous,
+            attempted: ["uuid-1", "uuid-2"],
             failures: failures,
             now: "2025-01-03T00:00:00Z",
         )
@@ -142,7 +143,7 @@ struct RetryQueueTests {
         #expect(byUUID["uuid-2"]?.firstFailedAt == "2025-01-03T00:00:00Z")
     }
 
-    @Test("`merged` drops UUIDs that aren't in the new failure set")
+    @Test("`merged` drops attempted UUIDs that succeeded this run")
     func mergedDropsResolvedUUIDs() {
         let previous = RetryQueue(
             failedUUIDs: ["uuid-1", "uuid-2"],
@@ -151,6 +152,7 @@ struct RetryQueueTests {
 
         let merged = RetryQueue.merged(
             previous: previous,
+            attempted: ["uuid-1", "uuid-2"],
             failures: [FailureRecord(uuid: "uuid-2", classification: .other, message: "still failing")],
             now: "2025-01-02T00:00:00Z",
         )
@@ -158,10 +160,47 @@ struct RetryQueueTests {
         #expect(merged.failedUUIDs == ["uuid-2"])
     }
 
+    @Test("`merged` preserves prior entries that weren't attempted this run")
+    func mergedPreservesUnattemptedEntries() {
+        let previous = RetryQueue(
+            entries: [
+                RetryEntry(
+                    uuid: "not-attempted",
+                    classification: .transientCloud,
+                    attempts: 5,
+                    firstFailedAt: "2025-01-01T00:00:00Z",
+                    lastFailedAt: "2025-01-04T00:00:00Z",
+                    lastMessage: "still throttled",
+                ),
+                RetryEntry(
+                    uuid: "succeeded",
+                    classification: .other,
+                    attempts: 2,
+                    firstFailedAt: "2025-01-02T00:00:00Z",
+                    lastFailedAt: "2025-01-04T00:00:00Z",
+                ),
+            ],
+            updatedAt: "2025-01-04T00:00:00Z",
+        )
+
+        let merged = RetryQueue.merged(
+            previous: previous,
+            attempted: ["succeeded"],
+            failures: [],
+            now: "2025-01-05T00:00:00Z",
+        )
+
+        #expect(merged.entries.count == 1)
+        #expect(merged.entries[0].uuid == "not-attempted")
+        #expect(merged.entries[0].attempts == 5)
+        #expect(merged.entries[0].firstFailedAt == "2025-01-01T00:00:00Z")
+    }
+
     @Test("`merged` with nil previous starts everything at attempts = 1")
     func mergedFromNothing() {
         let merged = RetryQueue.merged(
             previous: nil,
+            attempted: ["uuid-1"],
             failures: [
                 FailureRecord(uuid: "uuid-1", classification: .transientCloud, message: "boom"),
             ],

@@ -122,42 +122,50 @@ public struct RetryQueue: Codable, Sendable, Equatable {
         try container.encode(updatedAt, forKey: .updatedAt)
     }
 
-    /// Merge a new set of failures into a previous queue.
+    /// Merge a run's outcome into a previous queue.
     ///
-    /// - Assets that failed again have their `attempts` incremented and
-    ///   `lastFailedAt`/`lastMessage` refreshed; `firstFailedAt` is preserved.
+    /// - `attempted` is the set of bare UUIDs actually processed in this run.
+    ///   UUIDs in the previous queue that weren't attempted (typically cut
+    ///   off by `--limit`) are carried forward unchanged so their
+    ///   `attempts` and `firstFailedAt` history survives.
+    /// - UUIDs in `attempted` ∩ `failures` are merged: prior `attempts + 1`,
+    ///   preserved `firstFailedAt`, refreshed `lastFailedAt`/`lastMessage`.
+    /// - UUIDs in `attempted` but not in `failures` are dropped — they
+    ///   succeeded this run, or landed in the unavailable store.
     /// - Brand-new failing UUIDs start at `attempts = 1`.
-    /// - UUIDs that aren't in the new failure set drop out entirely — they
-    ///   either succeeded or were classified as permanently unavailable and
-    ///   live in the unavailable store now.
     public static func merged(
         previous: RetryQueue?,
+        attempted: Set<String>,
         failures: [FailureRecord],
         now: String,
     ) -> RetryQueue {
-        let priorByUUID: [String: RetryEntry] = Dictionary(
-            uniqueKeysWithValues: previous?.entries.map { ($0.uuid, $0) } ?? [],
-        )
+        let priorEntries = previous?.entries ?? []
+        let priorByUUID = Dictionary(uniqueKeysWithValues: priorEntries.map { ($0.uuid, $0) })
 
-        let entries: [RetryEntry] = failures.map { failure in
+        // Carry forward prior entries we didn't attempt.
+        var entries = priorEntries.filter { !attempted.contains($0.uuid) }
+
+        // Merge / create entries for new failures.
+        for failure in failures {
             if let prior = priorByUUID[failure.uuid] {
-                return RetryEntry(
+                entries.append(RetryEntry(
                     uuid: failure.uuid,
                     classification: failure.classification,
                     attempts: prior.attempts + 1,
                     firstFailedAt: prior.firstFailedAt,
                     lastFailedAt: now,
                     lastMessage: failure.message,
-                )
+                ))
+            } else {
+                entries.append(RetryEntry(
+                    uuid: failure.uuid,
+                    classification: failure.classification,
+                    attempts: 1,
+                    firstFailedAt: now,
+                    lastFailedAt: now,
+                    lastMessage: failure.message,
+                ))
             }
-            return RetryEntry(
-                uuid: failure.uuid,
-                classification: failure.classification,
-                attempts: 1,
-                firstFailedAt: now,
-                lastFailedAt: now,
-                lastMessage: failure.message,
-            )
         }
 
         return RetryQueue(entries: entries, updatedAt: now)

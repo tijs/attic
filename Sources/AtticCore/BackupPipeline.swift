@@ -318,36 +318,36 @@ public func runBackup(
         debugPrint("Failed to save unavailable assets store: \(error)")
     }
 
-    // Update retry queue: merge this run's failures into the previous queue so
+    // Update retry queue: merge this run's outcome into the previous queue so
     // attempt counts and firstFailedAt survive across runs. UUIDs we just
-    // marked unavailable are excluded — retrying them is futile.
+    // marked unavailable are excluded — retrying them is futile. UUIDs in
+    // the prior queue that weren't attempted this run (cut off by --limit)
+    // are preserved so their history doesn't get wiped.
     let retryableErrors = report.errors.filter { !unavailable.contains(normalizeUUID($0.uuid)) }
-    if retryableErrors.isEmpty {
-        do {
-            try retryQueue?.clear()
-        } catch {
-            debugPrint("Failed to clear retry queue: \(error)")
-        }
-    } else {
-        let now = formatISO8601(Date())
-        let failures: [FailureRecord] = retryableErrors.map { entry in
-            let bare = normalizeUUID(entry.uuid)
-            return FailureRecord(
-                uuid: bare,
-                classification: failureClassifications[bare] ?? .other,
-                message: entry.message,
-            )
-        }
-        let merged = RetryQueue.merged(
-            previous: retryQueue?.load(),
-            failures: failures,
-            now: now,
+    let now = formatISO8601(Date())
+    let attempted = Set(pending.map(\.uuid))
+    let failures: [FailureRecord] = retryableErrors.map { entry in
+        let bare = normalizeUUID(entry.uuid)
+        return FailureRecord(
+            uuid: bare,
+            classification: failureClassifications[bare] ?? .other,
+            message: entry.message,
         )
-        do {
+    }
+    let merged = RetryQueue.merged(
+        previous: retryQueue?.load(),
+        attempted: attempted,
+        failures: failures,
+        now: now,
+    )
+    do {
+        if merged.entries.isEmpty {
+            try retryQueue?.clear()
+        } else {
             try retryQueue?.save(merged)
-        } catch {
-            debugPrint("Failed to save retry queue: \(error)")
         }
+    } catch {
+        debugPrint("Failed to update retry queue: \(error)")
     }
 
     progress.backupCompleted(

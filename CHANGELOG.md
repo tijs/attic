@@ -25,6 +25,10 @@ throttled by an AIMD controller when PhotoKit pushes back.
   UI can surface how long an asset has been stuck. The legacy
   `failedUUIDs: [String]` payload decodes transparently — existing stores
   are upgraded on next write.
+- **Retry queue no longer loses unattempted UUIDs.** When `--limit` cut a
+  run short, a successful result would wipe the entire queue, including
+  UUIDs that were never tried. The merge now keys on the attempted set:
+  unattempted entries survive with their full history.
 - `BackupUpload` now normalizes PhotoKit's full-path identifiers
   (`UUID/L0/001`) to bare UUIDs before appending to `report.errors`, so
   the retry-first partition actually matches failed assets on the next
