@@ -117,7 +117,8 @@ Attic is crash- and network-resilient:
   in separate lanes. The iCloud lane uses an AIMD controller (attic's
   `AIMDController` implementing LadderKit's `AdaptiveConcurrencyControlling`)
   to back off when Photos.app or iCloud pushes back, and to ramp up on a
-  clean lane.
+  clean lane. See [Lanes and adaptive concurrency](docs/lanes-and-adaptive-concurrency.md)
+  for details.
 - **Retry queue** — transient failures are remembered on S3
   (`retry-queue.json`) and retried first on the next run, carrying
   attempts/first-seen/last-message for each UUID.
@@ -261,5 +262,8 @@ MockExportProvider) — no external services or credentials needed.
 
 - [Architecture](docs/architecture.md) — How attic works: the backup pipeline,
   photo library access, manifest lifecycle, and design boundaries
+- [Lanes and adaptive concurrency](docs/lanes-and-adaptive-concurrency.md) —
+  Why attic splits exports into local and iCloud lanes, and how the AIMD
+  controller adapts to iCloud throttling
 - [Asset Metadata](docs/metadata.md) — Schema reference for the per-asset JSON
   uploaded to S3
