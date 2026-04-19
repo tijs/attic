@@ -106,6 +106,9 @@ LadderKit's `PhotoExporter`, which:
   `-1728` errors are classified `.permanentlyUnavailable` and recorded in the
   unavailable store.
 
+See [Lanes and adaptive concurrency](lanes-and-adaptive-concurrency.md) for
+the full rationale behind the split and the AIMD policy.
+
 Each export result includes the file path, size, and SHA-256 hash (computed
 inline during the streaming write — no second pass).
 
