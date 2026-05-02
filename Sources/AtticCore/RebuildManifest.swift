@@ -43,6 +43,8 @@ public func runRebuildManifest(
                 s3Key: parsed.s3Key,
                 checksum: parsed.checksum,
                 backedUpAt: parsed.backedUpAt ?? formatISO8601(Date()),
+                legacyLocalIdentifier: parsed.legacyLocalIdentifier,
+                identityKind: parsed.identityKind ?? .local,
             )
             report.recovered += 1
         } catch {
@@ -62,6 +64,8 @@ private struct MetadataForRebuild: Decodable {
     let s3Key: String
     let checksum: String
     let backedUpAt: String?
+    let legacyLocalIdentifier: String?
+    let identityKind: IdentityKind?
 }
 
 private nonisolated(unsafe) let checksumValidation = /^sha256:[a-f0-9]+$/

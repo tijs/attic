@@ -2,6 +2,11 @@ import Foundation
 import LadderKit
 
 /// Per-asset metadata JSON uploaded to S3 at metadata/assets/{uuid}.json.
+///
+/// `legacyLocalIdentifier` and `identityKind` track whether the canonical
+/// `uuid` is a cross-device cloud identifier or a device-local fallback.
+/// Legacy v1 metadata JSON files (without these fields) decode with
+/// `identityKind == .local` and `legacyLocalIdentifier == nil`.
 public struct AssetMetadata: Codable, Sendable {
     public var uuid: String
     public var originalFilename: String
@@ -24,6 +29,92 @@ public struct AssetMetadata: Codable, Sendable {
     public var s3Key: String
     public var checksum: String
     public var backedUpAt: String
+    public var legacyLocalIdentifier: String?
+    public var identityKind: IdentityKind
+
+    public init(
+        uuid: String,
+        originalFilename: String,
+        dateCreated: String?,
+        width: Int,
+        height: Int,
+        latitude: Double?,
+        longitude: Double?,
+        fileSize: Int?,
+        type: String?,
+        favorite: Bool,
+        title: String?,
+        description: String?,
+        albums: [AlbumRef],
+        keywords: [String],
+        people: [PersonRef],
+        hasEdit: Bool,
+        editedAt: String?,
+        editor: String?,
+        s3Key: String,
+        checksum: String,
+        backedUpAt: String,
+        legacyLocalIdentifier: String? = nil,
+        identityKind: IdentityKind = .local,
+    ) {
+        self.uuid = uuid
+        self.originalFilename = originalFilename
+        self.dateCreated = dateCreated
+        self.width = width
+        self.height = height
+        self.latitude = latitude
+        self.longitude = longitude
+        self.fileSize = fileSize
+        self.type = type
+        self.favorite = favorite
+        self.title = title
+        self.description = description
+        self.albums = albums
+        self.keywords = keywords
+        self.people = people
+        self.hasEdit = hasEdit
+        self.editedAt = editedAt
+        self.editor = editor
+        self.s3Key = s3Key
+        self.checksum = checksum
+        self.backedUpAt = backedUpAt
+        self.legacyLocalIdentifier = legacyLocalIdentifier
+        self.identityKind = identityKind
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case uuid, originalFilename, dateCreated, width, height, latitude, longitude
+        case fileSize, type, favorite, title, description, albums, keywords, people
+        case hasEdit, editedAt, editor, s3Key, checksum, backedUpAt
+        case legacyLocalIdentifier, identityKind
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        uuid = try c.decode(String.self, forKey: .uuid)
+        originalFilename = try c.decode(String.self, forKey: .originalFilename)
+        dateCreated = try c.decodeIfPresent(String.self, forKey: .dateCreated)
+        width = try c.decodeIfPresent(Int.self, forKey: .width) ?? 0
+        height = try c.decodeIfPresent(Int.self, forKey: .height) ?? 0
+        latitude = try c.decodeIfPresent(Double.self, forKey: .latitude)
+        longitude = try c.decodeIfPresent(Double.self, forKey: .longitude)
+        fileSize = try c.decodeIfPresent(Int.self, forKey: .fileSize)
+        type = try c.decodeIfPresent(String.self, forKey: .type)
+        favorite = try c.decodeIfPresent(Bool.self, forKey: .favorite) ?? false
+        title = try c.decodeIfPresent(String.self, forKey: .title)
+        description = try c.decodeIfPresent(String.self, forKey: .description)
+        albums = try c.decodeIfPresent([AlbumRef].self, forKey: .albums) ?? []
+        keywords = try c.decodeIfPresent([String].self, forKey: .keywords) ?? []
+        people = try c.decodeIfPresent([PersonRef].self, forKey: .people) ?? []
+        hasEdit = try c.decodeIfPresent(Bool.self, forKey: .hasEdit) ?? false
+        editedAt = try c.decodeIfPresent(String.self, forKey: .editedAt)
+        editor = try c.decodeIfPresent(String.self, forKey: .editor)
+        s3Key = try c.decode(String.self, forKey: .s3Key)
+        checksum = try c.decode(String.self, forKey: .checksum)
+        backedUpAt = try c.decodeIfPresent(String.self, forKey: .backedUpAt) ?? ""
+        legacyLocalIdentifier = try c.decodeIfPresent(String.self, forKey: .legacyLocalIdentifier)
+        identityKind = try c.decodeIfPresent(IdentityKind.self, forKey: .identityKind) ?? .local
+    }
 }
 
 /// Album reference for metadata JSON (matches Deno schema).
@@ -55,7 +146,8 @@ public func buildMetadataJSON(
     checksum: String,
     backedUpAt: String,
 ) -> AssetMetadata {
-    AssetMetadata(
+    let identityKind: IdentityKind = asset.cloudIdentifier != nil ? .cloud : .local
+    return AssetMetadata(
         uuid: asset.uuid,
         originalFilename: asset.originalFilename ?? "unknown",
         dateCreated: asset.creationDate.map { formatISO8601($0) },
@@ -77,5 +169,7 @@ public func buildMetadataJSON(
         s3Key: s3Key,
         checksum: checksum,
         backedUpAt: backedUpAt,
+        legacyLocalIdentifier: asset.legacyLocalIdentifier,
+        identityKind: identityKind,
     )
 }

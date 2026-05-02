@@ -32,6 +32,8 @@ struct MetadataBuilderTests {
         )
 
         #expect(metadata.uuid == "ABC-123")
+        #expect(metadata.identityKind == .local)
+        #expect(metadata.legacyLocalIdentifier == "ABC-123")
         #expect(metadata.originalFilename == "IMG_001.HEIC")
         #expect(metadata.dateCreated == "2024-06-15T10:30:00Z")
         #expect(metadata.width == 4032)
@@ -79,5 +81,74 @@ struct MetadataBuilderTests {
         #expect(metadata.albums.isEmpty)
         #expect(metadata.keywords.isEmpty)
         #expect(metadata.people.isEmpty)
+    }
+
+    @Test func recordsCloudIdentityWhenAssetCarriesCloudIdentifier() {
+        let asset = AssetInfo(
+            identifier: "LOCAL-ABC/L0/001",
+            cloudIdentifier: "CLOUD-XYZ-999",
+            creationDate: nil,
+            kind: .photo,
+            pixelWidth: 1, pixelHeight: 1,
+            latitude: nil, longitude: nil,
+            isFavorite: false,
+        )
+        let metadata = buildMetadataJSON(
+            asset: asset,
+            s3Key: "originals/2024/01/LOCAL-ABC.heic",
+            checksum: "sha256:c",
+            backedUpAt: "2024-01-01T00:00:00Z",
+        )
+        #expect(metadata.uuid == "CLOUD-XYZ-999")
+        #expect(metadata.identityKind == .cloud)
+        #expect(metadata.legacyLocalIdentifier == "LOCAL-ABC")
+    }
+
+    @Test func decodesLegacyMetadataJSONWithoutIdentityFields() throws {
+        let legacyJSON = """
+        {
+            "uuid": "LEGACY-UUID",
+            "originalFilename": "test.heic",
+            "width": 100,
+            "height": 100,
+            "favorite": false,
+            "albums": [],
+            "keywords": [],
+            "people": [],
+            "hasEdit": false,
+            "s3Key": "originals/2024/01/LEGACY-UUID.heic",
+            "checksum": "sha256:c",
+            "backedUpAt": "2024-01-01T00:00:00Z"
+        }
+        """
+        let decoded = try JSONDecoder().decode(AssetMetadata.self, from: Data(legacyJSON.utf8))
+        #expect(decoded.uuid == "LEGACY-UUID")
+        #expect(decoded.identityKind == .local)
+        #expect(decoded.legacyLocalIdentifier == nil)
+    }
+
+    @Test func decodesV2MetadataJSONWithIdentityFields() throws {
+        let v2JSON = """
+        {
+            "uuid": "CLOUD-X",
+            "originalFilename": "test.heic",
+            "width": 100,
+            "height": 100,
+            "favorite": false,
+            "albums": [],
+            "keywords": [],
+            "people": [],
+            "hasEdit": false,
+            "s3Key": "originals/2024/01/legacy-prefix.heic",
+            "checksum": "sha256:c",
+            "backedUpAt": "2024-01-01T00:00:00Z",
+            "legacyLocalIdentifier": "legacy-prefix",
+            "identityKind": "cloud"
+        }
+        """
+        let decoded = try JSONDecoder().decode(AssetMetadata.self, from: Data(v2JSON.utf8))
+        #expect(decoded.uuid == "CLOUD-X")
+        #expect(decoded.identityKind == .cloud)
+        #expect(decoded.legacyLocalIdentifier == "legacy-prefix")
     }
 }
