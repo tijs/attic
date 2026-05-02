@@ -13,7 +13,7 @@ struct StatusCommand: AsyncParsableCommand {
         try await Dependencies.ensureManifestMigrated()
 
         let isTTY = isatty(STDOUT_FILENO) != 0
-        let assets = Dependencies.loadAssets()
+        let assets = await Dependencies.loadAssetsAsync()
 
         let library = StatusStats.computeLibraryStats(assets)
         let types = StatusStats.computeUTIBreakdown(assets)

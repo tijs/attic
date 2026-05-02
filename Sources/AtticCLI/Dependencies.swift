@@ -63,6 +63,10 @@ enum Dependencies {
     }
 
     /// Load assets from PhotoKit + enrich from Photos.sqlite.
+    ///
+    /// On the synchronous path returns assets without cloud identity resolved
+    /// — callers that need cloud-stable uuids should call ``loadAssetsAsync``
+    /// instead. Sync version is preserved for legacy call sites and tests.
     static func loadAssets() -> [AssetInfo] {
         let library = PhotoKitLibrary()
         var assets = library.enumerateAssets()
@@ -73,6 +77,47 @@ enum Dependencies {
         }
 
         return assets
+    }
+
+    /// Load assets and resolve cloud-stable identity for each via PhotoKit's
+    /// `cloudIdentifierMappings` API. Falls back to local UUID for assets
+    /// without a cloud counterpart. Logs a warning when more than 5% of
+    /// assets fail resolution — a strong signal that iCloud Photos is
+    /// disabled or PhotoKit consent is incomplete.
+    static func loadAssetsAsync() async -> [AssetInfo] {
+        let assets = loadAssets()
+        guard !assets.isEmpty else { return assets }
+
+        let resolver = PhotoKitCloudIdentityResolver()
+        let identifiers = assets.map(\.identifier)
+        let mapping = await resolver.resolve(localIdentifiers: identifiers)
+
+        var unresolved = 0
+        let resolved: [AssetInfo] = assets.map { asset in
+            if let result = mapping[asset.identifier] {
+                if case .cloud = result {
+                    return asset.withResolvedCloudIdentity(result)
+                }
+                unresolved += 1
+            } else {
+                unresolved += 1
+            }
+            return asset
+        }
+
+        if !assets.isEmpty {
+            let pct = Double(unresolved) / Double(assets.count) * 100
+            if pct > 5.0 {
+                FileHandle.standardError.write(Data("""
+                Warning: \(unresolved) of \(assets.count) assets (\(String(format: "%.1f", pct))%) \
+                have no cloud identifier. Cross-device backup recognition will not work for those assets. \
+                Verify iCloud Photos is enabled and PhotoKit access is granted to attic.
+
+                """.utf8))
+            }
+        }
+
+        return resolved
     }
 
     /// Load the set of asset UUIDs whose originals are cached locally (fast

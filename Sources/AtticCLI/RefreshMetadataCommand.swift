@@ -18,7 +18,7 @@ struct RefreshMetadataCommand: AsyncParsableCommand {
 
         let (_, s3, manifestStore) = try Dependencies.makeBackupDeps()
         let manifest = try await Dependencies.loadManifest(store: manifestStore)
-        let assets = Dependencies.loadAssets()
+        let assets = await Dependencies.loadAssetsAsync()
 
         let options = RefreshMetadataOptions(concurrency: concurrency, dryRun: dryRun)
 

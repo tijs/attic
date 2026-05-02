@@ -35,7 +35,7 @@ struct BackupCommand: AsyncParsableCommand {
         var manifest = try await Dependencies.loadManifest(store: manifestStore)
 
         spinner?.updateStatus("Scanning Photos library...")
-        let assets = Dependencies.loadAssets()
+        let assets = await Dependencies.loadAssetsAsync()
 
         let assetKind: AssetKind? = switch type?.lowercased() {
         case "photo": .photo
