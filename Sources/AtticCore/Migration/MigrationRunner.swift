@@ -370,69 +370,103 @@ public struct MigrationRunner: Sendable {
     private func rewriteMetadataJSONs(
         v2: Manifest,
         losers: [String],
+        concurrency: Int = 16,
     ) async throws -> (rewritten: Int, missing: Int) {
-        var rewritten = 0
-        var missing = 0
-
         // Step 1: drop loser metadata keys first so a re-write of a winner
         // sharing none of the loser's bytes cannot accidentally overwrite.
         // Failures are logged but non-fatal — the orphan can be cleaned up
         // by a future `attic verify --reconcile` pass.
-        for loser in losers {
-            let oldKey = try S3Paths.metadataKey(uuid: loser)
-            do {
-                try await s3.deleteObject(key: oldKey)
-            } catch {
-                progress?("Warning: could not delete loser metadata key \(oldKey): \(error)")
+        await withTaskGroup(of: Void.self) { group in
+            for loser in losers {
+                group.addTask {
+                    guard let oldKey = try? S3Paths.metadataKey(uuid: loser) else { return }
+                    do {
+                        try await s3.deleteObject(key: oldKey)
+                    } catch {
+                        progress?("Warning: could not delete loser metadata key \(oldKey): \(error)")
+                    }
+                }
             }
         }
 
-        // Step 2: for each v2 cloud entry, copy its winner-old metadata to
-        // the new cloud-keyed location. Idempotent — skip if already done.
-        for (cloudId, entry) in v2.entries {
+        // Step 2: collect rewrite-eligible v2 entries. Each one is independent —
+        // HEAD probe, GET old, PUT new, DELETE old per asset. Serial loops at
+        // ~100ms RTT × 4 ops × 27k assets push runtime to multiple hours; a
+        // bounded task group gets that down to ~10–15 minutes on the same link.
+        let candidates: [(cloudId: String, legacy: String)] = v2.entries.compactMap { cloudId, entry in
             guard entry.identityKind == .cloud,
                   let legacy = entry.legacyLocalIdentifier,
                   legacy != cloudId
-            else { continue }
-
-            let oldKey = try S3Paths.metadataKey(uuid: legacy)
-            let newKey = try S3Paths.metadataKey(uuid: cloudId)
-
-            if try await s3.headObject(key: newKey) != nil {
-                // Already migrated on a prior partial run.
-                continue
-            }
-
-            let oldData: Data
-            do {
-                oldData = try await s3.getObject(key: oldKey)
-            } catch {
-                // Old metadata JSON was never uploaded (or already deleted by
-                // prior partial run). Soft-skip rather than fail migration.
-                missing += 1
-                continue
-            }
-
-            let updated = try rewriteMetadataPayload(
-                oldData,
-                cloudUUID: cloudId,
-                legacyLocalIdentifier: legacy,
-            )
-
-            try await s3.putObject(
-                key: newKey,
-                body: updated,
-                contentType: "application/json",
-            )
-            do {
-                try await s3.deleteObject(key: oldKey)
-            } catch {
-                progress?("Warning: could not delete migrated metadata key \(oldKey): \(error)")
-            }
-            rewritten += 1
+            else { return nil }
+            return (cloudId, legacy)
         }
 
-        return (rewritten, missing)
+        let counter = RewriteCounter()
+        let total = candidates.count
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            var cursor = 0
+            let initial = min(concurrency, candidates.count)
+            for _ in 0 ..< initial {
+                let candidate = candidates[cursor]
+                cursor += 1
+                group.addTask { try await rewriteSingle(candidate, counter: counter, total: total) }
+            }
+            while try await group.next() != nil {
+                if cursor < candidates.count {
+                    let candidate = candidates[cursor]
+                    cursor += 1
+                    group.addTask { try await rewriteSingle(candidate, counter: counter, total: total) }
+                }
+            }
+        }
+
+        return await (counter.rewrittenCount, counter.missingCount)
+    }
+
+    private func rewriteSingle(
+        _ candidate: (cloudId: String, legacy: String),
+        counter: RewriteCounter,
+        total: Int,
+    ) async throws {
+        let oldKey = try S3Paths.metadataKey(uuid: candidate.legacy)
+        let newKey = try S3Paths.metadataKey(uuid: candidate.cloudId)
+
+        if try await s3.headObject(key: newKey) != nil {
+            // Already migrated on a prior partial run.
+            return
+        }
+
+        let oldData: Data
+        do {
+            oldData = try await s3.getObject(key: oldKey)
+        } catch {
+            // Old metadata JSON was never uploaded (or already deleted by
+            // prior partial run). Soft-skip rather than fail migration.
+            await counter.incMissing()
+            return
+        }
+
+        let updated = try rewriteMetadataPayload(
+            oldData,
+            cloudUUID: candidate.cloudId,
+            legacyLocalIdentifier: candidate.legacy,
+        )
+
+        try await s3.putObject(
+            key: newKey,
+            body: updated,
+            contentType: "application/json",
+        )
+        do {
+            try await s3.deleteObject(key: oldKey)
+        } catch {
+            progress?("Warning: could not delete migrated metadata key \(oldKey): \(error)")
+        }
+        let n = await counter.incRewritten()
+        if n % 250 == 0 || n == total {
+            progress?("Rewrote \(n)/\(total) metadata JSONs…")
+        }
     }
 
     /// Rewrite identity fields on a metadata JSON payload while preserving
@@ -489,5 +523,22 @@ public struct MigrationRunner: Sendable {
             metadataMissing: metadataMissing,
             totalEntries: totalEntries,
         )
+    }
+}
+
+/// Thread-safe counter for parallel metadata-JSON rewrites. Returning the
+/// post-increment count lets callers emit periodic progress without a second
+/// load.
+private actor RewriteCounter {
+    private(set) var rewrittenCount = 0
+    private(set) var missingCount = 0
+
+    func incRewritten() -> Int {
+        rewrittenCount += 1
+        return rewrittenCount
+    }
+
+    func incMissing() {
+        missingCount += 1
     }
 }

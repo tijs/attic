@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.0.0-beta.11
+
+Performance: `attic migrate` rewrites per-asset metadata JSONs in parallel.
+
+The metadata-rewrite phase used a serial loop — for each cloud-migrated
+entry, four sequential S3 round trips (HEAD probe, GET old, PUT new,
+DELETE old). On a 27k-asset library across a residential link to a
+B2/R2/Wasabi-class endpoint, that meant 2–4 hours just for the rewrite
+phase.
+
+Both stages now run in a bounded `withThrowingTaskGroup` at concurrency
+16 (same shape as the backup pipeline):
+
+- Loser metadata deletions fan out in parallel; failures stay non-fatal
+  and surface as warnings, just like before.
+- Cloud-entry rewrites use a cursor-driven task group so the queue stays
+  capped at 16 in-flight requests regardless of library size.
+- A periodic progress callback emits "Rewrote N/total metadata JSONs…"
+  every 250 entries and once at completion, so a long migration no
+  longer looks frozen.
+
+Expected runtime on a 27k-asset library drops from hours to ~10–15
+minutes against a typical S3-compatible endpoint. Failure semantics are
+unchanged: a `PUT` error still aborts the migration, and re-running picks
+up where it left off (HEAD probe short-circuits already-migrated keys).
+
 ## 1.0.0-beta.10
 
 Second hotfix on top of `1.0.0-beta.9`. Beta.9 widened the validator

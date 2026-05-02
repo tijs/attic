@@ -69,6 +69,62 @@ struct MigrationRunnerTests {
         #expect(!oldMetaExists)
     }
 
+    @Test func rewritesAllEntriesAtScale() async throws {
+        // Verify the bounded TaskGroup correctly handles a candidate list
+        // larger than the concurrency cap (16). Beta.10 and earlier rewrote
+        // serially, so a 27k-asset library took hours; this guards the
+        // parallel path against off-by-one cursor bugs that would silently
+        // skip entries past the initial fan-out.
+        let count = 50
+        let s3 = MockS3Provider()
+        var v1Entries: [(String, String)] = []
+        var resolverMap: [String: CloudMappingResult] = [:]
+        var library: [(bareUUID: String, fullLocalIdentifier: String)] = []
+        for i in 0 ..< count {
+            let local = String(format: "L%03d", i)
+            let cloud = "CLOUD-\(local)"
+            let s3Key = "originals/2024/01/\(local).heic"
+            v1Entries.append((local, s3Key))
+            try await s3.putObject(
+                key: "metadata/assets/\(local).json",
+                body: Support.metadataJSON(uuid: local, s3Key: s3Key),
+                contentType: "application/json",
+            )
+            resolverMap["\(local)/L0/001"] = .cloud(cloud)
+            library.append((bareUUID: local, fullLocalIdentifier: "\(local)/L0/001"))
+        }
+        try await s3.putObject(
+            key: manifestS3Key,
+            body: Support.v1ManifestData(entries: v1Entries),
+            contentType: "application/json",
+        )
+
+        let runner = Support.makeRunner(
+            s3: s3,
+            resolver: Support.MockResolver(resolverMap),
+            library: library,
+        )
+
+        let report = try await runner.run()
+
+        #expect(report.cloudMigrated == count)
+        #expect(report.metadataRewritten == count)
+        #expect(report.metadataMissing == 0)
+
+        let manifest = try await S3ManifestStore(s3: s3).load()
+        #expect(manifest.entries.count == count)
+        for i in 0 ..< count {
+            let local = String(format: "L%03d", i)
+            let cloud = "CLOUD-\(local)"
+            #expect(manifest.entries[cloud]?.identityKind == .cloud)
+            #expect(manifest.entries[cloud]?.legacyLocalIdentifier == local)
+            let newMeta = try await s3.headObject(key: "metadata/assets/\(cloud).json")
+            #expect(newMeta != nil, "missing rewritten metadata for index \(i)")
+            let oldMeta = try await s3.headObject(key: "metadata/assets/\(local).json")
+            #expect(oldMeta == nil, "leftover legacy metadata for index \(i)")
+        }
+    }
+
     @Test func noOpOnAlreadyV2Manifest() async throws {
         let s3 = MockS3Provider()
         var v2 = Manifest()
