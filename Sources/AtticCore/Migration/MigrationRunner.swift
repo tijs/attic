@@ -278,7 +278,7 @@ public struct MigrationRunner: Sendable {
         progress?("Writing staged manifest.v2.json…")
         try await s3.putObject(
             key: manifestV2StagingS3Key,
-            body: try v2.encoded(),
+            body: v2.encoded(),
             contentType: "application/json",
         )
 
@@ -329,7 +329,7 @@ public struct MigrationRunner: Sendable {
         }
         try await s3.putObject(
             key: manifestV1BackupS3Key,
-            body: try v1.encoded(sortedKeys: true),
+            body: v1.encoded(sortedKeys: true),
             contentType: "application/json",
         )
     }
@@ -457,7 +457,6 @@ public struct MigrationRunner: Sendable {
             options: [.prettyPrinted, .sortedKeys],
         )
     }
-
 
     private func migrateLocalRetryQueue(mapping: [String: CloudMappingResult]) throws {
         guard let queue = retryStore.load() else { return }

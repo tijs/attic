@@ -11,7 +11,7 @@ struct MigrationRunnerTests {
         let s3 = MockS3Provider()
         try await s3.putObject(
             key: manifestS3Key,
-            body: try Support.v1ManifestData(entries: [
+            body: Support.v1ManifestData(entries: [
                 ("A", "originals/2024/01/A.heic"),
                 ("B", "originals/2024/01/B.heic"),
             ]),
@@ -81,7 +81,7 @@ struct MigrationRunnerTests {
         )
         try await s3.putObject(
             key: manifestS3Key,
-            body: try v2.encoded(),
+            body: v2.encoded(),
             contentType: "application/json",
         )
 
@@ -98,7 +98,7 @@ struct MigrationRunnerTests {
         let s3 = MockS3Provider()
         try await s3.putObject(
             key: manifestS3Key,
-            body: try Support.v1ManifestData(entries: [("A", "originals/2024/01/A.heic")]),
+            body: Support.v1ManifestData(entries: [("A", "originals/2024/01/A.heic")]),
             contentType: "application/json",
         )
         try await s3.putObject(
@@ -132,7 +132,7 @@ struct MigrationRunnerTests {
         let s3 = MockS3Provider()
         try await s3.putObject(
             key: manifestS3Key,
-            body: try Support.v1ManifestData(entries: [
+            body: Support.v1ManifestData(entries: [
                 ("A", "originals/2024/01/A.heic"),
                 ("B", "originals/2024/01/B.heic"),
             ]),
@@ -173,7 +173,7 @@ struct MigrationRunnerTests {
         let s3 = MockS3Provider()
         try await s3.putObject(
             key: manifestS3Key,
-            body: try Support.v1ManifestData(entries: [("A", "originals/2024/01/A.heic")]),
+            body: Support.v1ManifestData(entries: [("A", "originals/2024/01/A.heic")]),
             contentType: "application/json",
         )
         let resolver = Support.MockResolver(["A/L0/001": .cloud("CLOUD-A")])
@@ -197,7 +197,7 @@ struct MigrationRunnerTests {
         let s3 = MockS3Provider()
         try await s3.putObject(
             key: manifestS3Key,
-            body: try Support.v1ManifestData(entries: [("A", "originals/2024/01/A.heic")]),
+            body: Support.v1ManifestData(entries: [("A", "originals/2024/01/A.heic")]),
             contentType: "application/json",
         )
         try await s3.putObject(
@@ -246,7 +246,7 @@ struct MigrationRunnerTests {
         let s3 = MockS3Provider()
         try await s3.putObject(
             key: manifestS3Key,
-            body: try Support.v1ManifestData(entries: [
+            body: Support.v1ManifestData(entries: [
                 ("A", "originals/2024/01/A.heic"),
                 ("DELETED", "originals/2024/01/DELETED.heic"),
             ]),

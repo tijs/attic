@@ -44,13 +44,12 @@ public func runRebuildManifest(
             // be the cloud id; otherwise assume `.local`. Without this
             // inference, rebuild after migration would re-stamp every entry
             // as `.local` and the v1 → v2 detection logic would never fire.
-            let inferredKind: IdentityKind
-            if let kind = parsed.identityKind {
-                inferredKind = kind
+            let inferredKind: IdentityKind = if let kind = parsed.identityKind {
+                kind
             } else if let legacy = parsed.legacyLocalIdentifier, legacy != parsed.uuid {
-                inferredKind = .cloud
+                .cloud
             } else {
-                inferredKind = .local
+                .local
             }
 
             manifest.markBackedUp(

@@ -65,7 +65,7 @@ public func migrateManifestToV2(
 
     for (oldKey, entry) in manifest.entries {
         switch mapping[oldKey] {
-        case .cloud(let cloudId):
+        case let .cloud(cloudId):
             let migrated = ManifestEntry(
                 uuid: cloudId,
                 s3Key: entry.s3Key,
@@ -114,7 +114,7 @@ public func migrateManifestToV2(
             )
             result.localFallback += 1
             result.multipleFoundCollisions.append(oldKey)
-        case .error(let msg):
+        case let .error(msg):
             newEntries[oldKey] = ManifestEntry(
                 uuid: oldKey,
                 s3Key: entry.s3Key,
@@ -161,7 +161,7 @@ public func migrateRetryQueueToV2(
     for entry in queue.entries {
         let canonical: String
         switch mapping[entry.uuid] {
-        case .cloud(let cloudId):
+        case let .cloud(cloudId):
             canonical = cloudId
             if let existing = byCanonical[cloudId] {
                 if entry.lastFailedAt > existing.lastFailedAt {
@@ -190,7 +190,7 @@ public func migrateRetryQueueToV2(
             canonical = entry.uuid
             result.localFallback += 1
             result.multipleFoundCollisions.append(entry.uuid)
-        case .error(let msg):
+        case let .error(msg):
             canonical = entry.uuid
             result.localFallback += 1
             result.errors[entry.uuid] = msg
@@ -228,7 +228,7 @@ public func migrateUnavailableStoreToV2(
     for (oldKey, entry) in store.entries {
         let canonical: String
         switch mapping[oldKey] {
-        case .cloud(let cloudId):
+        case let .cloud(cloudId):
             canonical = cloudId
             if let existing = newEntries[cloudId] {
                 if entry.lastAttemptedAt > existing.lastAttemptedAt {
@@ -257,7 +257,7 @@ public func migrateUnavailableStoreToV2(
             canonical = oldKey
             result.localFallback += 1
             result.multipleFoundCollisions.append(oldKey)
-        case .error(let msg):
+        case let .error(msg):
             canonical = oldKey
             result.localFallback += 1
             result.errors[oldKey] = msg

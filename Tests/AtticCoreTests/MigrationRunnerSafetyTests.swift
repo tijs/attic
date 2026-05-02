@@ -29,7 +29,7 @@ struct MigrationRunnerSafetyTests {
         let v1 = Manifest(version: 1, entries: dict)
         try await s3.putObject(
             key: manifestS3Key,
-            body: try v1.encoded(),
+            body: v1.encoded(),
             contentType: "application/json",
         )
         try await s3.putObject(
@@ -72,7 +72,7 @@ struct MigrationRunnerSafetyTests {
         let s3 = MockS3Provider()
         try await s3.putObject(
             key: manifestS3Key,
-            body: try Support.v1ManifestData(entries: [("A", "originals/2024/01/A.heic")]),
+            body: Support.v1ManifestData(entries: [("A", "originals/2024/01/A.heic")]),
             contentType: "application/json",
         )
         let payload = """
@@ -117,7 +117,7 @@ struct MigrationRunnerSafetyTests {
         let s3 = MockS3Provider()
         try await s3.putObject(
             key: manifestS3Key,
-            body: try Support.v1ManifestData(entries: [
+            body: Support.v1ManifestData(entries: [
                 ("A", "originals/2024/01/A.heic"),
                 ("B", "originals/2024/01/B.heic"),
             ]),
@@ -158,7 +158,7 @@ struct MigrationRunnerSafetyTests {
         let s3 = MockS3Provider()
         try await s3.putObject(
             key: manifestS3Key,
-            body: try Support.v1ManifestData(entries: [
+            body: Support.v1ManifestData(entries: [
                 ("A", "originals/2024/01/A.heic"),
                 ("B", "originals/2024/01/B.heic"),
             ]),
@@ -194,7 +194,7 @@ struct MigrationRunnerSafetyTests {
         let s3 = MockS3Provider()
         try await s3.putObject(
             key: manifestS3Key,
-            body: try Support.v1ManifestData(entries: [("A", "originals/2024/01/A.heic")]),
+            body: Support.v1ManifestData(entries: [("A", "originals/2024/01/A.heic")]),
             contentType: "application/json",
         )
         let resolver = Support.MockResolver(["A/L0/001": .error("transient")])
@@ -216,7 +216,7 @@ struct MigrationRunnerSafetyTests {
         let s3 = MockS3Provider()
         try await s3.putObject(
             key: manifestS3Key,
-            body: try Support.v1ManifestData(entries: [("A", "originals/2024/01/A.heic")]),
+            body: Support.v1ManifestData(entries: [("A", "originals/2024/01/A.heic")]),
             contentType: "application/json",
         )
         let foreignBody = MigrationLockBody(
@@ -226,7 +226,7 @@ struct MigrationRunnerSafetyTests {
         )
         try await s3.putObject(
             key: migrationLockS3Key,
-            body: try JSONEncoder().encode(foreignBody),
+            body: JSONEncoder().encode(foreignBody),
             contentType: "application/json",
         )
 
@@ -241,7 +241,7 @@ struct MigrationRunnerSafetyTests {
             _ = try await runner.run()
             Issue.record("expected MigrationLockError.heldElsewhere")
         } catch let error as MigrationLockError {
-            if case .heldElsewhere(let body) = error {
+            if case let .heldElsewhere(body) = error {
                 #expect(body.machineId == "other-mac")
             }
         }
@@ -254,7 +254,7 @@ struct MigrationRunnerSafetyTests {
         let s3 = MockS3Provider()
         try await s3.putObject(
             key: manifestS3Key,
-            body: try Support.v1ManifestData(entries: [("A", "originals/2024/01/A.heic")]),
+            body: Support.v1ManifestData(entries: [("A", "originals/2024/01/A.heic")]),
             contentType: "application/json",
         )
         try await s3.putObject(
@@ -268,7 +268,7 @@ struct MigrationRunnerSafetyTests {
         )
         try await s3.putObject(
             key: migrationLockS3Key,
-            body: try JSONEncoder().encode(staleBody),
+            body: JSONEncoder().encode(staleBody),
             contentType: "application/json",
         )
 

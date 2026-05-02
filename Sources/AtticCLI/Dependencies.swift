@@ -225,7 +225,6 @@ enum Dependencies {
     }
 }
 
-
 enum CLIError: Error, CustomStringConvertible {
     case notInitialized
     case migrationRequired

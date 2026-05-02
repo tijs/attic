@@ -17,7 +17,9 @@ struct ManifestMigrationTests {
 
     private func v1Manifest(_ entries: [ManifestEntry]) -> Manifest {
         var dict: [String: ManifestEntry] = [:]
-        for e in entries { dict[e.uuid] = e }
+        for e in entries {
+            dict[e.uuid] = e
+        }
         return Manifest(version: 1, entries: dict)
     }
 

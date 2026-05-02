@@ -77,7 +77,7 @@ public struct MigrationLock: Sendable {
         )
         try await s3.putObject(
             key: migrationLockS3Key,
-            body: try JSONEncoder().encode(body),
+            body: JSONEncoder().encode(body),
             contentType: "application/json",
         )
         return body

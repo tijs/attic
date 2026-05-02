@@ -18,25 +18,43 @@ enum MigrationRunnerTestSupport {
             return await read(localIdentifiers)
         }
 
-        private func tick() { calls += 1 }
+        private func tick() {
+            calls += 1
+        }
+
         private func read(_ ids: [String]) -> [String: CloudMappingResult] {
             var out: [String: CloudMappingResult] = [:]
-            for id in ids { out[id] = mappings[id] ?? .notFound }
+            for id in ids {
+                out[id] = mappings[id] ?? .notFound
+            }
             return out
         }
     }
 
     final class InMemoryRetryStore: RetryQueueProviding, @unchecked Sendable {
         var queue: RetryQueue?
-        func load() -> RetryQueue? { queue }
-        func save(_ q: RetryQueue) throws { queue = q }
-        func clear() throws { queue = nil }
+        func load() -> RetryQueue? {
+            queue
+        }
+
+        func save(_ q: RetryQueue) throws {
+            queue = q
+        }
+
+        func clear() throws {
+            queue = nil
+        }
     }
 
     final class InMemoryUnavailableStore: UnavailableAssetStoring, @unchecked Sendable {
         var assets: UnavailableAssets = .init()
-        func load() -> UnavailableAssets { assets }
-        func save(_ a: UnavailableAssets) throws { assets = a }
+        func load() -> UnavailableAssets {
+            assets
+        }
+
+        func save(_ a: UnavailableAssets) throws {
+            assets = a
+        }
     }
 
     static func v1ManifestData(entries: [(uuid: String, key: String)]) throws -> Data {

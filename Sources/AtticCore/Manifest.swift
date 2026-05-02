@@ -88,7 +88,9 @@ public struct Manifest: Codable, Sendable {
     }
 
     /// True for legacy manifests that have not been migrated to v2.
-    public var isV1: Bool { version < currentManifestVersion }
+    public var isV1: Bool {
+        version < currentManifestVersion
+    }
 
     /// Check whether an asset has been backed up.
     public func isBackedUp(_ uuid: String) -> Bool {

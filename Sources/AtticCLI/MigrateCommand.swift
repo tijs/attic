@@ -28,10 +28,16 @@ struct MigrateCommand: AsyncParsableCommand {
     @Flag(name: .long, help: "Reset any leftover staging key or stale lock from a prior partial run.")
     var repair: Bool = false
 
-    @Flag(name: .long, help: "Bypass the resolver-anomaly guard. Use only after verifying iCloud Photos and PhotoKit access.")
+    @Flag(
+        name: .long,
+        help: "Bypass the resolver-anomaly guard. Use only after verifying iCloud Photos and PhotoKit access.",
+    )
     var force: Bool = false
 
-    @Flag(name: .long, help: "Emit the migration report as a single JSON object on stdout (suppresses progress output).")
+    @Flag(
+        name: .long,
+        help: "Emit the migration report as a single JSON object on stdout (suppresses progress output).",
+    )
     var json: Bool = false
 
     func run() async throws {
@@ -40,7 +46,7 @@ struct MigrateCommand: AsyncParsableCommand {
         if !dryRun, repair {
             // Surface what's about to be cleared so the user catches the
             // "stale" lock that is actually a different Mac mid-flight.
-            let summary = (try? await Dependencies.describeMigrationCleanupState()) ?? ""
+            let summary = await (try? Dependencies.describeMigrationCleanupState()) ?? ""
             if !summary.isEmpty {
                 print("Repair: pre-delete state:")
                 print(summary)
@@ -91,5 +97,4 @@ struct MigrateCommand: AsyncParsableCommand {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return trimmed == "y" || trimmed == "yes"
     }
-
 }
