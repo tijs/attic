@@ -118,6 +118,10 @@ Uses Swift Testing framework (`@Test`, `#expect`, `@Suite`).
 - [Architecture](docs/architecture.md) — pipeline, reader, manifest, interfaces
 - [Asset Metadata](docs/metadata.md) — per-asset JSON schema uploaded to S3
 - [Cloud-identity migration](docs/migration-cloud-identity.md) — v1 → v2 one-time migration
+- `docs/solutions/` — documented solutions to past problems (bugs, best
+  practices, workflow patterns), organized by category with YAML frontmatter
+  (`module`, `tags`, `problem_type`). Relevant when implementing or
+  debugging in documented areas.
 
 ## Releasing
 
