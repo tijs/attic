@@ -4,7 +4,7 @@ import LadderKit
 import Testing
 
 @Suite("CloudIdentityMigration — manifest")
-struct ManifestMigrationTests {
+struct CloudIdentityManifestMigrationTests {
     private func entry(uuid: String, backedUpAt: String) -> ManifestEntry {
         ManifestEntry(
             uuid: uuid,
