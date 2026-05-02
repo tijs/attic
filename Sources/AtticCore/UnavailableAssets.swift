@@ -11,6 +11,10 @@ public struct UnavailableAsset: Codable, Sendable, Equatable {
     public var firstFailedAt: String
     public var lastAttemptedAt: String
     public var attempts: Int
+    /// The device-local UUID prefix that originally identified this asset
+    /// before migration to a cloud identifier. Nil for entries created before
+    /// the v2 migration shipped or for entries that never had a cloud id.
+    public var legacyLocalIdentifier: String?
 
     public init(
         uuid: String,
@@ -19,6 +23,7 @@ public struct UnavailableAsset: Codable, Sendable, Equatable {
         firstFailedAt: String,
         lastAttemptedAt: String,
         attempts: Int,
+        legacyLocalIdentifier: String? = nil,
     ) {
         self.uuid = uuid
         self.filename = filename
@@ -26,6 +31,34 @@ public struct UnavailableAsset: Codable, Sendable, Equatable {
         self.firstFailedAt = firstFailedAt
         self.lastAttemptedAt = lastAttemptedAt
         self.attempts = attempts
+        self.legacyLocalIdentifier = legacyLocalIdentifier
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case uuid, filename, reason, firstFailedAt, lastAttemptedAt, attempts
+        case legacyLocalIdentifier
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        uuid = try c.decode(String.self, forKey: .uuid)
+        filename = try c.decodeIfPresent(String.self, forKey: .filename)
+        reason = try c.decode(String.self, forKey: .reason)
+        firstFailedAt = try c.decode(String.self, forKey: .firstFailedAt)
+        lastAttemptedAt = try c.decode(String.self, forKey: .lastAttemptedAt)
+        attempts = try c.decode(Int.self, forKey: .attempts)
+        legacyLocalIdentifier = try c.decodeIfPresent(String.self, forKey: .legacyLocalIdentifier)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(uuid, forKey: .uuid)
+        try c.encodeIfPresent(filename, forKey: .filename)
+        try c.encode(reason, forKey: .reason)
+        try c.encode(firstFailedAt, forKey: .firstFailedAt)
+        try c.encode(lastAttemptedAt, forKey: .lastAttemptedAt)
+        try c.encode(attempts, forKey: .attempts)
+        try c.encodeIfPresent(legacyLocalIdentifier, forKey: .legacyLocalIdentifier)
     }
 }
 

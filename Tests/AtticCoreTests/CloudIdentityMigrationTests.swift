@@ -173,6 +173,7 @@ struct QueueMigrationTests {
         #expect(migrated.entries[0].uuid == "CLOUD-A")
         #expect(migrated.entries[0].attempts == 3)
         #expect(migrated.entries[0].lastMessage == "timeout")
+        #expect(migrated.entries[0].legacyLocalIdentifier == "A")
         #expect(report.cloudMigrated == 1)
     }
 
@@ -192,6 +193,7 @@ struct QueueMigrationTests {
         #expect(migrated.entries["CLOUD-A"]?.firstFailedAt == "2024-01-01")
         #expect(migrated.entries["CLOUD-A"]?.attempts == 2)
         #expect(migrated.entries["CLOUD-A"]?.reason == "shared-album-derivative-unreachable")
+        #expect(migrated.entries["CLOUD-A"]?.legacyLocalIdentifier == "A")
         #expect(report.cloudMigrated == 1)
     }
 

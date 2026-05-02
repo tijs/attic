@@ -167,6 +167,7 @@ public func migrateRetryQueueToV2(
                         firstFailedAt: entry.firstFailedAt,
                         lastFailedAt: entry.lastFailedAt,
                         lastMessage: entry.lastMessage,
+                        legacyLocalIdentifier: entry.uuid,
                     )
                 }
                 continue
@@ -196,6 +197,7 @@ public func migrateRetryQueueToV2(
             firstFailedAt: entry.firstFailedAt,
             lastFailedAt: entry.lastFailedAt,
             lastMessage: entry.lastMessage,
+            legacyLocalIdentifier: entry.uuid,
         )
     }
 
@@ -228,6 +230,7 @@ public func migrateUnavailableStoreToV2(
                         firstFailedAt: entry.firstFailedAt,
                         lastAttemptedAt: entry.lastAttemptedAt,
                         attempts: entry.attempts,
+                        legacyLocalIdentifier: oldKey,
                     )
                 }
                 continue
@@ -257,6 +260,7 @@ public func migrateUnavailableStoreToV2(
             firstFailedAt: entry.firstFailedAt,
             lastAttemptedAt: entry.lastAttemptedAt,
             attempts: entry.attempts,
+            legacyLocalIdentifier: oldKey,
         )
     }
 

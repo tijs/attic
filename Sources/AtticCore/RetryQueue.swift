@@ -10,6 +10,10 @@ public struct RetryEntry: Codable, Sendable, Equatable {
     public var firstFailedAt: String
     public var lastFailedAt: String
     public var lastMessage: String?
+    /// The device-local UUID prefix that originally identified this asset
+    /// before migration to a cloud identifier. Nil for entries created before
+    /// the v2 migration shipped or for entries that never had a cloud id.
+    public var legacyLocalIdentifier: String?
 
     public init(
         uuid: String,
@@ -18,6 +22,7 @@ public struct RetryEntry: Codable, Sendable, Equatable {
         firstFailedAt: String,
         lastFailedAt: String,
         lastMessage: String? = nil,
+        legacyLocalIdentifier: String? = nil,
     ) {
         self.uuid = uuid
         self.classification = classification
@@ -25,6 +30,34 @@ public struct RetryEntry: Codable, Sendable, Equatable {
         self.firstFailedAt = firstFailedAt
         self.lastFailedAt = lastFailedAt
         self.lastMessage = lastMessage
+        self.legacyLocalIdentifier = legacyLocalIdentifier
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case uuid, classification, attempts, firstFailedAt, lastFailedAt, lastMessage
+        case legacyLocalIdentifier
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        uuid = try c.decode(String.self, forKey: .uuid)
+        classification = try c.decodeIfPresent(ExportClassification.self, forKey: .classification) ?? .other
+        attempts = try c.decode(Int.self, forKey: .attempts)
+        firstFailedAt = try c.decode(String.self, forKey: .firstFailedAt)
+        lastFailedAt = try c.decode(String.self, forKey: .lastFailedAt)
+        lastMessage = try c.decodeIfPresent(String.self, forKey: .lastMessage)
+        legacyLocalIdentifier = try c.decodeIfPresent(String.self, forKey: .legacyLocalIdentifier)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(uuid, forKey: .uuid)
+        try c.encode(classification, forKey: .classification)
+        try c.encode(attempts, forKey: .attempts)
+        try c.encode(firstFailedAt, forKey: .firstFailedAt)
+        try c.encode(lastFailedAt, forKey: .lastFailedAt)
+        try c.encodeIfPresent(lastMessage, forKey: .lastMessage)
+        try c.encodeIfPresent(legacyLocalIdentifier, forKey: .legacyLocalIdentifier)
     }
 }
 
