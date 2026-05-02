@@ -7,3 +7,9 @@ import Foundation
 func formatISO8601(_ date: Date) -> String {
     date.formatted(.iso8601)
 }
+
+/// Parse an ISO 8601 timestamp produced by ``formatISO8601(_:)``. Returns
+/// nil for malformed input.
+func parseISO8601(_ string: String) -> Date? {
+    try? Date(string, strategy: .iso8601)
+}

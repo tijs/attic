@@ -1,5 +1,60 @@
 # Changelog
 
+## 1.0.0-beta.8
+
+Cloud-stable identity migration. The on-S3 manifest and per-asset metadata
+JSONs are re-keyed from device-local PhotoKit identifiers to
+`PHCloudIdentifier` so the same backup can be recognized by attic running
+on any Mac signed into the same iCloud Photos library. Run `attic migrate`
+once on the Mac that originally produced the backup.
+
+### Identity model
+- `Manifest` v2: per-entry `identityKind` (`.cloud` or `.local`) and
+  `legacyLocalIdentifier`. v1 manifests decode without these fields and
+  default to `.local`. Tampered or future identityKind values fall back to
+  `.local` rather than failing the whole manifest decode.
+- `RetryQueue` and `UnavailableAssets` carry `legacyLocalIdentifier` for
+  forensics after re-keying.
+- `manifest.v1.json` is preserved on S3 as a recovery snapshot before the
+  swap. `manifest.v2.json` is a temporary staging key, deleted after a
+  clean swap.
+- Cross-machine migration coordination via `migration.lock` (TTL = 30
+  minutes). Concurrent `attic migrate` invocations on a second Mac fail
+  loudly; stale locks are reclaimable with `attic migrate --repair`.
+
+### Safety
+- Resolver-anomaly guards: migration aborts before any v2 write if PhotoKit
+  returns 0 cloud identifiers for the library, or if at least 95% of
+  entries fall back to `.local`. The likely root cause is iCloud Photos
+  disabled or PhotoKit consent revoked. `attic migrate --force` overrides
+  the guard once the user has manually verified the environment.
+- LadderKit `PhotoKitCloudIdentityResolver` now requests `.readWrite`
+  authorization explicitly (required by `cloudIdentifierMappings`).
+- Local retry-queue and unavailable-store mutations only happen *after* the
+  S3 manifest swap. A failed swap leaves both stores at v1, so a retry
+  starts cleanly.
+- `rewriteMetadataPayload` keeps unknown / future / Deno-written keys
+  verbatim — only identity fields are touched.
+- Re-key collisions (two old uuids → same cloud id) now keep the most
+  recently backed-up entry and emit the loser's old uuid in the report so
+  the runner deletes its orphaned metadata key.
+- Tolerant identityKind decode: a bad row no longer takes down the whole
+  manifest.
+
+### Breaking changes
+- `S3Providing.deleteObject(key:)` is now part of the protocol. External
+  conformers built against earlier betas inherit a default extension impl
+  that throws `S3OperationError.unsupported` so they continue to compile,
+  but should override the method to participate in migration cleanup.
+- Older attic binaries (1.0.0-beta.7 and earlier) cannot read v2 manifests.
+  Do not downgrade without restoring `manifest.v1.json` first.
+
+### Commands
+- `attic migrate` (new) — interactive, with `--yes`, `--dry-run`,
+  `--repair`, and `--force` flags.
+- All other commands ensure the manifest is migrated before running, with
+  a default-N auto-migrate prompt for safety in piped/CI contexts.
+
 ## 1.0.0-beta.7
 
 Architectural cleanup, security hardening, and pipeline simplification. No

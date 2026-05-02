@@ -74,6 +74,9 @@ that originally produced the backup.
 ```bash
 attic migrate --dry-run    # preview
 attic migrate              # run
+attic migrate --json       # machine-readable report (agents / CI)
+attic migrate --repair     # clear leftover staging key + stale lock
+attic migrate --force      # bypass resolver-anomaly safety guard
 ```
 
 The pre-migration manifest is preserved as `manifest.v1.json` on S3.

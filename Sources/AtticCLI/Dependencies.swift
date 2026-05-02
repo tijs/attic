@@ -62,12 +62,10 @@ enum Dependencies {
             .appendingPathComponent("Photos Library.photoslibrary")
     }
 
-    /// Load assets from PhotoKit + enrich from Photos.sqlite.
-    ///
-    /// On the synchronous path returns assets without cloud identity resolved
-    /// — callers that need cloud-stable uuids should call ``loadAssetsAsync``
-    /// instead. Sync version is preserved for legacy call sites and tests.
-    static func loadAssets() -> [AssetInfo] {
+    /// Load assets from PhotoKit + enrich from Photos.sqlite, without
+    /// resolving cloud identity. Internal helper for ``loadAssetsAsync`` —
+    /// command call sites should use the async form.
+    private static func loadAssets() -> [AssetInfo] {
         let library = PhotoKitLibrary()
         var assets = library.enumerateAssets()
 
@@ -165,6 +163,36 @@ enum Dependencies {
         try? await s3.deleteObject(key: manifestV2StagingS3Key)
     }
 
+    /// Delete any leftover migration lock on S3 (e.g. orphaned by a crash on
+    /// another machine).
+    static func deleteMigrationLock() async throws {
+        let (_, s3, _) = try makeBackupDeps()
+        try? await s3.deleteObject(key: migrationLockS3Key)
+    }
+
+    /// Inspect migration cleanup state without mutating it. Returns a
+    /// human-readable summary for the CLI to print before `--repair` deletes
+    /// anything, so the user can recognize when a "stale" lock is actually
+    /// a migration in flight elsewhere.
+    static func describeMigrationCleanupState() async throws -> String {
+        let (_, s3, _) = try makeBackupDeps()
+        var lines: [String] = []
+
+        if try await s3.headObject(key: manifestV2StagingS3Key) != nil {
+            lines.append("  - Staging key: \(manifestV2StagingS3Key) present")
+        } else {
+            lines.append("  - Staging key: not present")
+        }
+
+        let lock = MigrationLock(s3: s3)
+        if let body = try await lock.readExisting() {
+            lines.append("  - Lock: held by \(body.machineId), started \(body.startedAt) (ttl=\(body.ttlSeconds)s)")
+        } else {
+            lines.append("  - Lock: not present")
+        }
+        return lines.joined(separator: "\n")
+    }
+
     /// Guard that runs at the top of every command needing a v2 manifest.
     /// Detects v1, prompts the user (TTY), runs migration with progress,
     /// or fails fast on non-TTY with a clear next-step message.
@@ -174,36 +202,29 @@ enum Dependencies {
         let manifest = try await loadManifest(store: manifestStore)
         guard manifest.isV1 else { return }
 
-        let count = manifest.entries.count
-        FileHandle.standardError.write(Data("""
+        FileHandle.standardError.write(Data(MigrationPrompt.message(count: manifest.entries.count).utf8))
 
-        attic detected a v1 manifest (\(count) entries) keyed by device-local
-        PhotoKit identifiers. attic 1.0.0-beta.8 requires a one-time migration
-        to cross-device cloud identifiers before continuing.
+        let decision = MigrationPrompt.decide(
+            isTTY: isTTY,
+            answer: { isTTY ? readLine() : nil },
+        )
 
-
-        """.utf8))
-
-        guard isTTY else {
-            FileHandle.standardError.write(Data(
-                "Re-run `attic migrate --yes` from an interactive shell to perform the migration.\n\n".utf8,
-            ))
+        switch decision {
+        case .nonInteractive:
+            FileHandle.standardError.write(Data(MigrationPrompt.nonInteractiveHint.utf8))
             throw CLIError.migrationRequired
-        }
-
-        print("Run migration now? [Y/n] ", terminator: "")
-        let answer = (readLine() ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if !answer.isEmpty, !["y", "yes"].contains(answer) {
+        case .abort:
             throw CLIError.migrationRequired
+        case .proceed:
+            let runner = try await makeMigrationRunner(progress: { msg in print("  \(msg)") })
+            let report = try await runner.run()
+            print("")
+            print("Migration complete: \(report.cloudMigrated) cloud, \(report.localFallback) local fallback.")
+            print("")
         }
-
-        let runner = try await makeMigrationRunner(progress: { msg in print("  \(msg)") })
-        let report = try await runner.run()
-        print("")
-        print("Migration complete: \(report.cloudMigrated) cloud, \(report.localFallback) local fallback.")
-        print("")
     }
 }
+
 
 enum CLIError: Error, CustomStringConvertible {
     case notInitialized

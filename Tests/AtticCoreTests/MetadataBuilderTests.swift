@@ -151,4 +151,55 @@ struct MetadataBuilderTests {
         #expect(decoded.identityKind == .cloud)
         #expect(decoded.legacyLocalIdentifier == "legacy-prefix")
     }
+
+    @Test func tamperedIdentityKindFallsBackToLocal() throws {
+        let json = """
+        {
+            "uuid": "X",
+            "originalFilename": "f.heic",
+            "width": 1, "height": 1,
+            "favorite": false, "hasEdit": false,
+            "albums": [], "keywords": [], "people": [],
+            "s3Key": "originals/2024/01/X.heic",
+            "checksum": "sha256:x",
+            "backedUpAt": "2024-01-01T00:00:00Z",
+            "identityKind": "wat"
+        }
+        """
+        let decoded = try JSONDecoder().decode(AssetMetadata.self, from: Data(json.utf8))
+        #expect(decoded.identityKind == .local)
+    }
+
+    @Test func encodeDecodeRoundTripWithV2FieldsPopulated() throws {
+        let original = AssetMetadata(
+            uuid: "CLOUD-Y",
+            originalFilename: "y.heic",
+            dateCreated: nil,
+            width: 10, height: 20,
+            latitude: nil, longitude: nil,
+            fileSize: 1024,
+            type: "photo",
+            favorite: true,
+            title: nil,
+            description: nil,
+            albums: [],
+            keywords: [],
+            people: [],
+            hasEdit: false,
+            editedAt: nil,
+            editor: nil,
+            s3Key: "originals/2024/01/Y.heic",
+            checksum: "sha256:y",
+            backedUpAt: "2024-01-01T00:00:00Z",
+            legacyLocalIdentifier: "Y-LEGACY",
+            identityKind: .cloud,
+        )
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(AssetMetadata.self, from: data)
+        #expect(decoded.uuid == "CLOUD-Y")
+        #expect(decoded.legacyLocalIdentifier == "Y-LEGACY")
+        #expect(decoded.identityKind == .cloud)
+        #expect(decoded.width == 10)
+        #expect(decoded.height == 20)
+    }
 }

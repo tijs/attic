@@ -1,14 +1,5 @@
 import Foundation
 
-/// Whether a manifest entry's `uuid` is a stable cloud identifier (works
-/// across all devices in the same iCloud Photos library) or a device-local
-/// identifier prefix (legacy v1 entries, or v2 entries for assets that
-/// have no cloud counterpart).
-public enum IdentityKind: String, Codable, Sendable, Equatable {
-    case cloud
-    case local
-}
-
 /// A single backed-up asset's record in the manifest.
 public struct ManifestEntry: Codable, Sendable, Equatable {
     public var uuid: String
@@ -55,7 +46,14 @@ public struct ManifestEntry: Codable, Sendable, Equatable {
         backedUpAt = try c.decode(String.self, forKey: .backedUpAt)
         size = try c.decodeIfPresent(Int.self, forKey: .size)
         legacyLocalIdentifier = try c.decodeIfPresent(String.self, forKey: .legacyLocalIdentifier)
-        identityKind = try c.decodeIfPresent(IdentityKind.self, forKey: .identityKind) ?? .local
+        // Tampered or future identityKind values fall back to `.local` rather
+        // than failing the entire manifest decode. A single bad row must not
+        // take down `attic status` / `attic backup` for the whole library.
+        if let raw = try c.decodeIfPresent(String.self, forKey: .identityKind) {
+            identityKind = IdentityKind(rawValue: raw) ?? .local
+        } else {
+            identityKind = .local
+        }
     }
 
     public func encode(to encoder: Encoder) throws {

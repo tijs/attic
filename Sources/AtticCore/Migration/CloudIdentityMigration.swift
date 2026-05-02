@@ -9,9 +9,10 @@ public struct MigrationResult: Sendable, Equatable {
     /// Number of entries that fell back to the device-local identifier
     /// because PhotoKit reported `.notFound`, `.error`, or no mapping.
     public var localFallback: Int
-    /// Old uuids that mapped to the same cloud id during transform. Loser
-    /// (older `backedUpAt`) is dropped from the output; both old uuids are
-    /// recorded here so the user can inspect.
+    /// Old uuids that lost a re-key collision and were dropped from the
+    /// output. Used by the runner to delete their orphaned metadata keys.
+    /// Only loser uuids appear here — the winner's old uuid (now the
+    /// `legacyLocalIdentifier` of the surviving entry) is preserved.
     public var rekeyCollisions: [String]
     /// Old uuids whose PhotoKit mapping was `.multipleFound` (shared /
     /// merged library). Kept as `.local` until the user manually resolves.
@@ -76,10 +77,15 @@ public func migrateManifestToV2(
             )
             if let existing = newEntries[cloudId] {
                 // Two old uuids collided onto the same cloud id. Keep the
-                // most recently backed-up entry.
-                result.rekeyCollisions.append(oldKey)
+                // most recently backed-up entry; record the loser so the
+                // runner can clean up its orphaned metadata key.
                 if entry.backedUpAt > existing.backedUpAt {
+                    if let loserLegacy = existing.legacyLocalIdentifier {
+                        result.rekeyCollisions.append(loserLegacy)
+                    }
                     newEntries[cloudId] = migrated
+                } else {
+                    result.rekeyCollisions.append(oldKey)
                 }
             } else {
                 newEntries[cloudId] = migrated
@@ -158,8 +164,10 @@ public func migrateRetryQueueToV2(
         case .cloud(let cloudId):
             canonical = cloudId
             if let existing = byCanonical[cloudId] {
-                result.rekeyCollisions.append(entry.uuid)
                 if entry.lastFailedAt > existing.lastFailedAt {
+                    if let loserLegacy = existing.legacyLocalIdentifier {
+                        result.rekeyCollisions.append(loserLegacy)
+                    }
                     byCanonical[cloudId] = RetryEntry(
                         uuid: cloudId,
                         classification: entry.classification,
@@ -169,6 +177,8 @@ public func migrateRetryQueueToV2(
                         lastMessage: entry.lastMessage,
                         legacyLocalIdentifier: entry.uuid,
                     )
+                } else {
+                    result.rekeyCollisions.append(entry.uuid)
                 }
                 continue
             }
@@ -221,8 +231,10 @@ public func migrateUnavailableStoreToV2(
         case .cloud(let cloudId):
             canonical = cloudId
             if let existing = newEntries[cloudId] {
-                result.rekeyCollisions.append(oldKey)
                 if entry.lastAttemptedAt > existing.lastAttemptedAt {
+                    if let loserLegacy = existing.legacyLocalIdentifier {
+                        result.rekeyCollisions.append(loserLegacy)
+                    }
                     newEntries[cloudId] = UnavailableAsset(
                         uuid: cloudId,
                         filename: entry.filename,
@@ -232,6 +244,8 @@ public func migrateUnavailableStoreToV2(
                         attempts: entry.attempts,
                         legacyLocalIdentifier: oldKey,
                     )
+                } else {
+                    result.rekeyCollisions.append(oldKey)
                 }
                 continue
             }

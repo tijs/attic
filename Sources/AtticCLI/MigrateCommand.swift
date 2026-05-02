@@ -25,15 +25,29 @@ struct MigrateCommand: AsyncParsableCommand {
     @Flag(name: .long, help: "Show what would be migrated without writing to S3.")
     var dryRun: Bool = false
 
-    @Flag(name: .long, help: "Reset any leftover staging key from a prior partial run.")
+    @Flag(name: .long, help: "Reset any leftover staging key or stale lock from a prior partial run.")
     var repair: Bool = false
+
+    @Flag(name: .long, help: "Bypass the resolver-anomaly guard. Use only after verifying iCloud Photos and PhotoKit access.")
+    var force: Bool = false
+
+    @Flag(name: .long, help: "Emit the migration report as a single JSON object on stdout (suppresses progress output).")
+    var json: Bool = false
 
     func run() async throws {
         let runner = try await Dependencies.makeMigrationRunner()
 
         if !dryRun, repair {
+            // Surface what's about to be cleared so the user catches the
+            // "stale" lock that is actually a different Mac mid-flight.
+            let summary = (try? await Dependencies.describeMigrationCleanupState()) ?? ""
+            if !summary.isEmpty {
+                print("Repair: pre-delete state:")
+                print(summary)
+            }
             try? await Dependencies.deleteMigrationStagingKey()
-            print("Cleared any leftover manifest.v2.json staging key.")
+            try? await Dependencies.deleteMigrationLock()
+            print("Repair: cleared manifest.v2.json staging key and migration.lock.")
         }
 
         let isV1 = try await runner.detectIsV1()
@@ -48,8 +62,14 @@ struct MigrateCommand: AsyncParsableCommand {
         }
 
         print("")
-        let report = try await runner.run(dryRun: dryRun)
-        printReport(report)
+        let report = try await runner.run(dryRun: dryRun, force: force)
+        if json {
+            let data = try formatMigrationReportJSON(report, dryRun: dryRun)
+            FileHandle.standardOutput.write(data)
+            FileHandle.standardOutput.write(Data("\n".utf8))
+        } else {
+            print(formatMigrationReport(report, dryRun: dryRun), terminator: "")
+        }
     }
 
     private func confirmInteractive() -> Bool {
@@ -72,34 +92,4 @@ struct MigrateCommand: AsyncParsableCommand {
         return trimmed == "y" || trimmed == "yes"
     }
 
-    private func printReport(_ report: MigrationReport) {
-        if report.alreadyMigrated {
-            print("Manifest is already v2.")
-            return
-        }
-        print("──────────────────────────────────────")
-        print("Migration report\(dryRun ? " (dry run)" : "")")
-        print("  Total entries          \(report.totalEntries)")
-        print("  Re-keyed to cloud id   \(report.cloudMigrated)")
-        print("  Local fallback         \(report.localFallback)")
-        if !report.unmapped.isEmpty {
-            print("  Unmapped (deleted?)    \(report.unmapped.count)")
-        }
-        if !report.multipleFoundCollisions.isEmpty {
-            print("  Multiple-found        \(report.multipleFoundCollisions.count) (review manually)")
-        }
-        if !report.rekeyCollisions.isEmpty {
-            print("  Re-key collisions     \(report.rekeyCollisions.count)")
-        }
-        if !report.errors.isEmpty {
-            print("  Transient errors       \(report.errors.count) (re-run to retry)")
-        }
-        if !dryRun {
-            print("  Metadata JSONs rewritten  \(report.metadataRewritten)")
-            if report.metadataMissing > 0 {
-                print("  Metadata JSONs missing    \(report.metadataMissing)")
-            }
-        }
-        print("")
-    }
 }

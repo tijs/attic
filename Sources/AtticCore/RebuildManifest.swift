@@ -38,13 +38,28 @@ public func runRebuildManifest(
                 continue
             }
 
+            // Identity kind comes from the JSON when present. When absent
+            // (older Deno-written or pre-v2 metadata), infer: if a distinct
+            // `legacyLocalIdentifier` is present, the canonical `uuid` must
+            // be the cloud id; otherwise assume `.local`. Without this
+            // inference, rebuild after migration would re-stamp every entry
+            // as `.local` and the v1 → v2 detection logic would never fire.
+            let inferredKind: IdentityKind
+            if let kind = parsed.identityKind {
+                inferredKind = kind
+            } else if let legacy = parsed.legacyLocalIdentifier, legacy != parsed.uuid {
+                inferredKind = .cloud
+            } else {
+                inferredKind = .local
+            }
+
             manifest.markBackedUp(
                 uuid: parsed.uuid,
                 s3Key: parsed.s3Key,
                 checksum: parsed.checksum,
                 backedUpAt: parsed.backedUpAt ?? formatISO8601(Date()),
                 legacyLocalIdentifier: parsed.legacyLocalIdentifier,
-                identityKind: parsed.identityKind ?? .local,
+                identityKind: inferredKind,
             )
             report.recovered += 1
         } catch {

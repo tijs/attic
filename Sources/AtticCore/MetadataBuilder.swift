@@ -113,7 +113,13 @@ public struct AssetMetadata: Codable, Sendable {
         checksum = try c.decode(String.self, forKey: .checksum)
         backedUpAt = try c.decodeIfPresent(String.self, forKey: .backedUpAt) ?? ""
         legacyLocalIdentifier = try c.decodeIfPresent(String.self, forKey: .legacyLocalIdentifier)
-        identityKind = try c.decodeIfPresent(IdentityKind.self, forKey: .identityKind) ?? .local
+        // Tampered or future identityKind values fall back to `.local`
+        // rather than failing the whole metadata decode.
+        if let raw = try c.decodeIfPresent(String.self, forKey: .identityKind) {
+            identityKind = IdentityKind(rawValue: raw) ?? .local
+        } else {
+            identityKind = .local
+        }
     }
 }
 

@@ -127,4 +127,57 @@ struct RebuildManifestTests {
         #expect(report.recovered == 0)
         #expect(manifest.entries.isEmpty)
     }
+
+    @Test func infersCloudIdentityKindFromLegacyMismatch() async throws {
+        // Metadata JSON omits identityKind but carries a legacyLocalIdentifier
+        // distinct from uuid — implies the canonical uuid is a cloud id.
+        // Without inference, rebuild would re-stamp this as .local and the
+        // post-rebuild manifest would never be re-detected as needing
+        // migration.
+        let s3 = MockS3Provider()
+        let store = S3ManifestStore(s3: s3)
+        let metaJSON = """
+        {
+            "uuid": "CLOUD-A",
+            "s3Key": "originals/2024/01/CLOUD-A.heic",
+            "checksum": "sha256:c",
+            "backedUpAt": "2024-01-01T00:00:00Z",
+            "originalFilename": "x.heic",
+            "width": 1, "height": 1,
+            "favorite": false, "hasEdit": false,
+            "albums": [], "keywords": [], "people": [],
+            "legacyLocalIdentifier": "OLD-LOCAL"
+        }
+        """
+        try await s3.putObject(
+            key: "metadata/assets/CLOUD-A.json",
+            body: Data(metaJSON.utf8),
+        )
+        let (manifest, _) = try await runRebuildManifest(s3: s3, manifestStore: store)
+        #expect(manifest.entries["CLOUD-A"]?.identityKind == .cloud)
+        #expect(manifest.entries["CLOUD-A"]?.legacyLocalIdentifier == "OLD-LOCAL")
+    }
+
+    @Test func defaultsToLocalWhenNoLegacyOrKindHint() async throws {
+        let s3 = MockS3Provider()
+        let store = S3ManifestStore(s3: s3)
+        let metaJSON = """
+        {
+            "uuid": "uuid-bare",
+            "s3Key": "originals/2024/01/uuid-bare.heic",
+            "checksum": "sha256:b",
+            "backedUpAt": "2024-01-01T00:00:00Z",
+            "originalFilename": "x.heic",
+            "width": 1, "height": 1,
+            "favorite": false, "hasEdit": false,
+            "albums": [], "keywords": [], "people": []
+        }
+        """
+        try await s3.putObject(
+            key: "metadata/assets/uuid-bare.json",
+            body: Data(metaJSON.utf8),
+        )
+        let (manifest, _) = try await runRebuildManifest(s3: s3, manifestStore: store)
+        #expect(manifest.entries["uuid-bare"]?.identityKind == .local)
+    }
 }

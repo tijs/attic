@@ -154,4 +154,35 @@ struct ManifestTests {
         #expect(parsed.entries["uuid-2"]?.checksum == "sha256:bbb")
         #expect(parsed.entries["uuid-2"]?.size == nil)
     }
+
+    @Test func tamperedIdentityKindFallsBackToLocal() throws {
+        // Future or hand-rolled JSON containing an unknown identityKind value
+        // must not take down the whole manifest decode. Single bad row falls
+        // back to .local; siblings decode cleanly.
+        let json = """
+        {
+          "version": 2,
+          "entries": {
+            "GOOD": {
+              "uuid": "GOOD",
+              "s3Key": "originals/2024/01/GOOD.heic",
+              "checksum": "sha256:good",
+              "backedUpAt": "2024-01-01T00:00:00Z",
+              "identityKind": "cloud"
+            },
+            "TAMPER": {
+              "uuid": "TAMPER",
+              "s3Key": "originals/2024/01/TAMPER.heic",
+              "checksum": "sha256:tamper",
+              "backedUpAt": "2024-01-01T00:00:00Z",
+              "identityKind": "WAT-IS-DIS"
+            }
+          }
+        }
+        """
+        let data = Data(json.utf8)
+        let parsed = try Manifest.parse(from: data)
+        #expect(parsed.entries["GOOD"]?.identityKind == .cloud)
+        #expect(parsed.entries["TAMPER"]?.identityKind == .local)
+    }
 }

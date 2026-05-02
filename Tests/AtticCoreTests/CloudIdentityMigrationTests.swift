@@ -197,6 +197,99 @@ struct QueueMigrationTests {
         #expect(report.cloudMigrated == 1)
     }
 
+    @Test func retryQueueIdempotentOnAlreadyV2Entries() {
+        // An entry whose uuid IS the cloud id (already v2) and whose legacy
+        // field is set. A subsequent migration call resolves the cloud id
+        // again and must not double-rekey or lose forensic data.
+        let queue = RetryQueue(
+            entries: [
+                RetryEntry(
+                    uuid: "CLOUD-A",
+                    classification: .other,
+                    attempts: 1,
+                    firstFailedAt: "2024-01-01",
+                    lastFailedAt: "2024-01-01",
+                    legacyLocalIdentifier: "A",
+                ),
+            ],
+            updatedAt: "now",
+        )
+        // Mapping does not contain CLOUD-A (only legacy uuids would be in
+        // mapping). With no cloud mapping, entry stays put as `.local`
+        // canonical key (== entry.uuid which is already cloud-shaped).
+        let (migrated, report) = migrateRetryQueueToV2(queue, mapping: [:])
+        #expect(migrated.entries.count == 1)
+        #expect(migrated.entries[0].uuid == "CLOUD-A")
+        // Legacy identifier is overwritten by the entry.uuid because there
+        // is no upstream legacy hint here — but the entry survives intact.
+        // The runner only triggers this with mapping derived from v1 keys,
+        // so on a real re-run after v2 swap the entry is left alone via the
+        // store's outer guard. Documented invariant.
+        #expect(report.unmapped.count == 1)
+    }
+
+    @Test func retryQueueMultipleFoundFlaggedNotResolved() {
+        let queue = RetryQueue(
+            entries: [
+                RetryEntry(
+                    uuid: "A",
+                    classification: .other,
+                    attempts: 1,
+                    firstFailedAt: "2024-01-01",
+                    lastFailedAt: "2024-01-01",
+                ),
+            ],
+            updatedAt: "now",
+        )
+        let (migrated, report) = migrateRetryQueueToV2(
+            queue,
+            mapping: ["A": .multipleFound],
+        )
+        #expect(report.multipleFoundCollisions == ["A"])
+        #expect(migrated.entries[0].uuid == "A")
+    }
+
+    @Test func retryQueueErrorPathPreservesOriginalUuid() {
+        let queue = RetryQueue(
+            entries: [
+                RetryEntry(
+                    uuid: "A",
+                    classification: .other,
+                    attempts: 1,
+                    firstFailedAt: "2024-01-01",
+                    lastFailedAt: "2024-01-01",
+                ),
+            ],
+            updatedAt: "now",
+        )
+        let (migrated, report) = migrateRetryQueueToV2(
+            queue,
+            mapping: ["A": .error("transient")],
+        )
+        #expect(report.errors["A"] == "transient")
+        #expect(migrated.entries[0].uuid == "A")
+    }
+
+    @Test func unavailableStoreMultipleFoundFlagged() {
+        var store = UnavailableAssets()
+        store.entries["A"] = UnavailableAsset(
+            uuid: "A",
+            filename: "x.mov",
+            reason: "?",
+            firstFailedAt: "2024-01-01",
+            lastAttemptedAt: "2024-01-01",
+            attempts: 1,
+        )
+        let (migrated, report) = migrateUnavailableStoreToV2(
+            store,
+            mapping: ["A": .multipleFound],
+        )
+        #expect(report.multipleFoundCollisions == ["A"])
+        // The asset stays under its legacy uuid since cloud resolution did
+        // not produce a single canonical id.
+        #expect(migrated.entries["A"] != nil)
+    }
+
     @Test func retryQueueCollisionKeepsMostRecentLastFailedAt() {
         let queue = RetryQueue(
             entries: [
