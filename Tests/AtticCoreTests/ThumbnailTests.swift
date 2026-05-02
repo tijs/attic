@@ -44,24 +44,22 @@ struct ThumbnailCacheTests {
         #expect(FileManager.default.fileExists(atPath: dir.path))
     }
 
-    @Test func getRejectsUnsafeUUID() throws {
+    @Test func putEncodesUnsafeUUIDIntoFlatFilename() throws {
+        // PhotoKit cloud identifiers contain `/` (base64 alphabet). The cache
+        // must keep the file inside its directory by encoding path-reserved
+        // characters before forming the filename — it cannot reject the uuid
+        // because legitimate cloud IDs use `/`.
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let cache = ThumbnailCache(directory: dir)
 
-        // Path traversal attempt
-        #expect(cache.get(uuid: "../../../etc/passwd") == nil)
-        #expect(cache.get(uuid: "uuid/with/slashes") == nil)
-    }
-
-    @Test func putIgnoresUnsafeUUID() throws {
-        let dir = try makeTempDir()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let cache = ThumbnailCache(directory: dir)
-
-        // Should silently do nothing
         try cache.put(uuid: "../../../bad", data: Data("data".utf8))
-        #expect(cache.get(uuid: "../../../bad") == nil)
+
+        // Round-trip via the same encoded key works.
+        #expect(cache.get(uuid: "../../../bad") == Data("data".utf8))
+        // No file escaped the cache directory.
+        let parent = dir.deletingLastPathComponent()
+        #expect(!FileManager.default.fileExists(atPath: parent.appendingPathComponent("bad.jpg").path))
     }
 }
 
@@ -73,13 +71,15 @@ struct ThumbnailKeyTests {
         #expect(key == "thumbnails/abc-123.jpg")
     }
 
-    @Test func thumbnailKeyRejectsUnsafeUUID() {
-        #expect(throws: S3PathError.self) {
-            try S3Paths.thumbnailKey(uuid: "../../../etc")
-        }
-        #expect(throws: S3PathError.self) {
-            try S3Paths.thumbnailKey(uuid: "uuid/with/slashes")
-        }
+    @Test func thumbnailKeyEncodesUnsafeUUID() throws {
+        // `/` and `..` are now percent-encoded into the filename component
+        // rather than rejected, so cloud IDs containing base64 `/` work.
+        let key1 = try S3Paths.thumbnailKey(uuid: "../../../etc")
+        #expect(key1 == "thumbnails/..%2F..%2F..%2Fetc.jpg")
+        let key2 = try S3Paths.thumbnailKey(uuid: "uuid/with/slashes")
+        #expect(key2 == "thumbnails/uuid%2Fwith%2Fslashes.jpg")
+        // The structural separator after `thumbnails/` is the only `/`.
+        #expect(key1.dropFirst("thumbnails/".count).filter { $0 == "/" }.isEmpty)
     }
 }
 

@@ -176,36 +176,55 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
     // MARK: - Helpers
 
     private func makeRequest(key: String, method: String) throws -> URLRequest {
-        let url: URL
-        if pathStyle {
-            // Path-style: endpoint/bucket/key
-            if key.isEmpty {
-                url = endpoint.appendingPathComponent(bucket)
-            } else {
-                url = endpoint.appendingPathComponent(bucket).appendingPathComponent(key)
-            }
+        // S3 keys produced by ``S3Paths`` are already percent-encoded —
+        // PhotoKit cloud identifiers contain `:`, `/`, `+`, `=` which must
+        // not be re-interpreted as path structure. `appendingPathComponent`
+        // re-encodes existing `%` to `%25`, which corrupts the key. Build
+        // the URL via URLComponents.percentEncodedPath so the encoded form
+        // survives intact through to AWS SigV4 signing.
+        let url: URL = if pathStyle {
+            try makePathStyleURL(key: key)
         } else {
-            // Virtual-hosted: bucket.host/key
-            let host = endpoint.host ?? ""
-            let scheme = endpoint.scheme ?? "https"
-            let port = endpoint.port.map { ":\($0)" } ?? ""
-            let bucketHost = "\(scheme)://\(bucket).\(host)\(port)"
-            guard let baseURL = URL(string: bucketHost) else {
-                throw S3ClientError.unexpectedResponse(
-                    "Invalid virtual-hosted URL: \(bucketHost)",
-                )
-            }
-            if key.isEmpty {
-                url = baseURL
-            } else {
-                url = baseURL.appendingPathComponent(key)
-            }
+            try makeVirtualHostedURL(key: key)
         }
 
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue(url.host, forHTTPHeaderField: "Host")
         return request
+    }
+
+    private func makePathStyleURL(key: String) throws -> URL {
+        guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
+            throw S3ClientError.unexpectedResponse("Invalid endpoint URL: \(endpoint)")
+        }
+        let basePath = components.percentEncodedPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        var fullPath = basePath.isEmpty ? "/\(bucket)" : "/\(basePath)/\(bucket)"
+        if !key.isEmpty {
+            fullPath += "/" + key
+        }
+        components.percentEncodedPath = fullPath
+        guard let url = components.url else {
+            throw S3ClientError.unexpectedResponse("Invalid path-style URL for key: \(key)")
+        }
+        return url
+    }
+
+    private func makeVirtualHostedURL(key: String) throws -> URL {
+        let host = endpoint.host ?? ""
+        let scheme = endpoint.scheme ?? "https"
+        let port = endpoint.port.map { ":\($0)" } ?? ""
+        let bucketHost = "\(scheme)://\(bucket).\(host)\(port)"
+        guard var components = URLComponents(string: bucketHost) else {
+            throw S3ClientError.unexpectedResponse("Invalid virtual-hosted URL: \(bucketHost)")
+        }
+        if !key.isEmpty {
+            components.percentEncodedPath = "/" + key
+        }
+        guard let url = components.url else {
+            throw S3ClientError.unexpectedResponse("Invalid virtual-hosted URL for key: \(key)")
+        }
+        return url
     }
 
     private func signRequest(_ request: inout URLRequest, hasBody: Bool = false) {

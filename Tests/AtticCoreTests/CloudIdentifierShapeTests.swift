@@ -16,41 +16,137 @@ import Testing
 /// migration, normal backup pipeline, manifest read/write, metadata
 /// JSON, retry queue, and rebuild.
 enum CloudIDFixture {
-    /// Real-world shape — mirrors the example from beta.8's bug report.
+    /// Real-world shape — mirrors the example from beta.8's bug report
+    /// (colons only, no base64 special chars).
     static let realistic = "41C24A89-1280-4C14-BF5E-E93545843128:001:AaiU4soYcBEybZPj3zsS91dxDF42"
+    /// Real-world shape with base64 `/` — mirrors the second bug report
+    /// where the validator failed on a different library's cloud identifiers.
+    static let withSlash = "D0AEBE57-D551-401D-8C38-0C8AECE6FB60:001:ARhjT/vuVrN8DGhjUDrTItEm0vIq"
+    /// Real-world shape with base64 `+` and `=` (canonical base64 padding).
+    static let withPlusEquals = "9B0F2C7D-1234-5ABC-9E0F-1234567890AB:002:Zk9Q1pBcDe+gHi0123456789ABCD=="
     static let secondary = "9B0F2C7D-1234-5ABC-9E0F-1234567890AB:002:Zk9Q1pBcDeFgHi0123456789ABCDEFGH"
 }
 
 @Suite("PHCloudIdentifier shape — S3 key paths")
 struct CloudIdentifierS3PathTests {
-    @Test func metadataKey() throws {
+    @Test func metadataKeyEncodesColons() throws {
         let key = try S3Paths.metadataKey(uuid: CloudIDFixture.realistic)
-        #expect(key == "metadata/assets/\(CloudIDFixture.realistic).json")
+        // `:` percent-encodes to `%3A`. The structural `/` after `metadata`
+        // and `assets` are literal path separators.
+        #expect(key.hasPrefix("metadata/assets/"))
+        #expect(key.hasSuffix(".json"))
+        #expect(!key.contains(":"))
+        #expect(key.contains("%3A"))
     }
 
-    @Test func originalKey() throws {
+    @Test func metadataKeyEncodesSlashesAndPlus() throws {
+        let key = try S3Paths.metadataKey(uuid: CloudIDFixture.withSlash)
+        // Cloud-id `/` must NOT split the key into spurious sub-prefixes.
+        // After encoding, the key has only the structural separators.
+        let prefix = "metadata/assets/"
+        let body = String(key.dropFirst(prefix.count).dropLast(".json".count))
+        #expect(!body.contains("/"))
+        #expect(body.contains("%2F"))
+    }
+
+    @Test func metadataKeyEncodesPlusAndEquals() throws {
+        let key = try S3Paths.metadataKey(uuid: CloudIDFixture.withPlusEquals)
+        #expect(!key.contains("+"))
+        #expect(!key.contains("="))
+        #expect(key.contains("%2B"))
+        #expect(key.contains("%3D"))
+    }
+
+    @Test func originalKeyEncodesUUID() throws {
         let date = try #require(ISO8601DateFormatter().date(from: "2024-06-01T00:00:00Z"))
         let key = try S3Paths.originalKey(
-            uuid: CloudIDFixture.realistic,
+            uuid: CloudIDFixture.withSlash,
             dateCreated: date,
             extension: "heic",
         )
-        #expect(key == "originals/2024/06/\(CloudIDFixture.realistic).heic")
+        #expect(key.hasPrefix("originals/2024/06/"))
+        #expect(key.hasSuffix(".heic"))
+        let body = String(key.dropFirst("originals/2024/06/".count).dropLast(".heic".count))
+        #expect(!body.contains("/"))
+        #expect(!body.contains(":"))
     }
 
-    @Test func thumbnailKey() throws {
-        let key = try S3Paths.thumbnailKey(uuid: CloudIDFixture.realistic)
-        #expect(key == "thumbnails/\(CloudIDFixture.realistic).jpg")
+    @Test func thumbnailKeyEncodesUUID() throws {
+        let key = try S3Paths.thumbnailKey(uuid: CloudIDFixture.withSlash)
+        #expect(key.hasPrefix("thumbnails/"))
+        #expect(key.hasSuffix(".jpg"))
+        let body = String(key.dropFirst("thumbnails/".count).dropLast(".jpg".count))
+        #expect(!body.contains("/"))
     }
 
-    @Test func uuidValidatorAccepts() {
+    @Test func uuidValidatorAcceptsAllPhotoKitShapes() {
         #expect(S3Paths.isValidUUID(CloudIDFixture.realistic))
+        #expect(S3Paths.isValidUUID(CloudIDFixture.withSlash))
+        #expect(S3Paths.isValidUUID(CloudIDFixture.withPlusEquals))
         #expect(S3Paths.isValidUUID(CloudIDFixture.secondary))
     }
 
-    @Test func s3KeyValidatorAccepts() {
-        #expect(S3Paths.isValidS3Key("metadata/assets/\(CloudIDFixture.realistic).json"))
-        #expect(S3Paths.isValidS3Key("originals/2024/06/\(CloudIDFixture.realistic).heic"))
+    @Test func uuidValidatorRejectsControlAndSpace() {
+        #expect(!S3Paths.isValidUUID(""))
+        #expect(!S3Paths.isValidUUID("foo bar"))
+        #expect(!S3Paths.isValidUUID("foo\nbar"))
+        #expect(!S3Paths.isValidUUID("foo\tbar"))
+    }
+
+    @Test func encodeUUIDComponentRoundTrip() {
+        let cases = [CloudIDFixture.realistic, CloudIDFixture.withSlash, CloudIDFixture.withPlusEquals]
+        for uuid in cases {
+            let encoded = S3Paths.encodeUUIDComponent(uuid)
+            // Encoded form MUST be safe for a single S3 path component:
+            // no `/`, no raw reserved chars except letters/digits/`-._~`/`%`.
+            #expect(!encoded.contains("/"))
+            #expect(!encoded.contains(":"))
+            #expect(!encoded.contains("+"))
+            #expect(!encoded.contains("="))
+            // Lossless round-trip via percent-decoding.
+            let decoded = encoded.removingPercentEncoding
+            #expect(decoded == uuid)
+        }
+    }
+}
+
+@Suite("PHCloudIdentifier shape — URL construction")
+struct CloudIdentifierURLConstructionTests {
+    private func client(pathStyle: Bool) throws -> URLSessionS3Client {
+        try URLSessionS3Client(
+            credentials: S3Credentials(accessKeyId: "k", secretAccessKey: "s"),
+            bucket: "b",
+            endpoint: "https://example.com",
+            region: "us-east-1",
+            pathStyle: pathStyle,
+        )
+    }
+
+    @Test func presignedURLPreservesPercentEncoding() throws {
+        // presignedURL uses the same makeRequest path internally, so a
+        // round-trip through it pins the encoding behavior.
+        let c = try client(pathStyle: true)
+        let key = try S3Paths.metadataKey(uuid: CloudIDFixture.withSlash)
+        let url = c.presignedURL(key: key, expires: 60)
+        let s = url.absoluteString
+        // The encoded uuid segment must survive intact — no double-encoded
+        // `%25` and no reintroduced `:` or raw `/` inside the cloud id.
+        #expect(!s.contains("%253A"))
+        #expect(!s.contains("%252F"))
+        #expect(s.contains("%3A"))
+        #expect(s.contains("%2F"))
+        // Bucket and structural separators present.
+        #expect(s.contains("/b/metadata/assets/"))
+    }
+
+    @Test func presignedURLVirtualHostedPath() throws {
+        let c = try client(pathStyle: false)
+        let key = try S3Paths.metadataKey(uuid: CloudIDFixture.withSlash)
+        let url = c.presignedURL(key: key, expires: 60)
+        let s = url.absoluteString
+        #expect(s.contains("b.example.com"))
+        #expect(!s.contains("%253A"))
+        #expect(s.contains("%3A"))
     }
 }
 
@@ -189,7 +285,7 @@ struct CloudIdentifierMigrationE2ETests {
         #expect(entry.legacyLocalIdentifier == "ABC-123")
 
         // Metadata JSON now lives at the cloud-id-keyed path.
-        let metaKey = "metadata/assets/\(CloudIDFixture.realistic).json"
+        let metaKey = try S3Paths.metadataKey(uuid: CloudIDFixture.realistic)
         let metaExists = try await s3.headObject(key: metaKey) != nil
         #expect(metaExists)
 

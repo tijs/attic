@@ -75,9 +75,14 @@ struct RebuildManifestTests {
         let s3 = MockS3Provider()
         let store = S3ManifestStore(s3: s3)
 
+        // Whitespace and control characters never appear in PhotoKit cloud
+        // identifiers — those still get rejected. (Path-reserved characters
+        // like `/` and `..` are now percent-encoded into keys instead of
+        // rejected, since legitimate cloud IDs use `/` from the base64
+        // alphabet — see CloudIdentifierShapeTests.)
         let metaJSON = """
         {
-            "uuid": "../evil",
+            "uuid": "evil id",
             "s3Key": "originals/2024/01/evil.heic",
             "checksum": "sha256:abc123"
         }

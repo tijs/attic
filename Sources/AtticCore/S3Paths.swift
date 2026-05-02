@@ -5,13 +5,41 @@ import UniformTypeIdentifiers
 public enum S3Paths {
     // MARK: - Validation patterns
 
-    // Cloud identifiers (PHCloudIdentifier.stringValue) include colons —
-    // observed shape: `<UUID>:<index>:<base64-ish>`. Allow `:` so cloud IDs
-    // pass validation. Path separator `/` is still rejected so cloud IDs
-    // cannot escape the metadata/originals prefix.
-    private nonisolated(unsafe) static let uuidPattern = /^[A-Za-z0-9._\-:]+$/
-    private nonisolated(unsafe) static let s3KeyPattern = /^[A-Za-z0-9\/._\-:]+$/
+    /// PhotoKit cloud identifiers (PHCloudIdentifier.stringValue) take the
+    /// shape `<UUID>:<index>:<base64-ish>` and use the full standard base64
+    /// alphabet — including `+`, `/`, and `=`. The validator therefore allows
+    /// these characters in the raw uuid; key generation percent-encodes the
+    /// uuid component before embedding in an S3 key so the structural `/`
+    /// separators of the key are unambiguous.
+    private nonisolated(unsafe) static let uuidPattern = /^[A-Za-z0-9._\-:+\/=]+$/
+    // Generated S3 keys contain percent-encoded uuid segments, so `%` is
+    // allowed. Path separators `/` are allowed (key structure). Raw `:`,
+    // `+`, and `=` may also appear in legacy or human-written keys; reject
+    // newlines, control chars, and spaces.
+    private nonisolated(unsafe) static let s3KeyPattern = /^[A-Za-z0-9\/._\-:+=%]+$/
     private nonisolated(unsafe) static let extPattern = /^[a-z0-9]+$/
+
+    /// RFC 3986 unreserved characters. Any character outside this set is
+    /// percent-encoded by ``encodeUUIDComponent(_:)``.
+    private nonisolated(unsafe) static let unreservedURLChars: CharacterSet = {
+        var set = CharacterSet()
+        set.insert(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        return set
+    }()
+
+    /// Percent-encode a uuid for safe embedding in an S3 key path component.
+    ///
+    /// PhotoKit cloud identifiers contain `:`, `/`, `+`, and `=`. Embedding
+    /// `/` raw would split the key into spurious sub-prefixes. Percent-
+    /// encoding flattens every reserved character to `%XX` so the key has
+    /// exactly the structural separators we put there.
+    ///
+    /// The encoded form survives `URL.appendingPathComponent` (which only
+    /// re-encodes characters outside the allowed path set; `%XX` is already
+    /// valid) and is what AWS SigV4 sees as the canonical URI.
+    public static func encodeUUIDComponent(_ uuid: String) -> String {
+        uuid.addingPercentEncoding(withAllowedCharacters: unreservedURLChars) ?? uuid
+    }
 
     /// Normalize extensions where the system canonical form differs from convention.
     private static let extensionOverrides: [String: String] = [
@@ -55,19 +83,19 @@ public enum S3Paths {
             month = "00"
         }
 
-        return "originals/\(year)/\(month)/\(uuid).\(extString)"
+        return "originals/\(year)/\(month)/\(encodeUUIDComponent(uuid)).\(extString)"
     }
 
     /// Generate S3 key for an asset's metadata JSON.
     public static func metadataKey(uuid: String) throws -> String {
         try assertSafeUUID(uuid)
-        return "metadata/assets/\(uuid).json"
+        return "metadata/assets/\(encodeUUIDComponent(uuid)).json"
     }
 
     /// Generate S3 key for an asset's thumbnail JPEG.
     public static func thumbnailKey(uuid: String) throws -> String {
         try assertSafeUUID(uuid)
-        return "thumbnails/\(uuid).jpg"
+        return "thumbnails/\(encodeUUIDComponent(uuid)).jpg"
     }
 
     /// Extract file extension from a UTI or filename.

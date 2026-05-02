@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.0.0-beta.10
+
+Second hotfix on top of `1.0.0-beta.9`. Beta.9 widened the validator
+to accept colons in cloud identifiers but `PHCloudIdentifier.stringValue`
+also uses the full standard base64 alphabet — `+`, `/`, and `=` — and
+a different library tripped the validator on the slash.
+
+The new approach is structural rather than alphabet-based:
+
+- The uuid validator now accepts the full PhotoKit cloud-id alphabet
+  (`A-Za-z0-9._-:+/=`) and rejects only whitespace / control chars.
+- `S3Paths` percent-encodes the uuid component before embedding it in
+  any S3 key. `:` becomes `%3A`, `/` becomes `%2F`, etc. The structural
+  separators in the resulting key are then exactly the ones we put
+  there, with no ambiguity from the cloud-id payload.
+- `URLSessionS3Client` now constructs request URLs via
+  `URLComponents.percentEncodedPath` instead of `appendingPathComponent`.
+  The latter re-encodes existing `%XX` to `%25XX`, which corrupts an
+  already-encoded key on its way to the SigV4 signer.
+
+This means we don't need to enumerate the exact PhotoKit alphabet
+ahead of time: any character outside RFC 3986 unreserved is encoded,
+so future changes to the cloud-identifier shape continue to work.
+
+Adds 17 regression tests using realistic cloud-id shapes (with `:`,
+`/`, `+`, and `=`) across S3 key generation, URL construction,
+manifest, metadata JSON, retry queue, unavailable store, and
+end-to-end migration.
+
+If you hit beta.8 or beta.9 mid-migration, run `attic migrate --repair`
+after upgrading to clear leftover staging keys and locks, then re-run
+`attic migrate`.
+
 ## 1.0.0-beta.9
 
 Hotfix for `1.0.0-beta.8`: `S3Paths.uuidPattern` and `s3KeyPattern`

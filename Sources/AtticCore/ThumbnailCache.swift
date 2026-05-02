@@ -12,7 +12,7 @@ public struct ThumbnailCache: Sendable {
     /// Read a cached thumbnail, or nil if not cached.
     public func get(uuid: String) -> Data? {
         guard S3Paths.isValidUUID(uuid) else { return nil }
-        let path = directory.appendingPathComponent("\(uuid).jpg")
+        let path = directory.appendingPathComponent("\(S3Paths.encodeUUIDComponent(uuid)).jpg")
         return try? Data(contentsOf: path)
     }
 
@@ -23,7 +23,7 @@ public struct ThumbnailCache: Sendable {
         if !fm.fileExists(atPath: directory.path) {
             try fm.createDirectory(at: directory, withIntermediateDirectories: true)
         }
-        let path = directory.appendingPathComponent("\(uuid).jpg")
+        let path = directory.appendingPathComponent("\(S3Paths.encodeUUIDComponent(uuid)).jpg")
         try data.write(to: path)
     }
 }
