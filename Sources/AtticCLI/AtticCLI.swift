@@ -15,6 +15,7 @@ struct AtticCLI: AsyncParsableCommand {
             RebuildCommand.self,
             InitCommand.self,
             ViewerCommand.self,
+            MigrateCommand.self,
         ],
     )
 }

@@ -85,15 +85,91 @@ enum Dependencies {
         let localUUIDs = PhotosDatabase.localAvailableUUIDs(dbPath: dbPath)
         return PhotosDatabaseLocalAvailability(localUUIDs: localUUIDs)
     }
+
+    /// Build a fully-wired migration runner using real PhotoKit, S3, retry,
+    /// and unavailable stores. Caller owns prompting / confirmation flow.
+    static func makeMigrationRunner(
+        progress: MigrationRunner.ProgressHandler? = nil,
+    ) async throws -> MigrationRunner {
+        let (_, s3, manifestStore) = try makeBackupDeps()
+        let library = PhotoKitLibrary()
+        let resolver = PhotoKitCloudIdentityResolver()
+        let retry = FileRetryQueueStore()
+        let unavailable = FileUnavailableAssetStore()
+
+        let identifiers: @Sendable () -> [(bareUUID: String, fullLocalIdentifier: String)] = {
+            library.enumerateAssets().map {
+                (bareUUID: $0.uuid, fullLocalIdentifier: $0.identifier)
+            }
+        }
+
+        return MigrationRunner(
+            s3: s3,
+            manifestStore: manifestStore,
+            resolver: resolver,
+            assetIdentifierProvider: identifiers,
+            retryStore: retry,
+            unavailableStore: unavailable,
+            progress: progress,
+        )
+    }
+
+    /// Delete any leftover migration staging key on S3.
+    static func deleteMigrationStagingKey() async throws {
+        let (_, s3, _) = try makeBackupDeps()
+        try? await s3.deleteObject(key: manifestV2StagingS3Key)
+    }
+
+    /// Guard that runs at the top of every command needing a v2 manifest.
+    /// Detects v1, prompts the user (TTY), runs migration with progress,
+    /// or fails fast on non-TTY with a clear next-step message.
+    static func ensureManifestMigrated() async throws {
+        let isTTY = isatty(STDOUT_FILENO) != 0 && isatty(STDIN_FILENO) != 0
+        let (_, _, manifestStore) = try makeBackupDeps()
+        let manifest = try await loadManifest(store: manifestStore)
+        guard manifest.isV1 else { return }
+
+        let count = manifest.entries.count
+        FileHandle.standardError.write(Data("""
+
+        attic detected a v1 manifest (\(count) entries) keyed by device-local
+        PhotoKit identifiers. attic 1.0.0-beta.8 requires a one-time migration
+        to cross-device cloud identifiers before continuing.
+
+
+        """.utf8))
+
+        guard isTTY else {
+            FileHandle.standardError.write(Data(
+                "Re-run `attic migrate --yes` from an interactive shell to perform the migration.\n\n".utf8,
+            ))
+            throw CLIError.migrationRequired
+        }
+
+        print("Run migration now? [Y/n] ", terminator: "")
+        let answer = (readLine() ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !answer.isEmpty, !["y", "yes"].contains(answer) {
+            throw CLIError.migrationRequired
+        }
+
+        let runner = try await makeMigrationRunner(progress: { msg in print("  \(msg)") })
+        let report = try await runner.run()
+        print("")
+        print("Migration complete: \(report.cloudMigrated) cloud, \(report.localFallback) local fallback.")
+        print("")
+    }
 }
 
 enum CLIError: Error, CustomStringConvertible {
     case notInitialized
+    case migrationRequired
 
     var description: String {
         switch self {
         case .notInitialized:
             "Attic is not configured. Run 'attic init' first."
+        case .migrationRequired:
+            "Manifest migration to v2 is required before this command can run."
         }
     }
 }

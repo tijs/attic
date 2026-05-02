@@ -10,6 +10,8 @@ struct StatusCommand: AsyncParsableCommand {
     )
 
     func run() async throws {
+        try await Dependencies.ensureManifestMigrated()
+
         let isTTY = isatty(STDOUT_FILENO) != 0
         let assets = Dependencies.loadAssets()
 

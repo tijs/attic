@@ -11,6 +11,8 @@ struct VerifyCommand: AsyncParsableCommand {
     var concurrency: Int = 20
 
     func run() async throws {
+        try await Dependencies.ensureManifestMigrated()
+
         let (_, s3, manifestStore) = try Dependencies.makeBackupDeps()
         let manifest = try await Dependencies.loadManifest(store: manifestStore)
 

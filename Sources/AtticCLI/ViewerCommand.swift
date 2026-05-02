@@ -12,6 +12,8 @@ struct ViewerCommand: AsyncParsableCommand {
     var port: Int = 0
 
     func run() async throws {
+        try await Dependencies.ensureManifestMigrated()
+
         let (config, s3, manifestStore) = try Dependencies.makeBackupDeps()
         let manifest = try await Dependencies.loadManifest(store: manifestStore)
 

@@ -22,6 +22,8 @@ struct BackupCommand: AsyncParsableCommand {
     var dryRun: Bool = false
 
     func run() async throws {
+        try await Dependencies.ensureManifestMigrated()
+
         let isTTY = isatty(STDOUT_FILENO) != 0
         let spinner = isTTY ? PreparationSpinner() : nil
         spinner?.start()
