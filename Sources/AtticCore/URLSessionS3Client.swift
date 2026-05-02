@@ -113,6 +113,22 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         return S3ObjectMeta(contentLength: contentLength, contentType: contentType)
     }
 
+    public func deleteObject(key: String) async throws {
+        var request = try makeRequest(key: key, method: "DELETE")
+        signRequest(&request)
+
+        let (_, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw S3ClientError.unexpectedResponse("Not an HTTP response")
+        }
+        // S3 returns 204 No Content for successful deletes; idempotent — 404
+        // for missing keys is also a success here.
+        if http.statusCode == 204 || http.statusCode == 200 || http.statusCode == 404 {
+            return
+        }
+        throw S3ClientError.httpError(http.statusCode, "DELETE \(key)")
+    }
+
     public func listObjects(prefix: String) async throws -> [S3ListObject] {
         var results: [S3ListObject] = []
         var continuationToken: String?

@@ -65,6 +65,10 @@ public actor MockS3Provider: S3Providing {
                 )
             }
     }
+
+    public func deleteObject(key: String) async throws {
+        objects.removeValue(forKey: key)
+    }
 }
 
 enum MockS3Error: Error {

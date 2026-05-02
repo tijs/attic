@@ -41,6 +41,9 @@ public protocol S3Providing: Sendable {
 
     /// Generate a pre-signed URL for temporary direct access to an object.
     func presignedURL(key: String, expires: Int) -> URL
+
+    /// Delete an object. Idempotent — succeeds whether the key exists or not.
+    func deleteObject(key: String) async throws
 }
 
 /// Convenience overloads.
