@@ -58,17 +58,26 @@ The backup pipeline:
   window. Permanent failures (`.permanentlyUnavailable`) are ignored — not a
   lane-health signal. Local-only assets run at full `maxConcurrency`; iCloud
   assets are gated by the controller.
-- **RetryQueue** (`retry-queue.json` on S3) — UUIDs of assets that failed in a
-  previous run, with attempts/classification/first-seen/last-seen/message per
-  entry. Merged across runs; unattempted entries are preserved when `--limit`
-  cuts a run short. Retried first on the next run.
-- **UnavailableStore** (`unavailable-assets.json` on S3) — shared-album or
-  otherwise permanently-unreachable assets. Never auto-cleared — skip-forever.
+- **RetryQueue** (`~/.attic/retry-queue.json`, local) — UUIDs of assets that
+  failed in a previous run, with attempts/classification/first-seen/last-seen/
+  message per entry. Merged across runs; unattempted entries are preserved
+  when `--limit` cuts a run short. Retried first on the next run.
+- **UnavailableStore** (`~/.attic/unavailable-assets.json`, local) — shared-
+  album or otherwise permanently-unreachable assets. Never auto-cleared —
+  skip-forever.
 - **S3 key format** — originals: `originals/{year}/{month}/{uuid}.{ext}`,
   metadata: `metadata/assets/{uuid}.json`.
-- **Manifest** (`manifest.json` on S3) — maps UUID →
-  `{ s3Key, checksum, backedUpAt }`. S3 is the single source of truth. Saved
-  at batch boundaries during backup.
+- **Manifest** (`manifest.json` on S3) — `{ version: 2, entries: { uuid →
+  { s3Key, checksum, backedUpAt, identityKind, legacyLocalIdentifier } } }`.
+  In v2, the entry uuid is `PHCloudIdentifier` (cross-device stable) where
+  PhotoKit can resolve one, otherwise the device-local UUID prefix.
+  S3 is the single source of truth. Saved at batch boundaries during backup.
+- **Identity model** — As of `1.0.0-beta.8`, asset identity is keyed by
+  `PHCloudIdentifier.stringValue` (stable across all Macs in the same iCloud
+  Photos library). Assets without a cloud counterpart fall back to the
+  device-local UUID prefix and are flagged `identityKind: .local`. The v1 →
+  v2 migration is one-time per backup; see `docs/migration-cloud-identity.md`.
+  Pre-migration manifest is preserved as `manifest.v1.json` on S3.
 - **Network pause/resume** — `NetworkMonitoring` (backed by `NWPath`) detects
   network loss mid-upload; the upload loop waits and resumes from the retry
   set.
@@ -91,6 +100,7 @@ All external dependencies are behind protocols (`S3Providing`, `ManifestStoring`
 | `rebuild` | Rebuild manifest from S3 metadata |
 | `viewer` | Browse backed-up library in local web UI |
 | `init` | Interactive S3 setup |
+| `migrate` | One-time v1 → v2 manifest migration to cloud-stable identity |
 
 ## Testing Patterns
 
@@ -107,6 +117,7 @@ Uses Swift Testing framework (`@Test`, `#expect`, `@Suite`).
 
 - [Architecture](docs/architecture.md) — pipeline, reader, manifest, interfaces
 - [Asset Metadata](docs/metadata.md) — per-asset JSON schema uploaded to S3
+- [Cloud-identity migration](docs/migration-cloud-identity.md) — v1 → v2 one-time migration
 
 ## Releasing
 

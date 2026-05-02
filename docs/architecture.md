@@ -173,6 +173,42 @@ Two auxiliary JSON files persist failure state across runs:
   (typically shared-album derivatives gone server-side). Never auto-cleared.
   Retrying is pointless; only user action (via a future command) clears.
 
+## Identity model
+
+As of `1.0.0-beta.8`, asset identity is **cloud-stable** — the canonical
+`uuid` recorded in the manifest and per-asset metadata is
+`PHCloudIdentifier.stringValue`, which is the same value for the same
+iCloud Photos asset on every Mac signed into the library.
+
+| Field | Source | Stability |
+|-------|--------|-----------|
+| `uuid` | `PHCloudIdentifier.stringValue` (preferred) or `PHAsset.localIdentifier` UUID prefix | cross-device when cloud-mapped; per-device when fallback |
+| `legacyLocalIdentifier` | `PHAsset.localIdentifier` UUID prefix | per-device |
+| `identityKind` | `.cloud` or `.local` | indicates which kind of `uuid` is recorded |
+
+The cloud-identity resolver is `LadderKit.PhotoKitCloudIdentityResolver`,
+which wraps `PHPhotoLibrary.cloudIdentifierMappings(forLocalIdentifiers:)`.
+It chunks input at 1000 assets per call (defensive — Apple does not
+document a cap but warns the API is expensive) and retries `.error`
+results once with a 500ms delay before treating them as terminal — this
+absorbs the iOS 18.1.1 / macOS Sequoia 15.x async-quirk where the first
+call returns spurious errors.
+
+Assets without a cloud counterpart (genuinely local imports, or
+iCloud Photos disabled) keep the device-local UUID prefix and are
+flagged `identityKind: .local`. They behave exactly as v1 entries did —
+they will appear "new" if you copy the library to a different Mac.
+
+The S3 paths for originals (`originals/{y}/{m}/{uuid}.{ext}`) and
+metadata (`metadata/assets/{uuid}.json`) used the device-local UUID at
+the time of upload. After the v2 migration, manifest entries record
+the same path verbatim in `s3Key` (an opaque field) — existing objects
+are **not moved**. Only newly-uploaded assets use the cloud identifier
+in their path.
+
+See [docs/migration-cloud-identity.md](migration-cloud-identity.md) for
+the v1 → v2 migration flow.
+
 ## Verification
 
 `VerifyPipeline.swift` checks backup integrity by issuing a HEAD request for

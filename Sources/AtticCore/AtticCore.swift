@@ -2,5 +2,5 @@
 ///
 /// Used by both the Attic CLI and the Attic menu bar app.
 public enum AtticCore {
-    public static let version = "1.0.0-beta.7"
+    public static let version = "1.0.0-beta.8"
 }

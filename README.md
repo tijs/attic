@@ -63,6 +63,26 @@ This prompts for your S3 endpoint, region, bucket name, and credentials. Config
 is saved to `~/.attic/config.json` and credentials are stored in the macOS
 Keychain.
 
+## Upgrading from beta.7 or earlier
+
+`1.0.0-beta.8` switches asset identity from device-local to
+cross-device cloud identifiers (`PHCloudIdentifier`). This is a
+one-time, on-S3 migration that runs automatically the first time you
+invoke a command that needs the new format. Run it once on the Mac
+that originally produced the backup.
+
+```bash
+attic migrate --dry-run    # preview
+attic migrate              # run
+```
+
+The pre-migration manifest is preserved as `manifest.v1.json` on S3.
+Older attic binaries cannot read v2 manifests — do not downgrade
+without first restoring `manifest.v1.json`.
+
+See [docs/migration-cloud-identity.md](docs/migration-cloud-identity.md)
+for the full migration mechanics, recovery flow, and edge cases.
+
 ## Commands
 
 ### init
@@ -267,3 +287,6 @@ MockExportProvider) — no external services or credentials needed.
   controller adapts to iCloud throttling
 - [Asset Metadata](docs/metadata.md) — Schema reference for the per-asset JSON
   uploaded to S3
+- [Cloud-identity migration](docs/migration-cloud-identity.md) — Why
+  `1.0.0-beta.8` migrates the manifest to cross-device cloud identifiers, and
+  how the one-time migration runs
