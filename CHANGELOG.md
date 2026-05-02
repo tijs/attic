@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.0-beta.9
+
+Hotfix for `1.0.0-beta.8`: `S3Paths.uuidPattern` and `s3KeyPattern`
+rejected `PHCloudIdentifier.stringValue`, which contains colons
+(observed shape: `<UUID>:<index>:<base64-ish>`). `attic migrate`
+aborted at the metadata-rewrite step with `Unsafe UUID for S3 key:
+…`. Both patterns now allow `:` while still rejecting `/` so cloud
+IDs cannot escape the `metadata/` or `originals/` prefix.
+
+If you hit this on beta.8, run `attic migrate --repair` after
+upgrading to clear the leftover staging key and stale lock, then
+re-run `attic migrate`. The pre-migration manifest is still safe
+on S3 as `manifest.v1.json`.
+
 ## 1.0.0-beta.8
 
 Cloud-stable identity migration. The on-S3 manifest and per-asset metadata

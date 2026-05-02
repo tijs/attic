@@ -5,8 +5,12 @@ import UniformTypeIdentifiers
 public enum S3Paths {
     // MARK: - Validation patterns
 
-    private nonisolated(unsafe) static let uuidPattern = /^[A-Za-z0-9._\-]+$/
-    private nonisolated(unsafe) static let s3KeyPattern = /^[A-Za-z0-9\/._\-]+$/
+    // Cloud identifiers (PHCloudIdentifier.stringValue) include colons —
+    // observed shape: `<UUID>:<index>:<base64-ish>`. Allow `:` so cloud IDs
+    // pass validation. Path separator `/` is still rejected so cloud IDs
+    // cannot escape the metadata/originals prefix.
+    private nonisolated(unsafe) static let uuidPattern = /^[A-Za-z0-9._\-:]+$/
+    private nonisolated(unsafe) static let s3KeyPattern = /^[A-Za-z0-9\/._\-:]+$/
     private nonisolated(unsafe) static let extPattern = /^[a-z0-9]+$/
 
     /// Normalize extensions where the system canonical form differs from convention.

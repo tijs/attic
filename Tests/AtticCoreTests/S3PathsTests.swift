@@ -61,4 +61,20 @@ struct S3PathsTests {
     @Test func extensionFromUTIReturnsBinAsLastResort() {
         #expect(S3Paths.extensionFromUTIOrFilename(uti: nil, filename: "noext") == "bin")
     }
+
+    @Test func metadataKeyAcceptsCloudIdentifierWithColons() throws {
+        // PHCloudIdentifier.stringValue includes colons. Regression for
+        // beta.8 bug where the validator rejected them and migration aborted.
+        let cloudID = "41C24A89-1280-4C14-BF5E-E93545843128:001:AaiU4soYcBEybZPj3zsS91dxDF42"
+        let key = try S3Paths.metadataKey(uuid: cloudID)
+        #expect(key == "metadata/assets/\(cloudID).json")
+    }
+
+    @Test func uuidValidatorRejectsPathSeparator() {
+        // Even with `:` allowed, `/` must still be rejected so cloud IDs
+        // cannot escape their bucket prefix.
+        #expect(!S3Paths.isValidUUID("foo/bar"))
+        #expect(!S3Paths.isValidUUID("../escape"))
+        #expect(S3Paths.isValidUUID("UUID:001:base64part"))
+    }
 }
