@@ -42,6 +42,94 @@ struct ManifestTests {
         #expect(!entry.backedUpAt.isEmpty)
     }
 
+    @Test func newManifestIsV2() {
+        let manifest = Manifest()
+        #expect(manifest.version == 2)
+        #expect(!manifest.isV1)
+    }
+
+    @Test func decodesLegacyManifestWithoutVersionAsV1() throws {
+        let json = """
+        {
+          "entries": {
+            "ABC": {
+              "uuid": "ABC",
+              "s3Key": "originals/2024/01/ABC.heic",
+              "checksum": "sha256:aaa",
+              "backedUpAt": "2024-01-01T00:00:00Z"
+            }
+          }
+        }
+        """
+        let manifest = try Manifest.parse(from: Data(json.utf8))
+        #expect(manifest.version == 1)
+        #expect(manifest.isV1)
+        let entry = try #require(manifest.entries["ABC"])
+        #expect(entry.identityKind == .local)
+        #expect(entry.legacyLocalIdentifier == nil)
+    }
+
+    @Test func markBackedUpRecordsCloudIdentity() throws {
+        var manifest = Manifest()
+        manifest.markBackedUp(
+            uuid: "CLOUD-XYZ",
+            s3Key: "originals/2024/01/old-local.heic",
+            checksum: "sha256:abc",
+            size: 1024,
+            backedUpAt: "2024-01-01T00:00:00Z",
+            legacyLocalIdentifier: "old-local",
+            identityKind: .cloud,
+        )
+        let entry = try #require(manifest.entries["CLOUD-XYZ"])
+        #expect(entry.identityKind == .cloud)
+        #expect(entry.legacyLocalIdentifier == "old-local")
+    }
+
+    @Test func encodesV2ManifestWithVersionField() throws {
+        var manifest = Manifest()
+        manifest.markBackedUp(
+            uuid: "u1",
+            s3Key: "k1",
+            checksum: "sha256:c",
+            backedUpAt: "2024-01-01T00:00:00Z",
+            identityKind: .cloud,
+        )
+        let data = try manifest.encoded()
+        let parsed = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(parsed["version"] as? Int == 2)
+        let entries = try #require(parsed["entries"] as? [String: Any])
+        let entry = try #require(entries["u1"] as? [String: Any])
+        #expect(entry["identityKind"] as? String == "cloud")
+    }
+
+    @Test func v2RoundTripPreservesIdentityFields() throws {
+        var original = Manifest()
+        original.markBackedUp(
+            uuid: "CLOUD-A",
+            s3Key: "originals/2024/01/legacy.heic",
+            checksum: "sha256:a",
+            size: 100,
+            backedUpAt: "2024-01-01T00:00:00Z",
+            legacyLocalIdentifier: "legacy",
+            identityKind: .cloud,
+        )
+        original.markBackedUp(
+            uuid: "LOCAL-B",
+            s3Key: "originals/2024/01/LOCAL-B.heic",
+            checksum: "sha256:b",
+            backedUpAt: "2024-01-02T00:00:00Z",
+            legacyLocalIdentifier: "LOCAL-B",
+            identityKind: .local,
+        )
+        let data = try original.encoded()
+        let parsed = try Manifest.parse(from: data)
+        #expect(parsed.version == 2)
+        #expect(parsed.entries["CLOUD-A"]?.identityKind == .cloud)
+        #expect(parsed.entries["CLOUD-A"]?.legacyLocalIdentifier == "legacy")
+        #expect(parsed.entries["LOCAL-B"]?.identityKind == .local)
+        #expect(parsed.entries["LOCAL-B"]?.legacyLocalIdentifier == "LOCAL-B")
+    }
+
     @Test func encodeAndParseRoundTrip() throws {
         var manifest = Manifest()
         manifest.markBackedUp(
