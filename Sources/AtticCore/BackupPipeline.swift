@@ -81,11 +81,40 @@ func filterPending(
     return pending
 }
 
+/// Translate an `ExportResult`'s uuid (a PhotoKit local UUID) back to the
+/// canonical cloud uuid the rest of the pipeline keys on. Identity passthrough
+/// when no mapping exists (e.g. local-fallback assets). Delegates the field
+/// preservation to LadderKit's `withUUID(_:)` factory so future
+/// `ExportResult` / `ExportError` field additions flow through automatically.
+private func remapToCloud(
+    _ result: ExportResult,
+    using localToCloud: [String: String],
+) -> ExportResult {
+    result.withUUID(localToCloud[result.uuid] ?? result.uuid)
+}
+
+private func remapToCloud(
+    _ err: LadderKit.ExportError,
+    using localToCloud: [String: String],
+) -> LadderKit.ExportError {
+    err.withUUID(localToCloud[err.uuid] ?? err.uuid)
+}
+
+/// PhotoKit local UUIDs the exporter / AppleScript fallback can fetch by,
+/// paired with the cloud-uuid map the rest of the pipeline (manifest,
+/// retry queue, S3 keys, error reports) is keyed on. The two fields
+/// always travel together — a stale `localToCloud` cannot translate
+/// `localIds` correctly.
+struct ExportBatchKeys {
+    let localIds: [String]
+    let localToCloud: [String: String]
+}
+
 /// Export a batch. On batch timeout, fall back to per-asset exports and
 /// track UUIDs that still time out in `deferred` for a final retry pass.
 /// Returns the combined response (reclaimed + freshly exported).
 func exportBatchWithFallback(
-    uuids: [String],
+    keys: ExportBatchKeys,
     reclaimed: [ExportResult],
     exporter: any ExportProviding,
     deferred: inout [String],
@@ -93,34 +122,35 @@ func exportBatchWithFallback(
     report: inout BackupReport,
     progress: any BackupProgressDelegate,
 ) async throws -> ExportResponse {
-    if uuids.isEmpty {
+    if keys.localIds.isEmpty {
         return ExportResponse(results: reclaimed, errors: [])
     }
 
     do {
-        let exported = try await exporter.exportBatch(uuids: uuids)
+        let exported = try await exporter.exportBatch(uuids: keys.localIds)
         return ExportResponse(
-            results: reclaimed + exported.results,
-            errors: exported.errors,
+            results: reclaimed + exported.results.map { remapToCloud($0, using: keys.localToCloud) },
+            errors: exported.errors.map { remapToCloud($0, using: keys.localToCloud) },
         )
     } catch let error as ExportProviderError where error.isTimeout {
         // Batch timeout: retry each asset individually
         var results = reclaimed
         var errors: [LadderKit.ExportError] = []
-        for uuid in uuids {
+        for localId in keys.localIds {
             try Task.checkCancellation()
+            let cloudUUID = keys.localToCloud[localId] ?? localId
             do {
-                let single = try await exporter.exportBatch(uuids: [uuid])
-                results.append(contentsOf: single.results)
-                errors.append(contentsOf: single.errors)
+                let single = try await exporter.exportBatch(uuids: [localId])
+                results.append(contentsOf: single.results.map { remapToCloud($0, using: keys.localToCloud) })
+                errors.append(contentsOf: single.errors.map { remapToCloud($0, using: keys.localToCloud) })
             } catch let innerError as ExportProviderError where innerError.isTimeout {
-                deferred.append(uuid)
+                deferred.append(cloudUUID)
             } catch {
                 let msg = String(describing: error)
-                report.appendError(uuid: uuid, message: msg)
+                report.appendError(uuid: cloudUUID, message: msg)
                 report.failed += 1
-                let filename = assetByUUID[uuid]?.originalFilename ?? uuid
-                progress.assetFailed(uuid: uuid, filename: filename, message: msg)
+                let filename = assetByUUID[cloudUUID]?.originalFilename ?? cloudUUID
+                progress.assetFailed(uuid: cloudUUID, filename: filename, message: msg)
             }
         }
         return ExportResponse(results: results, errors: errors)
@@ -170,6 +200,33 @@ public func runBackup(
     }
 
     let assetByUUID = Dictionary(uniqueKeysWithValues: pending.map { ($0.uuid, $0) })
+
+    // Cloud uuid (the canonical pipeline key, post-migration) ↔ PhotoKit
+    // local uuid (what the exporter / AppleScript fallback can actually
+    // fetch). Pre-migration these are identical, but after the v1→v2
+    // migration `asset.uuid` is the `PHCloudIdentifier` and the exporter
+    // would otherwise reject it as an invalid local identifier.
+    //
+    // Both directions are derived directly from `pending` (rather than
+    // inverting one map into the other) so that a hypothetical local-uuid
+    // collision between two cloud-keyed assets is asserted at construction
+    // instead of silently last-write-wins'ing a remap into the wrong
+    // manifest entry. PhotoKit guarantees per-device local-uuid uniqueness,
+    // so the precondition should never fire in practice.
+    var cloudToLocal: [String: String] = [:]
+    var localToCloud: [String: String] = [:]
+    for asset in pending {
+        let localId = stripLocalIdSuffix(asset.identifier)
+        cloudToLocal[asset.uuid] = localId
+        if let existing = localToCloud[localId], existing != asset.uuid {
+            preconditionFailure(
+                "Two pending assets share the same PhotoKit local UUID '\(localId)' " +
+                    "but resolve to different cloud identifiers ('\(existing)', '\(asset.uuid)'). " +
+                    "This violates a PhotoKit per-device uniqueness invariant.",
+            )
+        }
+        localToCloud[localId] = asset.uuid
+    }
 
     var report = BackupReport()
     var sinceLastSave = 0
@@ -225,7 +282,7 @@ public func runBackup(
             let start = batchIndex * options.batchSize
             let end = min(start + options.batchSize, pending.count)
             let batch = Array(pending[start ..< end])
-            let batchUUIDs = batch.map(\.uuid)
+            let batchLocalIds = batch.map { cloudToLocal[$0.uuid] ?? $0.uuid }
 
             progress.batchStarted(
                 batchNumber: batchIndex + 1,
@@ -234,15 +291,15 @@ public func runBackup(
             )
 
             var reclaimedResults: [ExportResult] = []
-            var uuidsToExport = batchUUIDs
+            var localIdsToExport = batchLocalIds
             if let stagingDir = options.stagingDir {
-                let reclaim = reclaimStagedFiles(uuids: batchUUIDs, stagingDir: stagingDir)
-                reclaimedResults = reclaim.reclaimed
-                uuidsToExport = reclaim.remaining
+                let reclaim = reclaimStagedFiles(uuids: batchLocalIds, stagingDir: stagingDir)
+                reclaimedResults = reclaim.reclaimed.map { remapToCloud($0, using: localToCloud) }
+                localIdsToExport = reclaim.remaining
             }
 
             let batchResult = try await exportBatchWithFallback(
-                uuids: uuidsToExport,
+                keys: ExportBatchKeys(localIds: localIdsToExport, localToCloud: localToCloud),
                 reclaimed: reclaimedResults,
                 exporter: exporter,
                 deferred: &deferred,
@@ -272,11 +329,18 @@ public func runBackup(
             }
         }
 
-        // Retry deferred assets (single-asset timeouts from batch fallback)
-        for uuid in deferred {
+        // Retry deferred assets (single-asset timeouts from batch fallback).
+        // `deferred` is keyed by cloud uuid; translate to local id for the
+        // exporter, then back to cloud uuid for downstream consumers.
+        for cloudUUID in deferred {
             try Task.checkCancellation()
+            let localId = cloudToLocal[cloudUUID] ?? cloudUUID
             do {
-                let result = try await exporter.exportBatch(uuids: [uuid])
+                let raw = try await exporter.exportBatch(uuids: [localId])
+                let result = ExportResponse(
+                    results: raw.results.map { remapToCloud($0, using: localToCloud) },
+                    errors: raw.errors.map { remapToCloud($0, using: localToCloud) },
+                )
                 recordFailures(result.errors)
                 try await uploadExported(
                     result, ctx: ctx,
@@ -285,19 +349,31 @@ public func runBackup(
                 )
             } catch {
                 let msg = String(describing: error)
-                report.appendError(uuid: uuid, message: msg)
+                report.appendError(uuid: cloudUUID, message: msg)
                 report.failed += 1
-                let filename = assetByUUID[uuid]?.originalFilename ?? uuid
-                progress.assetFailed(uuid: uuid, filename: filename, message: msg)
+                let filename = assetByUUID[cloudUUID]?.originalFilename ?? cloudUUID
+                progress.assetFailed(uuid: cloudUUID, filename: filename, message: msg)
             }
         }
     } catch is CancellationError {
-        // Save progress before propagating cancellation
+        // Save progress before propagating cancellation. The retry queue
+        // must be merged here too — without it, this run's recorded
+        // failures plus any --limit-preserved prior queue entries are
+        // silently dropped. Pass `attempted: []` so RetryQueue.merged
+        // preserves every prior entry (we cannot tell which subset of
+        // `pending` was actually tried before cancellation).
         if sinceLastSave > 0 {
             try? await manifestStore.save(manifest)
             progress.manifestSaved(entriesCount: manifest.entries.count)
         }
         try? unavailableStore?.save(unavailable)
+        persistRetryQueue(
+            retryQueue: retryQueue,
+            unavailable: unavailable,
+            report: report,
+            attempted: [],
+            failureClassifications: failureClassifications,
+        )
         throw CancellationError()
     }
 
@@ -343,11 +419,38 @@ private func finalizeBackup(
         debugPrint("Failed to save unavailable assets store: \(error)")
     }
 
-    // Merge this run's failures into the retry queue. UUIDs marked unavailable
-    // are excluded (retrying is futile). UUIDs in the prior queue that weren't
-    // attempted this run (cut off by --limit) are preserved.
+    persistRetryQueue(
+        retryQueue: retryQueue,
+        unavailable: unavailable,
+        report: report,
+        attempted: Set(pending.map(\.uuid)),
+        failureClassifications: failureClassifications,
+    )
+
+    progress.backupCompleted(
+        uploaded: report.uploaded,
+        failed: report.failed,
+        totalBytes: report.totalBytes,
+    )
+}
+
+/// Merge this run's failures into the on-disk retry queue. UUIDs marked
+/// unavailable are excluded (retrying is futile). UUIDs in the prior queue
+/// that weren't attempted this run (cut off by `--limit` or cancellation)
+/// are preserved by passing them through `attempted: []` or by listing the
+/// confirmed-attempted set.
+///
+/// Also called from `runBackup`'s `CancellationError` catch block so that
+/// in-progress failures and prior `--limit`-preserved entries are not
+/// silently dropped on Ctrl+C.
+private func persistRetryQueue(
+    retryQueue: (any RetryQueueProviding)?,
+    unavailable: UnavailableAssets,
+    report: BackupReport,
+    attempted: Set<String>,
+    failureClassifications: [String: ExportClassification],
+) {
     let retryableErrors = report.errors.filter { !unavailable.contains($0.uuid) }
-    let attempted = Set(pending.map(\.uuid))
     let failures: [FailureRecord] = retryableErrors.map { entry in
         FailureRecord(
             uuid: entry.uuid,
@@ -370,10 +473,4 @@ private func finalizeBackup(
     } catch {
         debugPrint("Failed to update retry queue: \(error)")
     }
-
-    progress.backupCompleted(
-        uploaded: report.uploaded,
-        failed: report.failed,
-        totalBytes: report.totalBytes,
-    )
 }

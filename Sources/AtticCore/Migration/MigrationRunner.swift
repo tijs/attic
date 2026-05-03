@@ -187,11 +187,25 @@ public struct MigrationRunner: Sendable {
         self.progress = progress
     }
 
-    /// Whether the manifest at `manifestS3Key` is already v2. Cheap probe —
-    /// CLI gate calls this before deciding to prompt the user.
-    public func detectIsV1() async throws -> Bool {
+    /// Result of the cheap manifest probe.
+    public struct ManifestProbe: Sendable {
+        public let isV1: Bool
+        public let entryCount: Int
+    }
+
+    /// Whether the manifest at `manifestS3Key` is already v2 plus its current
+    /// entry count. Cheap probe — CLI gate calls this before deciding to
+    /// prompt the user, and uses `entryCount` to size the runtime estimate
+    /// without issuing a second S3 GET.
+    public func probeManifest() async throws -> ManifestProbe {
         let manifest = try await manifestStore.load()
-        return manifest.isV1
+        return ManifestProbe(isV1: manifest.isV1, entryCount: manifest.entries.count)
+    }
+
+    /// Convenience wrapper for callers that only need the v1 flag. Prefer
+    /// ``probeManifest()`` when the entry count is also needed.
+    public func detectIsV1() async throws -> Bool {
+        try await probeManifest().isV1
     }
 
     /// Run the migration. Returns a report on success. Throws on validation

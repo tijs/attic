@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.0.0-beta.12
+
+Hotfix on top of `1.0.0-beta.11`. After a successful v1→v2 migration,
+`attic backup` failed every asset with `AppleScript export failed for
+asset <UUID>:001:<base64>: Invalid UUID format`.
+
+Root cause: post-migration, `AssetInfo.uuid` resolves to the
+`PHCloudIdentifier` (the cross-device key the manifest is now keyed on),
+but PhotoKit's `fetchAssets(withLocalIdentifiers:)` and the AppleScript
+fallback can only fetch by the *device-local* UUID. The backup pipeline
+was passing `pending.map(\.uuid)` (cloud IDs) straight through to the
+exporter, so PhotoKit returned nothing, the AppleScript fallback got
+the cloud ID, and the bare-UUID validator rejected it.
+
+The pipeline now keeps two views of identity:
+
+- The exporter and the staging-reclaim scan are fed the PhotoKit local
+  UUID (`stripLocalIdSuffix(asset.identifier)`).
+- Manifest, retry queue, S3 keys, and error reports stay keyed by the
+  cloud UUID. `ExportResult` and `ExportError` uuids are translated
+  back via a per-run `localToCloud` map before they enter the rest of
+  the pipeline.
+
+Pre-migration libraries are unaffected — `cloudToLocal` is the identity
+map when `cloudIdentifier` is nil.
+
+Also surfaces a runtime estimate before the migration prompt so a long
+migration on a large library no longer looks hung. `MigrationPrompt`
+prints "Estimated runtime: roughly N–M minutes" based on entry count
+and the observed metadata-rewrite throughput band (~15–45 entries/sec
+to a B2/R2/Wasabi-class endpoint), and `attic migrate` echoes the same
+estimate alongside its bullet-list confirmation.
+
 ## 1.0.0-beta.11
 
 Performance: `attic migrate` rewrites per-asset metadata JSONs in parallel.

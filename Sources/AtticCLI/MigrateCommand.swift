@@ -56,13 +56,13 @@ struct MigrateCommand: AsyncParsableCommand {
             print("Repair: cleared manifest.v2.json staging key and migration.lock.")
         }
 
-        let isV1 = try await runner.detectIsV1()
-        guard isV1 else {
+        let probe = try await runner.probeManifest()
+        guard probe.isV1 else {
             print("Manifest is already v2 — nothing to migrate.")
             return
         }
 
-        if !yes, !dryRun, !confirmInteractive() {
+        if !yes, !dryRun, !confirmInteractive(entryCount: probe.entryCount) {
             print("Aborted.")
             throw ExitCode.failure
         }
@@ -78,7 +78,7 @@ struct MigrateCommand: AsyncParsableCommand {
         }
     }
 
-    private func confirmInteractive() -> Bool {
+    private func confirmInteractive(entryCount: Int) -> Bool {
         guard isatty(STDIN_FILENO) != 0, isatty(STDOUT_FILENO) != 0 else {
             FileHandle.standardError.write(Data(
                 "Error: non-interactive shell. Re-run with --yes to confirm migration.\n".utf8,
@@ -91,6 +91,11 @@ struct MigrateCommand: AsyncParsableCommand {
         print("  - Rewrites per-asset metadata JSONs on S3")
         print("  - Backs up the v1 manifest as manifest.v1.json on S3")
         print("  - Original photo objects are NOT moved or re-uploaded")
+        print("")
+        let estimate = MigrationPrompt.runtimeEstimate(entryCount: entryCount)
+        print("Estimated runtime for \(entryCount) entries: \(estimate).")
+        print("Progress prints every 250 metadata rewrites — long runs are normal,")
+        print("not hung. Safe to re-run if interrupted (resumes where it left off).")
         print("")
         print("Continue? [y/N] ", terminator: "")
         guard let line = readLine() else { return false }

@@ -480,6 +480,232 @@ struct BackupPipelineTests {
         #expect(report2.uploaded == 0)
         #expect(report2.failed == 0)
     }
+
+    @Test func cloudIdentifierAssetsExportByLocalUUIDAndManifestByCloudUUID() async throws {
+        // Post-migration regression: AssetInfo.uuid resolves to PHCloudIdentifier
+        // (e.g. "BD3A2240-...:001:ATmPkw4w"), but PhotoKit / AppleScript can only
+        // fetch by the device-local UUID prefix. The pipeline must pass local
+        // UUIDs to the exporter and key the manifest by the cloud UUID.
+        let cloudA = "BD3A2240-E5E5-4F8C-8472-EEA07B7D1384:001:ATmPkw4w"
+        let cloudB = "46D1C84B-C5D9-4F15-9705-54A83F90685C:001:AYB5xtyCkdkw2fwEZO7RXKieNT"
+        let localA = "BD3A2240-E5E5-4F8C-8472-EEA07B7D1384"
+        let localB = "46D1C84B-C5D9-4F15-9705-54A83F90685C"
+
+        let assetA = AssetInfo(
+            identifier: "\(localA)/L0/001",
+            cloudIdentifier: cloudA,
+            creationDate: ISO8601DateFormatter().date(from: "2024-01-15T12:00:00Z"),
+            kind: .photo,
+            pixelWidth: 4032,
+            pixelHeight: 3024,
+            latitude: nil,
+            longitude: nil,
+            isFavorite: false,
+            originalFilename: "IMG_A.HEIC",
+            uniformTypeIdentifier: "public.heic",
+        )
+        let assetB = AssetInfo(
+            identifier: "\(localB)/L0/001",
+            cloudIdentifier: cloudB,
+            creationDate: ISO8601DateFormatter().date(from: "2024-01-15T12:00:00Z"),
+            kind: .photo,
+            pixelWidth: 4032,
+            pixelHeight: 3024,
+            latitude: nil,
+            longitude: nil,
+            isFavorite: false,
+            originalFilename: "IMG_B.HEIC",
+            uniformTypeIdentifier: "public.heic",
+        )
+
+        // MockExportProvider only knows the LOCAL UUIDs — proves the pipeline
+        // is feeding the exporter local UUIDs, not cloud IDs.
+        let exporter = MockExportProvider(assets: [
+            localA: ("IMG_A.HEIC", Data("photoA".utf8)),
+            localB: ("IMG_B.HEIC", Data("photoB".utf8)),
+        ])
+        let (s3, manifestStore) = try await createTestContext()
+        var manifest = try await manifestStore.load()
+
+        let report = try await runBackup(
+            assets: [assetA, assetB],
+            manifest: &manifest,
+            manifestStore: manifestStore,
+            exporter: exporter,
+            s3: s3,
+            options: BackupOptions(batchSize: 10),
+        )
+
+        #expect(report.uploaded == 2)
+        #expect(report.failed == 0)
+        #expect(report.errors.isEmpty)
+        // Manifest must be keyed by the cloud UUID so cross-device recognition works.
+        #expect(manifest.isBackedUp(cloudA))
+        #expect(manifest.isBackedUp(cloudB))
+        #expect(!manifest.isBackedUp(localA))
+        #expect(!manifest.isBackedUp(localB))
+    }
+
+    @Test func cloudIdentifierAssetDeferredRetryPreservesCloudUUID() async throws {
+        // Post-migration regression: the deferred-retry loop translates
+        // cloud → local for the exporter and back to cloud for the manifest.
+        // A timeout-then-success flow forces one asset through the
+        // batch-fallback per-asset retry, which marks it `deferred`
+        // (cloud-keyed), then re-runs it after all batches.
+        let cloudA = "BD3A2240-E5E5-4F8C-8472-EEA07B7D1384:001:ATmPkw4w"
+        let cloudB = "46D1C84B-C5D9-4F15-9705-54A83F90685C:001:AYB5xtyCkdkw2fwEZO7RXKieNT"
+        let localA = "BD3A2240-E5E5-4F8C-8472-EEA07B7D1384"
+        let localB = "46D1C84B-C5D9-4F15-9705-54A83F90685C"
+
+        func cloudAsset(local: String, cloud: String, file: String) -> AssetInfo {
+            AssetInfo(
+                identifier: "\(local)/L0/001",
+                cloudIdentifier: cloud,
+                creationDate: ISO8601DateFormatter().date(from: "2024-01-15T12:00:00Z"),
+                kind: .photo,
+                pixelWidth: 4032,
+                pixelHeight: 3024,
+                latitude: nil,
+                longitude: nil,
+                isFavorite: false,
+                originalFilename: file,
+                uniformTypeIdentifier: "public.heic",
+            )
+        }
+
+        let inner = MockExportProvider(assets: [
+            localA: ("IMG_A.HEIC", Data("a".utf8)),
+            localB: ("IMG_B.HEIC", Data("b".utf8)),
+        ])
+        // TimeoutExportProvider keys slowUUIDs by what the pipeline passes
+        // to the exporter — that's the LOCAL uuid post-fix.
+        let exporter = TimeoutExportProvider(inner: inner, slowUUIDs: [localA])
+
+        let (s3, manifestStore) = try await createTestContext()
+        var manifest = try await manifestStore.load()
+
+        let report = try await runBackup(
+            assets: [
+                cloudAsset(local: localA, cloud: cloudA, file: "IMG_A.HEIC"),
+                cloudAsset(local: localB, cloud: cloudB, file: "IMG_B.HEIC"),
+            ],
+            manifest: &manifest,
+            manifestStore: manifestStore,
+            exporter: exporter,
+            s3: s3,
+            options: BackupOptions(batchSize: 10),
+        )
+
+        #expect(report.uploaded == 2)
+        #expect(report.failed == 0)
+        // Manifest must end up cloud-keyed even though exporter saw local IDs.
+        #expect(manifest.isBackedUp(cloudA))
+        #expect(manifest.isBackedUp(cloudB))
+        #expect(!manifest.isBackedUp(localA))
+        #expect(!manifest.isBackedUp(localB))
+    }
+
+    @Test func mixedCloudAndLocalFallbackBatch() async throws {
+        // Pre/post-migration coexistence: one asset has resolved a cloud
+        // identifier, the other has not (PhotoKit returned no mapping).
+        // Both must export by their local UUID, but the cloud-keyed one
+        // writes to manifest under the cloud UUID and the local-fallback
+        // one writes under the local UUID prefix.
+        let cloudA = "BD3A2240-E5E5-4F8C-8472-EEA07B7D1384:001:ATmPkw4w"
+        let localA = "BD3A2240-E5E5-4F8C-8472-EEA07B7D1384"
+        let bareLocal = "00000000-0000-4000-8000-000000000001"
+
+        let cloudAsset = AssetInfo(
+            identifier: "\(localA)/L0/001",
+            cloudIdentifier: cloudA,
+            creationDate: ISO8601DateFormatter().date(from: "2024-01-15T12:00:00Z"),
+            kind: .photo,
+            pixelWidth: 4032,
+            pixelHeight: 3024,
+            latitude: nil,
+            longitude: nil,
+            isFavorite: false,
+            originalFilename: "IMG_A.HEIC",
+            uniformTypeIdentifier: "public.heic",
+        )
+        let localOnlyAsset = AssetInfo(
+            identifier: "\(bareLocal)/L0/001",
+            // No cloudIdentifier — uuid falls back to local prefix.
+            creationDate: ISO8601DateFormatter().date(from: "2024-01-15T12:00:00Z"),
+            kind: .photo,
+            pixelWidth: 4032,
+            pixelHeight: 3024,
+            latitude: nil,
+            longitude: nil,
+            isFavorite: false,
+            originalFilename: "IMG_B.HEIC",
+            uniformTypeIdentifier: "public.heic",
+        )
+
+        let exporter = MockExportProvider(assets: [
+            localA: ("IMG_A.HEIC", Data("a".utf8)),
+            bareLocal: ("IMG_B.HEIC", Data("b".utf8)),
+        ])
+        let (s3, manifestStore) = try await createTestContext()
+        var manifest = try await manifestStore.load()
+
+        let report = try await runBackup(
+            assets: [cloudAsset, localOnlyAsset],
+            manifest: &manifest,
+            manifestStore: manifestStore,
+            exporter: exporter,
+            s3: s3,
+            options: BackupOptions(batchSize: 10),
+        )
+
+        #expect(report.uploaded == 2)
+        #expect(manifest.isBackedUp(cloudA))      // cloud-keyed
+        #expect(manifest.isBackedUp(bareLocal))   // local-fallback uuid
+        #expect(!manifest.isBackedUp(localA))     // not double-keyed
+    }
+
+    @Test func cloudIdentifierAssetSurfacesExportErrorByCloudUUID() async throws {
+        // When the exporter fails for an asset, the error reported back to the
+        // user (and persisted to the retry queue) must use the cloud UUID, not
+        // the PhotoKit local UUID the exporter was actually invoked with.
+        let cloudA = "BD3A2240-E5E5-4F8C-8472-EEA07B7D1384:001:ATmPkw4w"
+        let localA = "BD3A2240-E5E5-4F8C-8472-EEA07B7D1384"
+
+        let asset = AssetInfo(
+            identifier: "\(localA)/L0/001",
+            cloudIdentifier: cloudA,
+            creationDate: ISO8601DateFormatter().date(from: "2024-01-15T12:00:00Z"),
+            kind: .photo,
+            pixelWidth: 4032,
+            pixelHeight: 3024,
+            latitude: nil,
+            longitude: nil,
+            isFavorite: false,
+            originalFilename: "IMG_A.HEIC",
+            uniformTypeIdentifier: "public.heic",
+        )
+
+        // Empty asset map → exporter returns an ExportError keyed by whatever
+        // UUID the pipeline passes in. We expect the pipeline to translate
+        // that local UUID back to the cloud UUID before surfacing it.
+        let exporter = MockExportProvider(assets: [:])
+        let (s3, manifestStore) = try await createTestContext()
+        var manifest = try await manifestStore.load()
+
+        let report = try await runBackup(
+            assets: [asset],
+            manifest: &manifest,
+            manifestStore: manifestStore,
+            exporter: exporter,
+            s3: s3,
+            options: BackupOptions(batchSize: 10),
+        )
+
+        #expect(report.uploaded == 0)
+        #expect(report.failed == 1)
+        #expect(report.errors.count == 1)
+        #expect(report.errors.first?.uuid == cloudA)
+    }
 }
 
 /// Exporter that marks configured UUIDs as `unavailable` errors.
