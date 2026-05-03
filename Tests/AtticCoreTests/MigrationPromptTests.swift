@@ -85,13 +85,13 @@ struct MigrationPromptRuntimeEstimateTests {
     }
 
     @Test func largeLibraryProducesRange() {
-        // 27_000 entries: fast = 600s = 10min, slow = 1800s = 30min.
-        let estimate = MigrationPrompt.runtimeEstimate(entryCount: 27_000)
+        // 27000 entries: fast = 600s = 10min, slow = 1800s = 30min.
+        let estimate = MigrationPrompt.runtimeEstimate(entryCount: 27000)
         #expect(estimate == "roughly 10–30 minutes")
     }
 
     @Test func neverReturnsEmptyString() {
-        for n in [0, 1, 100, 1_000, 27_000, 100_000, 1_000_000] {
+        for n in [0, 1, 100, 1000, 27000, 100_000, 1_000_000] {
             let estimate = MigrationPrompt.runtimeEstimate(entryCount: n)
             #expect(!estimate.isEmpty, "empty estimate at n=\(n)")
         }
