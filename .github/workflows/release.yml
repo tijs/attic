@@ -38,9 +38,10 @@ jobs:
           # Resource bundle holds viewer.html (loaded via Bundle.module).
           # Must ship alongside the binary; Bundle.module searches the
           # executable's sibling directory for `attic_AtticCLI.bundle`.
-          BUNDLE_PATH="$(find .build/release -maxdepth 2 -name attic_AtticCLI.bundle -type d -print -quit)"
+          BUNDLE_PATH="$(find -L .build -maxdepth 4 -name attic_AtticCLI.bundle -type d -print -quit)"
           if [ -z "$BUNDLE_PATH" ]; then
-            echo "::error::attic_AtticCLI.bundle not found under .build/release"
+            echo "::error::attic_AtticCLI.bundle not found under .build"
+            find .build -maxdepth 5 -name '*.bundle' -print
             exit 1
           fi
           cp -R "$BUNDLE_PATH" attic_AtticCLI.bundle
