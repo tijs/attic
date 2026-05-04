@@ -705,7 +705,7 @@ async function loadPage() {
 
     const img = document.createElement('img');
     img.alt = asset.filename;
-    img.dataset.thumbUrl = `/api/thumb/${asset.uuid}`;
+    img.dataset.thumbUrl = `/api/thumb/${encodeURIComponent(asset.uuid)}`;
     img.src = PLACEHOLDER;
     img.onload = function() {
       if (this.src !== PLACEHOLDER) this.classList.add('loaded');
@@ -805,7 +805,7 @@ async function renderLightbox() {
   const prevVideo = content.querySelector('video');
   if (prevVideo) { prevVideo.pause(); prevVideo.src = ''; }
 
-  const res = await fetch(`/api/assets/${asset.uuid}`);
+  const res = await fetch(`/api/assets/${encodeURIComponent(asset.uuid)}`);
   const detail = await res.json();
 
   // Discard if user navigated away while fetch was in-flight
