@@ -64,12 +64,7 @@ public static func metadataKey(uuid: String) throws -> String {
 }
 ```
 
-Apply the same encoding everywhere the identifier becomes part of a path component, including local filesystem paths:
-
-```swift
-// Sources/AtticCore/ThumbnailCache.swift
-let path = directory.appendingPathComponent("\(S3Paths.encodeUUIDComponent(uuid)).jpg")
-```
+Apply the same encoding everywhere the identifier becomes part of a path component, including any local filesystem paths derived from it.
 
 ## Why This Works
 - **RFC 3986 unreserved is a closed set**: `A-Za-z0-9-._~`. Anything outside is path-reserved, which is exactly what we need to encode away to keep a single path component.

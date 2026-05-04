@@ -29,16 +29,16 @@ Swift package with three targets:
 
 - `AtticCore` — shared library (public product): S3 client, manifest, config,
   keychain, metadata, backup/verify/refresh pipelines, AIMD concurrency
-  controller, retry queue, unavailable-asset store, network monitor, viewer
-  data store, thumbnailing. Designed for reuse by the CLI and a future macOS
-  menu bar app — both consume `AtticCore` as an SPM library.
+  controller, retry queue, unavailable-asset store, network monitor.
+  Designed for reuse by the CLI and a future macOS menu bar app — both
+  consume `AtticCore` as an SPM library.
 - `AtticCLI` — executable: ArgumentParser commands, terminal dashboard,
-  Hummingbird-based viewer server, `LadderKitExportProvider` bridge.
-- `AtticCoreTests` — tests using Swift Testing framework (178 tests).
+  `LadderKitExportProvider` bridge.
+- `AtticCoreTests` — tests using Swift Testing framework.
 
 Dependencies: `aws-signer-v4` (SigV4 signing for `URLSessionS3Client` — no full
-AWS SDK), `swift-argument-parser`, `Hummingbird` (viewer), and `LadderKit`
-pinned to `0.5.1+` via `https://github.com/tijs/ladder.git`.
+AWS SDK), `swift-argument-parser`, and `LadderKit` pinned to `0.6.1+` via
+`https://github.com/tijs/ladder.git`.
 
 Platform: macOS 14+, Swift 6.x, Apple Silicon only.
 
@@ -86,8 +86,8 @@ The backup pipeline:
   resume).
 
 All external dependencies are behind protocols (`S3Providing`, `ManifestStoring`,
-`ConfigProviding`, `KeychainProviding`, `ExportProviding`, `NetworkMonitoring`,
-`ThumbnailProviding`) for testability.
+`ConfigProviding`, `KeychainProviding`, `ExportProviding`, `NetworkMonitoring`)
+for testability.
 
 ## CLI Commands
 
@@ -98,7 +98,6 @@ All external dependencies are behind protocols (`S3Providing`, `ManifestStoring`
 | `verify` | Verify S3 objects against manifest |
 | `refresh-metadata` | Re-upload metadata JSON |
 | `rebuild` | Rebuild manifest from S3 metadata |
-| `viewer` | Browse backed-up library in local web UI |
 | `init` | Interactive S3 setup |
 | `migrate` | One-time v1 → v2 manifest migration to cloud-stable identity |
 
@@ -145,24 +144,14 @@ Uses Swift Testing framework (`@Test`, `#expect`, `@Suite`).
 ### Users
 Photo-enthusiast developers — people at the intersection of "comfortable running
 S3 infrastructure" and "cares deeply about their photo library." They use Attic
-to verify and browse their backed-up iCloud Photos library through a local web
-viewer.
+to back up their iCloud Photos library to durable, self-owned storage and to
+verify the backup remains intact.
 
 ### Brand Personality
 **Precise, trustworthy, quiet.** Attic fades into the background and just works.
 Every element serves a purpose — nothing decorative, nothing performative.
 
-### Aesthetic Direction
-- **Tone:** Confident and precise — like a well-made instrument.
-- **References:** Transmit/Panic apps (detail-obsessed, personality without
-  frivolity), Linear/Raycast (fast, minimal chrome, every pixel earned).
-- **Anti-references:** No generic dark SaaS (blue-on-dark card grids). No dev
-  dashboard aesthetics (no monospace, no terminal vibes in the web UI).
-- **Theme:** Designer's choice — serve the "quiet, precise" personality.
-
 ### Design Principles
-1. **Photos first** — Minimize chrome, maximize content.
-2. **Earned trust** — Reliable, precise status and metadata. No vague states.
-3. **Quiet confidence** — Hierarchy through spacing, weight, and restraint.
-4. **Intentional details** — Small touches that reward attention.
-5. **Not a prototype** — Handles empty states, loading, and edge cases.
+1. **Trust over flash** — Reliable, precise status and metadata. No vague states.
+2. **Quiet confidence** — Terminal output is sparse and informative, not chatty.
+3. **Not a prototype** — Handles empty states, partial runs, and edge cases.

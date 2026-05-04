@@ -248,7 +248,6 @@ All external dependencies are behind protocols:
 | `NetworkMonitoring`               | `NWPathNetworkMonitor` (Network framework) | `MockNetworkMonitor`                         |
 | `AdaptiveConcurrencyControlling` (LadderKit) | `AIMDController` (AtticCore)    | Any stub conforming to the protocol            |
 | `LocalAvailabilityProviding` (LadderKit)     | `PhotosDatabaseLocalAvailability`       | Any stub conforming to the protocol            |
-| `ThumbnailProviding`              | `ThumbnailService` (viewer thumbnails)   | —                                              |
 
 Tests never hit external services, credentials, or the real Photos library.
 AtticCore ships `MockS3Provider` as a public type so the menu bar app can
