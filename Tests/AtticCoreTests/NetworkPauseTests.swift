@@ -151,7 +151,7 @@ final class RecordingProgressDelegate: BackupProgressDelegate, @unchecked Sendab
         record("uploaded(\(uuid))")
     }
 
-    func assetFailed(uuid: String, filename: String, message: String) {
+    func assetFailed(uuid: String, filename: String, message: String, classification: ExportClassification) {
         record("failed(\(uuid))")
     }
 

@@ -150,7 +150,12 @@ func exportBatchWithFallback(
                 report.appendError(uuid: cloudUUID, message: msg)
                 report.failed += 1
                 let filename = assetByUUID[cloudUUID]?.originalFilename ?? cloudUUID
-                progress.assetFailed(uuid: cloudUUID, filename: filename, message: msg)
+                progress.assetFailed(
+                    uuid: cloudUUID,
+                    filename: filename,
+                    message: msg,
+                    classification: .other,
+                )
             }
         }
         return ExportResponse(results: results, errors: errors)
@@ -352,7 +357,12 @@ public func runBackup(
                 report.appendError(uuid: cloudUUID, message: msg)
                 report.failed += 1
                 let filename = assetByUUID[cloudUUID]?.originalFilename ?? cloudUUID
-                progress.assetFailed(uuid: cloudUUID, filename: filename, message: msg)
+                progress.assetFailed(
+                    uuid: cloudUUID,
+                    filename: filename,
+                    message: msg,
+                    classification: .other,
+                )
             }
         }
     } catch is CancellationError {

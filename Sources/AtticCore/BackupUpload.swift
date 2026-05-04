@@ -25,7 +25,12 @@ func uploadExported(
     // Record export errors for reporting (failures handled upstream by callers).
     for err in batchResult.errors {
         let filename = ctx.assetByUUID[err.uuid]?.originalFilename ?? err.uuid
-        ctx.progress.assetFailed(uuid: err.uuid, filename: filename, message: err.message)
+        ctx.progress.assetFailed(
+            uuid: err.uuid,
+            filename: filename,
+            message: err.message,
+            classification: err.classification,
+        )
         report.appendError(uuid: err.uuid, message: err.message)
         report.failed += 1
     }
@@ -113,6 +118,7 @@ func uploadExported(
                         uuid: result.uuid,
                         filename: result.filename,
                         message: result.error ?? "Unknown error",
+                        classification: .other,
                     )
                     report.appendError(uuid: result.uuid, message: result.error ?? "Unknown error")
                     report.failed += 1
@@ -172,7 +178,12 @@ func uploadExported(
         let reason = recovered ? "Max network pause retries exceeded" : "Network unavailable"
         for input in retryInputs {
             let filename = input.asset.originalFilename ?? input.exported.uuid
-            ctx.progress.assetFailed(uuid: input.exported.uuid, filename: filename, message: reason)
+            ctx.progress.assetFailed(
+                uuid: input.exported.uuid,
+                filename: filename,
+                message: reason,
+                classification: .other,
+            )
             report.appendError(uuid: input.exported.uuid, message: reason)
             report.failed += 1
             try? FileManager.default.removeItem(atPath: input.exported.path)

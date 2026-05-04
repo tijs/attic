@@ -52,7 +52,7 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
         var pauseReason: String = ""
         var pauseStarted: Date?
         var totalPauseDuration: TimeInterval = 0
-        var failedAssets: [(filename: String, message: String)] = []
+        var failedAssets: [(filename: String, message: String, classification: ExportClassification)] = []
         var concurrencyLimit: Int?
     }
 
@@ -114,12 +114,12 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
         render()
     }
 
-    func assetFailed(uuid: String, filename: String, message: String) {
+    func assetFailed(uuid: String, filename: String, message: String, classification: ExportClassification) {
         lock.withLock {
             state.failed += 1
             state.currentFile = "\(filename) — \(message)"
             if state.failedAssets.count < 50 {
-                state.failedAssets.append((filename: filename, message: message))
+                state.failedAssets.append((filename: filename, message: message, classification: classification))
             }
         }
         render()
@@ -259,14 +259,39 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
             print("\u{1b}[2K  Failed assets:")
             // Clear the last live-display line (Elapsed) before printing failure details
             print("\u{1b}[2K", terminator: "")
+            var permanentCount = 0
+            var retryableCount = 0
             for failure in s.failedAssets {
-                print("  ✗ \(failure.filename): \(failure.message)")
+                let suffix = failure.classification == .permanentlyUnavailable ? " (permanently unavailable)" : ""
+                print("  ✗ \(failure.filename): \(failure.message)\(suffix)")
+                if failure.classification == .permanentlyUnavailable {
+                    permanentCount += 1
+                } else {
+                    retryableCount += 1
+                }
             }
             if s.failed > s.failedAssets.count {
                 print("  ... and \(s.failed - s.failedAssets.count) more")
             }
             print("")
-            print("Tip: Run `attic backup` again to retry failed assets.")
+            if permanentCount > 0, retryableCount == 0 {
+                print(
+                    "Note: These assets are permanently unavailable from iCloud "
+                        + "(typically shared-album originals iCloud cannot deliver, "
+                        + "or assets removed from the source library). They've been "
+                        + "recorded in `~/.attic/unavailable-assets.json` and will "
+                        + "be skipped on future runs.",
+                )
+            } else if permanentCount > 0 {
+                print(
+                    "Note: \(permanentCount) asset(s) are permanently unavailable "
+                        + "from iCloud (recorded in `~/.attic/unavailable-assets.json` "
+                        + "and skipped on future runs). The remaining \(retryableCount) "
+                        + "failure(s) are retryable — run `attic backup` again to retry.",
+                )
+            } else {
+                print("Tip: Run `attic backup` again to retry failed assets.")
+            }
         } else {
             // Clear the remaining 3 lines (blank, Current, Elapsed)
             for _ in 0 ..< 3 {

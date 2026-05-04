@@ -21,7 +21,7 @@ public protocol BackupProgressDelegate: Sendable {
     func assetRetrying(uuid: String, filename: String, attempt: Int, maxAttempts: Int)
 
     /// A single asset failed.
-    func assetFailed(uuid: String, filename: String, message: String)
+    func assetFailed(uuid: String, filename: String, message: String, classification: ExportClassification)
 
     /// Manifest was saved to S3.
     func manifestSaved(entriesCount: Int)
@@ -57,7 +57,7 @@ public struct NullProgressDelegate: BackupProgressDelegate {
     public func assetStarting(uuid: String, filename: String, size: Int) {}
     public func assetRetrying(uuid: String, filename: String, attempt: Int, maxAttempts: Int) {}
     public func assetUploaded(uuid: String, filename: String, type: AssetKind, size: Int) {}
-    public func assetFailed(uuid: String, filename: String, message: String) {}
+    public func assetFailed(uuid: String, filename: String, message: String, classification: ExportClassification) {}
     public func manifestSaved(entriesCount: Int) {}
     public func backupCompleted(uploaded: Int, failed: Int, totalBytes: Int) {}
     public func concurrencyChanged(limit: Int) {}

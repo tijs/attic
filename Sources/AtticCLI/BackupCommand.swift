@@ -129,8 +129,9 @@ struct LogProgressDelegate: BackupProgressDelegate {
         print("  ✓ \(filename) (\(formatBytes(size)))")
     }
 
-    func assetFailed(uuid: String, filename: String, message: String) {
-        print("  ✗ \(filename): \(message)")
+    func assetFailed(uuid: String, filename: String, message: String, classification: ExportClassification) {
+        let suffix = classification == .permanentlyUnavailable ? " (permanently unavailable)" : ""
+        print("  ✗ \(filename): \(message)\(suffix)")
     }
 
     func manifestSaved(entriesCount: Int) {
