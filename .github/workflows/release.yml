@@ -35,7 +35,16 @@ jobs:
       - name: Package archive
         run: |
           cp .build/release/AtticCLI attic
-          tar czf "attic-${VERSION}-aarch64-apple-darwin.tar.gz" attic
+          # Resource bundle holds viewer.html (loaded via Bundle.module).
+          # Must ship alongside the binary; Bundle.module searches the
+          # executable's sibling directory for `attic_AtticCLI.bundle`.
+          BUNDLE_PATH="$(find .build/release -maxdepth 2 -name attic_AtticCLI.bundle -type d -print -quit)"
+          if [ -z "$BUNDLE_PATH" ]; then
+            echo "::error::attic_AtticCLI.bundle not found under .build/release"
+            exit 1
+          fi
+          cp -R "$BUNDLE_PATH" attic_AtticCLI.bundle
+          tar czf "attic-${VERSION}-aarch64-apple-darwin.tar.gz" attic attic_AtticCLI.bundle
 
       - name: Generate checksum
         run: |
