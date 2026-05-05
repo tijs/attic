@@ -92,12 +92,6 @@ public enum S3Paths {
         return "metadata/assets/\(encodeUUIDComponent(uuid)).json"
     }
 
-    /// Generate S3 key for an asset's thumbnail JPEG.
-    public static func thumbnailKey(uuid: String) throws -> String {
-        try assertSafeUUID(uuid)
-        return "thumbnails/\(encodeUUIDComponent(uuid)).jpg"
-    }
-
     /// Extract file extension from a UTI or filename.
     public static func extensionFromUTIOrFilename(
         uti: String?,

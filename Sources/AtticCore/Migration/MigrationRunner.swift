@@ -16,6 +16,8 @@ public func formatMigrationReportJSON(_ report: MigrationReport, dryRun: Bool) t
         "rekeyCollisions": report.rekeyCollisions,
         "multipleFoundCollisions": report.multipleFoundCollisions,
         "unmapped": report.unmapped,
+        "thumbnailsDeleted": report.thumbnailsDeleted,
+        "thumbnailsBytes": report.thumbnailsBytes,
     ]
     var errs: [[String: String]] = []
     for (uuid, message) in report.errors {
@@ -74,6 +76,12 @@ public struct MigrationReport: Sendable {
     public var metadataRewritten: Int
     public var metadataMissing: Int
     public var totalEntries: Int
+    /// Number of orphaned `thumbnails/` keys deleted (or, in dry-run, the
+    /// count that would be deleted). Zero when the cleanup phase did not run.
+    public var thumbnailsDeleted: Int
+    /// Total size in bytes of thumbnails deleted (or planned for deletion in
+    /// dry-run). Zero when the cleanup phase did not run.
+    public var thumbnailsBytes: Int64
 
     public init(
         alreadyMigrated: Bool = false,
@@ -86,6 +94,8 @@ public struct MigrationReport: Sendable {
         metadataRewritten: Int = 0,
         metadataMissing: Int = 0,
         totalEntries: Int = 0,
+        thumbnailsDeleted: Int = 0,
+        thumbnailsBytes: Int64 = 0,
     ) {
         self.alreadyMigrated = alreadyMigrated
         self.cloudMigrated = cloudMigrated
@@ -97,6 +107,44 @@ public struct MigrationReport: Sendable {
         self.metadataRewritten = metadataRewritten
         self.metadataMissing = metadataMissing
         self.totalEntries = totalEntries
+        self.thumbnailsDeleted = thumbnailsDeleted
+        self.thumbnailsBytes = thumbnailsBytes
+    }
+}
+
+/// Decision returned by the cleanup-confirmation handler. Lifted out of
+/// `MigrationPrompt.Decision` because the cleanup prompt is a separate
+/// surface — different copy, different runtime estimate, different runtime
+/// error path on non-interactive abort.
+public enum CleanupConfirmation: Sendable, Equatable {
+    case proceed
+    case abort
+    case nonInteractive
+}
+
+/// Errors thrown by the runner specific to the thumbnail-cleanup phase.
+/// `MigrationError` is reserved for v1→v2 validation failures; cleanup
+/// phase failures get their own enum so the gate can translate them
+/// distinctly without a stringly-typed switch.
+public enum MigrationRunnerError: Error, CustomStringConvertible {
+    /// One or more `deleteObject` calls failed during cleanup. The flag is
+    /// not set; re-run completes the remaining keys.
+    case thumbnailCleanupPartial(deleted: Int, failed: [String: String])
+    /// User declined the cleanup prompt.
+    case thumbnailCleanupDeclined
+    /// Cleanup was required (non-empty prefix, apply mode) but the caller
+    /// signalled a non-interactive context where prompting cannot occur.
+    case thumbnailCleanupNonInteractive(count: Int, bytes: Int64)
+
+    public var description: String {
+        switch self {
+        case let .thumbnailCleanupPartial(deleted, failed):
+            "Thumbnail cleanup partially failed: \(deleted) deleted, \(failed.count) failed. Re-run to retry."
+        case .thumbnailCleanupDeclined:
+            "Thumbnail cleanup declined."
+        case let .thumbnailCleanupNonInteractive(count, bytes):
+            "Thumbnail cleanup requires interactive confirmation (\(count) objects, \(bytes) bytes)."
+        }
     }
 }
 
@@ -154,6 +202,10 @@ public enum MigrationError: Error, CustomStringConvertible {
 /// as v1 and subsequent commands see "still v1".
 public struct MigrationRunner: Sendable {
     public typealias ProgressHandler = @Sendable (String) -> Void
+    /// Closure the gate (or test) provides so the runner can ask whether to
+    /// proceed with thumbnail deletion after listing the prefix. Receives
+    /// `(count, totalBytes)`; returns the decision.
+    public typealias CleanupConfirmHandler = @Sendable (Int, Int64) async -> CleanupConfirmation
 
     private let s3: any S3Providing
     private let manifestStore: any ManifestStoring
@@ -191,15 +243,22 @@ public struct MigrationRunner: Sendable {
     public struct ManifestProbe: Sendable {
         public let isV1: Bool
         public let entryCount: Int
+        public let thumbnailsCleanupApplied: Bool
     }
 
     /// Whether the manifest at `manifestS3Key` is already v2 plus its current
-    /// entry count. Cheap probe — CLI gate calls this before deciding to
-    /// prompt the user, and uses `entryCount` to size the runtime estimate
-    /// without issuing a second S3 GET.
+    /// entry count and cleanup state. Cheap probe — CLI gate calls this
+    /// before deciding to prompt the user, and uses `entryCount` to size the
+    /// runtime estimate without issuing a second S3 GET. The
+    /// `thumbnailsCleanupApplied` flag lets the gate fast-path away from
+    /// `runner.run()` entirely when both phases are already done.
     public func probeManifest() async throws -> ManifestProbe {
         let manifest = try await manifestStore.load()
-        return ManifestProbe(isV1: manifest.isV1, entryCount: manifest.entries.count)
+        return ManifestProbe(
+            isV1: manifest.isV1,
+            entryCount: manifest.entries.count,
+            thumbnailsCleanupApplied: manifest.thumbnailsCleanupApplied,
+        )
     }
 
     /// Convenience wrapper for callers that only need the v1 flag. Prefer
@@ -215,16 +274,30 @@ public struct MigrationRunner: Sendable {
     /// - Parameter force: Bypass the cloud-resolution anomaly check. Use only
     ///   when you have manually verified iCloud Photos is enabled and PhotoKit
     ///   access is granted, but a previous run still tripped the safety guard.
-    public func run(dryRun: Bool = false, force: Bool = false) async throws -> MigrationReport {
+    /// - Parameter confirmCleanup: Called when the cleanup phase finds
+    ///   non-empty `thumbnails/` and is about to apply. Must return
+    ///   `.proceed` to delete, `.abort` to skip with a declined error, or
+    ///   `.nonInteractive` to surface a non-TTY error to the gate. Defaults
+    ///   to a closure that returns `.proceed` (suitable for tests; the gate
+    ///   wires a real prompt).
+    public func run(
+        dryRun: Bool = false,
+        force: Bool = false,
+        confirmCleanup: CleanupConfirmHandler = { _, _ in .proceed },
+    ) async throws -> MigrationReport {
         progress?("Loading manifest from S3…")
-        let v1 = try await manifestStore.load()
-        if !v1.isV1 {
-            progress?("Manifest is already v2 — nothing to migrate.")
-            return MigrationReport(alreadyMigrated: true, totalEntries: v1.entries.count)
+        var manifest = try await manifestStore.load()
+
+        let needsV1 = manifest.isV1
+        let needsCleanup = !manifest.thumbnailsCleanupApplied
+        if !needsV1, !needsCleanup {
+            progress?("Manifest is already v2 and thumbnails cleanup applied — nothing to migrate.")
+            return MigrationReport(alreadyMigrated: true, totalEntries: manifest.entries.count)
         }
 
-        // Acquire the cross-machine lock before any v2 writes. Skipped on
-        // dry-run since dry-run never mutates S3.
+        // Acquire the cross-machine lock before any v2 writes — covers both
+        // the v1→v2 phase and the cleanup phase. Skipped on dry-run since
+        // dry-run never mutates S3.
         var acquiredLock = false
         if !dryRun {
             _ = try await lock.acquire()
@@ -236,6 +309,42 @@ public struct MigrationRunner: Sendable {
             }
         }
 
+        var report: MigrationReport
+        if needsV1 {
+            report = try await runV1ToV2Phase(v1: manifest, dryRun: dryRun, force: force)
+            // Reload the manifest after the v1→v2 swap so the cleanup phase
+            // sees the freshly-saved v2 (with `thumbnailsCleanupApplied` at
+            // its default `false`).
+            if !dryRun {
+                manifest = try await manifestStore.load()
+            }
+        } else {
+            report = MigrationReport(totalEntries: manifest.entries.count)
+        }
+
+        // Cleanup phase — runs whenever the v2 manifest's flag is false,
+        // including immediately after a successful v1→v2 swap in this same
+        // invocation.
+        if !manifest.thumbnailsCleanupApplied {
+            let cleanup = try await runThumbnailCleanupPhase(
+                manifest: manifest,
+                dryRun: dryRun,
+                confirmCleanup: confirmCleanup,
+            )
+            report.thumbnailsDeleted = cleanup.deleted
+            report.thumbnailsBytes = cleanup.bytes
+        }
+
+        return report
+    }
+
+    /// v1 → v2 migration phase, extracted from the original monolithic
+    /// `run()` body so the cleanup phase can compose on top.
+    private func runV1ToV2Phase(
+        v1: Manifest,
+        dryRun: Bool,
+        force: Bool,
+    ) async throws -> MigrationReport {
         progress?("Snapshotting v1 manifest as manifest.v1.json (idempotent)…")
         if !dryRun {
             try await snapshotV1IfMissing(v1)
@@ -333,6 +442,85 @@ public struct MigrationRunner: Sendable {
             metadataMissing: missing,
             totalEntries: v1.entries.count,
         )
+    }
+
+    /// Cleanup phase. Lists `thumbnails/`; on empty, sets the flag silently
+    /// and saves. On non-empty, asks the caller via `confirmCleanup`. On
+    /// `.proceed`, runs `runThumbnailCleanup` and atomically flips the flag
+    /// only after a clean delete + a successful manifest save.
+    private func runThumbnailCleanupPhase(
+        manifest: Manifest,
+        dryRun: Bool,
+        confirmCleanup: CleanupConfirmHandler,
+    ) async throws -> ThumbnailCleanupResult {
+        progress?("Probing thumbnails/ prefix…")
+        // Probe by counting + summing bytes via a dry-run pass. The runner
+        // collects the same listing it would otherwise drive deletes from,
+        // so the prompt has accurate counts.
+        let probe = try await runThumbnailCleanup(
+            s3: s3,
+            dryRun: true,
+            progress: { _, _ in },
+        )
+
+        if probe.deleted == 0 {
+            // Empty prefix — silent set + save (R3). Skip on dry-run since
+            // dry-run never mutates S3.
+            if !dryRun {
+                progress?("Empty thumbnails/ prefix — recording cleanup applied.")
+                var updated = manifest
+                updated.thumbnailsCleanupApplied = true
+                try await manifestStore.save(updated)
+            } else {
+                progress?("Empty thumbnails/ prefix — would record cleanup applied.")
+            }
+            return ThumbnailCleanupResult(deleted: 0, bytes: 0, failed: [:])
+        }
+
+        if dryRun {
+            progress?("Dry run — would delete \(probe.deleted) thumbnails (\(probe.bytes) bytes).")
+            return probe
+        }
+
+        let confirmation = await confirmCleanup(probe.deleted, probe.bytes)
+        switch confirmation {
+        case .proceed:
+            break
+        case .abort:
+            throw MigrationRunnerError.thumbnailCleanupDeclined
+        case .nonInteractive:
+            throw MigrationRunnerError.thumbnailCleanupNonInteractive(
+                count: probe.deleted,
+                bytes: probe.bytes,
+            )
+        }
+
+        progress?("Deleting \(probe.deleted) thumbnails…")
+        let result = try await runThumbnailCleanup(
+            s3: s3,
+            dryRun: false,
+            progress: { [progress] deleted, total in
+                progress?("Deleted \(deleted)/\(total) thumbnails…")
+            },
+        )
+
+        if !result.failed.isEmpty {
+            // Leave the flag false; throw a structured error so the gate
+            // surfaces a non-zero exit and the user knows to re-run.
+            throw MigrationRunnerError.thumbnailCleanupPartial(
+                deleted: result.deleted,
+                failed: result.failed,
+            )
+        }
+
+        // Atomicity: flip the flag only after every delete returned success.
+        // Re-load to avoid clobbering any concurrent manifest writes (none
+        // expected — the lock prevents that — but cheap and explicit).
+        var updated = try await manifestStore.load()
+        updated.thumbnailsCleanupApplied = true
+        try await manifestStore.save(updated)
+
+        return result
     }
 
     // MARK: - Private steps

@@ -127,7 +127,7 @@ struct MigrationRunnerTests {
 
     @Test func noOpOnAlreadyV2Manifest() async throws {
         let s3 = MockS3Provider()
-        var v2 = Manifest()
+        var v2 = Manifest(thumbnailsCleanupApplied: true)
         v2.markBackedUp(
             uuid: "CLOUD-X",
             s3Key: "originals/2024/01/x.heic",

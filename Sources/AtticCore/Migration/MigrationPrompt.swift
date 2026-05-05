@@ -71,6 +71,68 @@ public enum MigrationPrompt {
         return "roughly \(fastMinutes)–\(slowMinutes) minutes"
     }
 
+    /// Body of the thumbnail-cleanup prompt. Caller writes this to stderr.
+    /// No bucket name in copy — the `S3Providing` protocol does not surface
+    /// it and threading config to this site is out of scope.
+    public static func cleanupMessage(count: Int, totalBytes: Int64) -> String {
+        let size = formatBytesForCleanup(totalBytes)
+        return """
+
+        attic detected \(count) orphaned thumbnail\(count == 1 ? "" : "s") (\(size))
+        under the `thumbnails/` prefix. These were uploaded by the now-removed
+        `attic viewer` subcommand and serve no purpose — they only accrue
+        storage cost.
+
+        \(cleanupRuntimeEstimate(count: count))
+
+        Proceeding will permanently delete every object under `thumbnails/`.
+        Re-runs after a partial failure are safe: attic re-lists the prefix
+        and retries.
+
+        Delete them? [Y/n]\u{0020}
+        """
+    }
+
+    /// Friendly runtime estimate for the cleanup phase. Per-key
+    /// `deleteObject` calls at parallelism 16 land at ~80–200 keys/sec on
+    /// residential links to S3-class endpoints.
+    public static func cleanupRuntimeEstimate(count: Int) -> String {
+        guard count > 0 else { return "Estimated runtime: under a minute." }
+        let fastSeconds = Double(count) / 200.0
+        let slowSeconds = Double(count) / 80.0
+        if slowSeconds < 60 { return "Estimated runtime: under a minute." }
+        let fastMinutes = Int((fastSeconds / 60.0).rounded())
+        let slowMinutes = Int((slowSeconds / 60.0).rounded())
+        if fastMinutes < 1 {
+            return "Estimated runtime: up to ~\(slowMinutes) minute\(slowMinutes == 1 ? "" : "s")."
+        }
+        return "Estimated runtime: roughly \(fastMinutes)–\(slowMinutes) minutes."
+    }
+
+    /// Cleanup prompt defaults to **proceed on empty input** (capital `Y`)
+    /// because the operation is the explicitly-prompted finishing step of
+    /// the migration the user already opted into. The non-interactive guard
+    /// from the gate prevents this from firing unattended.
+    public static func decideCleanup(isTTY: Bool, answer: () -> String?) -> Decision {
+        guard isTTY else { return .nonInteractive }
+        let raw = (answer() ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if raw.isEmpty || raw == "y" || raw == "yes" { return .proceed }
+        return .abort
+    }
+
+    /// Format bytes for the cleanup prompt — short, human-friendly, no
+    /// dependency on a system byte-formatter (those vary by locale).
+    private static func formatBytesForCleanup(_ bytes: Int64) -> String {
+        let kb = 1024.0
+        let mb = kb * 1024
+        let gb = mb * 1024
+        let b = Double(bytes)
+        if b >= gb { return String(format: "%.1f GB", b / gb) }
+        if b >= mb { return String(format: "%.1f MB", b / mb) }
+        if b >= kb { return String(format: "%.1f KB", b / kb) }
+        return "\(bytes) B"
+    }
+
     /// Decide whether to proceed, abort, or fail with a non-interactive hint.
     ///
     /// Defaults to **abort on empty input** so a piped stdin (CI, agent

@@ -155,6 +155,52 @@ struct ManifestTests {
         #expect(parsed.entries["uuid-2"]?.size == nil)
     }
 
+    @Test func thumbnailsCleanupAppliedRoundTrip() throws {
+        var manifest = Manifest()
+        manifest.thumbnailsCleanupApplied = true
+        let data = try manifest.encoded()
+        let parsed = try Manifest.parse(from: data)
+        #expect(parsed.thumbnailsCleanupApplied == true)
+    }
+
+    @Test func thumbnailsCleanupAppliedDefaultsFalseWhenAbsent() throws {
+        let json = """
+        {
+          "version": 2,
+          "entries": {}
+        }
+        """
+        let parsed = try Manifest.parse(from: Data(json.utf8))
+        #expect(parsed.thumbnailsCleanupApplied == false)
+    }
+
+    @Test func unknownFutureKeysAreIgnored() throws {
+        // Older clients reading a manifest written by a newer attic must not
+        // crash on unknown keys. Codable ignores unknown keys by default.
+        let json = """
+        {
+          "version": 2,
+          "entries": {},
+          "thumbnailsCleanupApplied": true,
+          "appliedMigrations": ["foo", "bar"]
+        }
+        """
+        let parsed = try Manifest.parse(from: Data(json.utf8))
+        #expect(parsed.thumbnailsCleanupApplied == true)
+    }
+
+    @Test func thumbnailsCleanupAppliedExplicitFalse() throws {
+        let json = """
+        {
+          "version": 2,
+          "entries": {},
+          "thumbnailsCleanupApplied": false
+        }
+        """
+        let parsed = try Manifest.parse(from: Data(json.utf8))
+        #expect(parsed.thumbnailsCleanupApplied == false)
+    }
+
     @Test func tamperedIdentityKindFallsBackToLocal() throws {
         // Future or hand-rolled JSON containing an unknown identityKind value
         // must not take down the whole manifest decode. Single bad row falls

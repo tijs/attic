@@ -100,6 +100,32 @@ struct MigrateReportFormatterTests {
         #expect(json["alreadyMigrated"] as? Bool == true)
     }
 
+    @Test func jsonFormatEmitsThumbnailsFieldsAlways() throws {
+        let report = MigrationReport(thumbnailsDeleted: 5, thumbnailsBytes: 1_048_576)
+        let data = try formatMigrationReportJSON(report, dryRun: false)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(json["thumbnailsDeleted"] as? Int == 5)
+        #expect(json["thumbnailsBytes"] as? Int == 1_048_576)
+    }
+
+    @Test func jsonFormatThumbnailsFieldsZeroWhenAbsent() throws {
+        let report = MigrationReport()
+        let data = try formatMigrationReportJSON(report, dryRun: false)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        // Stable schema — keys never disappear.
+        #expect(json["thumbnailsDeleted"] as? Int == 0)
+        #expect(json["thumbnailsBytes"] as? Int == 0)
+    }
+
+    @Test func jsonFormatDryRunIncludesThumbnailsCount() throws {
+        let report = MigrationReport(thumbnailsDeleted: 12, thumbnailsBytes: 6144)
+        let data = try formatMigrationReportJSON(report, dryRun: true)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(json["dryRun"] as? Bool == true)
+        #expect(json["thumbnailsDeleted"] as? Int == 12)
+        #expect(json["thumbnailsBytes"] as? Int == 6144)
+    }
+
     @Test func includesMetadataMissingLineWhenNonZero() {
         let report = MigrationReport(
             cloudMigrated: 3,

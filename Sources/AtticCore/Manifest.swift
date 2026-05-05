@@ -81,10 +81,20 @@ public let currentManifestVersion: Int = 2
 public struct Manifest: Codable, Sendable {
     public var version: Int
     public var entries: [String: ManifestEntry]
+    /// Whether the one-shot `thumbnails/` cleanup migration has been applied
+    /// for this bucket. Defaults to `false` for older v2 manifests that
+    /// predate the field; the runner probes the prefix and either silently
+    /// sets the flag (empty prefix) or prompts to delete.
+    public var thumbnailsCleanupApplied: Bool
 
-    public init(version: Int = currentManifestVersion, entries: [String: ManifestEntry] = [:]) {
+    public init(
+        version: Int = currentManifestVersion,
+        entries: [String: ManifestEntry] = [:],
+        thumbnailsCleanupApplied: Bool = false,
+    ) {
         self.version = version
         self.entries = entries
+        self.thumbnailsCleanupApplied = thumbnailsCleanupApplied
     }
 
     /// True for legacy manifests that have not been migrated to v2.
@@ -119,19 +129,21 @@ public struct Manifest: Codable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case version, entries
+        case version, entries, thumbnailsCleanupApplied
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
         entries = try c.decode([String: ManifestEntry].self, forKey: .entries)
+        thumbnailsCleanupApplied = try c.decodeIfPresent(Bool.self, forKey: .thumbnailsCleanupApplied) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(version, forKey: .version)
         try c.encode(entries, forKey: .entries)
+        try c.encode(thumbnailsCleanupApplied, forKey: .thumbnailsCleanupApplied)
     }
 }
 

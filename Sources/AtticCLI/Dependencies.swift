@@ -194,34 +194,82 @@ enum Dependencies {
     }
 
     /// Guard that runs at the top of every command needing a v2 manifest.
-    /// Detects v1, prompts the user (TTY), runs migration with progress,
-    /// or fails fast on non-TTY with a clear next-step message.
+    /// Detects v1 and pending thumbnail cleanup; prompts the user (TTY),
+    /// runs migration with progress, or fails fast on non-TTY with a clear
+    /// next-step message. Fast-paths to a no-op when both phases are
+    /// already applied.
     static func ensureManifestMigrated() async throws {
         let isTTY = isatty(STDOUT_FILENO) != 0 && isatty(STDIN_FILENO) != 0
         let (_, _, manifestStore) = try makeBackupDeps()
         let manifest = try await loadManifest(store: manifestStore)
-        guard manifest.isV1 else { return }
 
-        FileHandle.standardError.write(Data(MigrationPrompt.message(count: manifest.entries.count).utf8))
+        let needsV1 = manifest.isV1
+        let needsCleanup = !manifest.thumbnailsCleanupApplied
+        guard needsV1 || needsCleanup else { return }
 
-        let decision = MigrationPrompt.decide(
-            isTTY: isTTY,
-            answer: { isTTY ? readLine() : nil },
-        )
-
-        switch decision {
-        case .nonInteractive:
-            FileHandle.standardError.write(Data(MigrationPrompt.nonInteractiveHint.utf8))
-            throw CLIError.migrationRequired
-        case .abort:
-            throw CLIError.migrationRequired
-        case .proceed:
-            let runner = try await makeMigrationRunner(progress: { msg in print("  \(msg)") })
-            let report = try await runner.run()
-            print("")
-            print("Migration complete: \(report.cloudMigrated) cloud, \(report.localFallback) local fallback.")
-            print("")
+        // v1 path keeps its existing pre-runner prompt. The runner detects
+        // and runs cleanup in the same invocation, so no second prompt is
+        // needed up-front for a v1+cleanup-pending bucket — the runner's
+        // confirm closure handles it.
+        if needsV1 {
+            FileHandle.standardError.write(Data(MigrationPrompt.message(count: manifest.entries.count).utf8))
+            let decision = MigrationPrompt.decide(
+                isTTY: isTTY,
+                answer: { isTTY ? readLine() : nil },
+            )
+            switch decision {
+            case .nonInteractive:
+                FileHandle.standardError.write(Data(MigrationPrompt.nonInteractiveHint.utf8))
+                throw CLIError.migrationRequired
+            case .abort:
+                throw CLIError.migrationRequired
+            case .proceed:
+                break
+            }
         }
+
+        let runner = try await makeMigrationRunner(progress: { msg in print("  \(msg)") })
+        let confirmCleanup: MigrationRunner.CleanupConfirmHandler = { count, bytes in
+            guard isTTY else { return .nonInteractive }
+            FileHandle.standardError.write(Data(
+                MigrationPrompt.cleanupMessage(count: count, totalBytes: bytes).utf8,
+            ))
+            switch MigrationPrompt.decideCleanup(isTTY: isTTY, answer: { readLine() }) {
+            case .proceed: return .proceed
+            case .abort: return .abort
+            case .nonInteractive: return .nonInteractive
+            }
+        }
+
+        let report: MigrationReport
+        do {
+            report = try await runner.run(confirmCleanup: confirmCleanup)
+        } catch let MigrationRunnerError.thumbnailCleanupNonInteractive(count, bytes) {
+            FileHandle.standardError.write(Data(
+                ("\nattic detected \(count) orphaned thumbnails (\(bytes) bytes) under " +
+                    "`thumbnails/` and needs to delete them. Re-run from an interactive shell " +
+                    "to confirm.\n").utf8,
+            ))
+            throw CLIError.migrationRequired
+        } catch MigrationRunnerError.thumbnailCleanupDeclined {
+            throw CLIError.migrationRequired
+        } catch let MigrationRunnerError.thumbnailCleanupPartial(deleted, failed) {
+            FileHandle.standardError.write(Data(
+                ("\nThumbnail cleanup partially failed: \(deleted) deleted, " +
+                    "\(failed.count) failed. Re-run to retry.\n").utf8,
+            ))
+            throw CLIError.migrationRequired
+        }
+
+        print("")
+        if needsV1 {
+            print("Migration complete: \(report.cloudMigrated) cloud, \(report.localFallback) local fallback.")
+        }
+        if report.thumbnailsDeleted > 0 {
+            let mb = Double(report.thumbnailsBytes) / (1024 * 1024)
+            print("  Thumbnails cleanup: \(report.thumbnailsDeleted) deleted (\(String(format: "%.1f", mb)) MB).")
+        }
+        print("")
     }
 }
 

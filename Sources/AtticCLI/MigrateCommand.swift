@@ -57,18 +57,34 @@ struct MigrateCommand: AsyncParsableCommand {
         }
 
         let probe = try await runner.probeManifest()
-        guard probe.isV1 else {
-            print("Manifest is already v2 — nothing to migrate.")
+        let pending = probe.isV1 || !probe.thumbnailsCleanupApplied
+        guard pending else {
+            print("Manifest is already v2 and thumbnails cleanup applied — nothing to migrate.")
             return
         }
 
-        if !yes, !dryRun, !confirmInteractive(entryCount: probe.entryCount) {
+        if !yes, !dryRun, !confirmInteractive(probe: probe) {
             print("Aborted.")
             throw ExitCode.failure
         }
 
+        let isTTY = isatty(STDIN_FILENO) != 0 && isatty(STDOUT_FILENO) != 0
+        let confirmCleanup: MigrationRunner.CleanupConfirmHandler = { count, bytes in
+            // `--yes` opts in to both phases.
+            if yes { return .proceed }
+            guard isTTY else { return .nonInteractive }
+            FileHandle.standardError.write(Data(
+                MigrationPrompt.cleanupMessage(count: count, totalBytes: bytes).utf8,
+            ))
+            switch MigrationPrompt.decideCleanup(isTTY: isTTY, answer: { readLine() }) {
+            case .proceed: return .proceed
+            case .abort: return .abort
+            case .nonInteractive: return .nonInteractive
+            }
+        }
+
         print("")
-        let report = try await runner.run(dryRun: dryRun, force: force)
+        let report = try await runner.run(dryRun: dryRun, force: force, confirmCleanup: confirmCleanup)
         if json {
             let data = try formatMigrationReportJSON(report, dryRun: dryRun)
             FileHandle.standardOutput.write(data)
@@ -78,7 +94,7 @@ struct MigrateCommand: AsyncParsableCommand {
         }
     }
 
-    private func confirmInteractive(entryCount: Int) -> Bool {
+    private func confirmInteractive(probe: MigrationRunner.ManifestProbe) -> Bool {
         guard isatty(STDIN_FILENO) != 0, isatty(STDOUT_FILENO) != 0 else {
             FileHandle.standardError.write(Data(
                 "Error: non-interactive shell. Re-run with --yes to confirm migration.\n".utf8,
@@ -86,16 +102,26 @@ struct MigrateCommand: AsyncParsableCommand {
             return false
         }
         print("")
-        print("Migrate manifest from device-local to cloud-stable identity?")
-        print("  - Re-keys manifest entries from PhotoKit local IDs to iCloud-stable IDs")
-        print("  - Rewrites per-asset metadata JSONs on S3")
-        print("  - Backs up the v1 manifest as manifest.v1.json on S3")
-        print("  - Original photo objects are NOT moved or re-uploaded")
-        print("")
-        let estimate = MigrationPrompt.runtimeEstimate(entryCount: entryCount)
-        print("Estimated runtime for \(entryCount) entries: \(estimate).")
-        print("Progress prints every 250 metadata rewrites — long runs are normal,")
-        print("not hung. Safe to re-run if interrupted (resumes where it left off).")
+        if probe.isV1 {
+            print("Migrate manifest from device-local to cloud-stable identity?")
+            print("  - Re-keys manifest entries from PhotoKit local IDs to iCloud-stable IDs")
+            print("  - Rewrites per-asset metadata JSONs on S3")
+            print("  - Backs up the v1 manifest as manifest.v1.json on S3")
+            print("  - Original photo objects are NOT moved or re-uploaded")
+            print("")
+            let estimate = MigrationPrompt.runtimeEstimate(entryCount: probe.entryCount)
+            print("Estimated runtime for \(probe.entryCount) entries: \(estimate).")
+            print("Progress prints every 250 metadata rewrites — long runs are normal,")
+            print("not hung. Safe to re-run if interrupted (resumes where it left off).")
+        } else {
+            // v2 + cleanup-pending: the cleanup prompt itself fires inside
+            // the runner once it has listed the prefix. The top-level
+            // confirmation is just a yes/no on running the migrate command
+            // at all.
+            print("Run pending migration steps?")
+            print("  - One-time cleanup of orphaned `thumbnails/` keys left by the removed viewer.")
+            print("  - You'll see a second confirmation showing the count + size before any deletion.")
+        }
         print("")
         print("Continue? [y/N] ", terminator: "")
         guard let line = readLine() else { return false }

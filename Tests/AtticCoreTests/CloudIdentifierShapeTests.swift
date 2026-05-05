@@ -71,14 +71,6 @@ struct CloudIdentifierS3PathTests {
         #expect(!body.contains(":"))
     }
 
-    @Test func thumbnailKeyEncodesUUID() throws {
-        let key = try S3Paths.thumbnailKey(uuid: CloudIDFixture.withSlash)
-        #expect(key.hasPrefix("thumbnails/"))
-        #expect(key.hasSuffix(".jpg"))
-        let body = String(key.dropFirst("thumbnails/".count).dropLast(".jpg".count))
-        #expect(!body.contains("/"))
-    }
-
     @Test func uuidValidatorAcceptsAllPhotoKitShapes() {
         #expect(S3Paths.isValidUUID(CloudIDFixture.realistic))
         #expect(S3Paths.isValidUUID(CloudIDFixture.withSlash))
