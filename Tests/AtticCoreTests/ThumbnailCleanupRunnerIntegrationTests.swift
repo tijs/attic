@@ -75,7 +75,9 @@ private actor FlakyS3: S3Providing {
 
 private actor PromptCounter {
     private(set) var calls: Int = 0
-    func tick() { calls += 1 }
+    func tick() {
+        calls += 1
+    }
 }
 
 @Suite("MigrationRunner — thumbnail cleanup phase")
