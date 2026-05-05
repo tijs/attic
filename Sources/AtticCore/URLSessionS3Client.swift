@@ -134,23 +134,31 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         var continuationToken: String?
 
         repeat {
-            var components = URLComponents()
-            components.queryItems = [
-                URLQueryItem(name: "list-type", value: "2"),
-                URLQueryItem(name: "prefix", value: prefix),
-            ]
-            if let token = continuationToken {
-                components.queryItems?.append(URLQueryItem(name: "continuation-token", value: token))
-            }
-
             var request = try makeRequest(key: "", method: "GET")
-            // Append query string to the bucket-level URL
             guard let baseURL = request.url,
                   var fullComponents = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
             else {
                 throw S3ClientError.unexpectedResponse("Failed to construct list URL")
             }
-            fullComponents.queryItems = components.queryItems
+            // SigV4 canonical query strings require each value to be URI-
+            // encoded, but `aws-signer-v4` canonicalizes `url.query` raw —
+            // it does NOT uri-encode values during canonicalization (see
+            // signer.swift comment: "should really uriEncode all the query
+            // string values"). Pre-encode values here so what the request
+            // carries on the wire and what the signer canonicalizes match
+            // exactly. Without this, prefixes containing `/` (e.g.
+            // `thumbnails/`, `metadata/assets/`) signature-mismatch on
+            // strict S3 endpoints because the server canonicalizes
+            // `thumbnails/` to `thumbnails%2F` while the signer signs
+            // `thumbnails/` raw.
+            var pairs: [String] = [
+                "list-type=2",
+                "prefix=\(uriEncodeQueryValue(prefix))",
+            ]
+            if let token = continuationToken {
+                pairs.append("continuation-token=\(uriEncodeQueryValue(token))")
+            }
+            fullComponents.percentEncodedQuery = pairs.joined(separator: "&")
             request.url = fullComponents.url
             signRequest(&request)
 
@@ -174,6 +182,23 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
     }
 
     // MARK: - Helpers
+
+    /// Percent-encode a query value to AWS SigV4's canonical-query-string
+    /// rules: every byte outside RFC 3986 unreserved characters is encoded.
+    /// Critically tighter than Foundation's `urlQueryAllowed`, which leaves
+    /// `/`, `:`, `+`, `=`, `?` raw in query values — those characters
+    /// signature-mismatch on strict S3 endpoints because the server
+    /// canonicalizes them as `%2F` / `%3A` / etc. while the signer used
+    /// here signs the raw form.
+    private nonisolated static let unreservedQueryChars: CharacterSet = {
+        var set = CharacterSet()
+        set.insert(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        return set
+    }()
+
+    private func uriEncodeQueryValue(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: Self.unreservedQueryChars) ?? value
+    }
 
     private func makeRequest(key: String, method: String) throws -> URLRequest {
         // S3 keys produced by ``S3Paths`` are already percent-encoded —
