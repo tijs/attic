@@ -25,6 +25,12 @@ struct BackupCommand: AsyncParsableCommand {
         try await Dependencies.ensureManifestMigrated()
 
         let isTTY = isatty(STDOUT_FILENO) != 0
+        if !isTTY {
+            // Force line buffering so launchd-captured logs flush per line
+            // instead of every ~4 KB. Without this the log file looks empty
+            // for minutes during long PhotoKit prep / batch phases.
+            setlinebuf(stdout)
+        }
         let spinner = isTTY ? PreparationSpinner() : nil
         spinner?.start()
 
