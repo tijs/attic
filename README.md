@@ -63,11 +63,11 @@ This prompts for your S3 endpoint, region, bucket name, and credentials. Config
 is saved to `~/.attic/config.json` and credentials are stored in the macOS
 Keychain.
 
-## Scheduled / headless backup
+## Unattended backups
 
 To run `attic backup` automatically on a daily schedule — on a Mac mini, an
 always-on iMac, or any Mac that stays logged in — see
-[docs/scheduled-backup.md](docs/scheduled-backup.md). The guide walks
+[docs/unattended-backups.md](docs/unattended-backups.md). The guide walks
 through priming Photos and keychain permissions, installing a per-user
 LaunchAgent, scheduling a wake-from-sleep, smoke-testing, and surviving
 reboots via auto-login. A ready-to-copy plist lives at

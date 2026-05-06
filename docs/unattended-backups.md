@@ -1,4 +1,4 @@
-# Scheduled (headless) backup on macOS
+# Unattended backups on macOS
 
 Run `attic backup` automatically on a daily schedule on a Mac mini, an
 always-on iMac, or any Mac that stays logged in. This guide assumes you have
