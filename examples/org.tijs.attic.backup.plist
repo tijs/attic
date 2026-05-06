@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Daily attic backup at 03:00 local time.
+
+  Install:
+      mkdir -p ~/Library/LaunchAgents ~/Library/Logs/attic
+      cp examples/org.tijs.attic.backup.plist ~/Library/LaunchAgents/
+      # Replace YOUR_USERNAME below with your short username, then:
+      launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/org.tijs.attic.backup.plist
+
+  Run on demand:
+      launchctl kickstart -k gui/$(id -u)/org.tijs.attic.backup
+
+  Uninstall:
+      launchctl bootout gui/$(id -u)/org.tijs.attic.backup
+      rm ~/Library/LaunchAgents/org.tijs.attic.backup.plist
+
+  Notes:
+    - launchd does not expand ~ in plist paths. Replace YOUR_USERNAME below.
+    - The binary path /opt/homebrew/bin/attic is correct for Apple Silicon
+      Homebrew. Adjust if installed elsewhere (run: which attic).
+    - Prime keychain + Photos permissions interactively first. See
+      docs/scheduled-backup.md.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>org.tijs.attic.backup</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/attic</string>
+        <string>backup</string>
+        <string>--limit</string>
+        <string>2000</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>LowPriorityIO</key>
+    <true/>
+
+    <key>Nice</key>
+    <integer>5</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/YOUR_USERNAME/Library/Logs/attic/backup.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/YOUR_USERNAME/Library/Logs/attic/backup.log</string>
+</dict>
+</plist>
