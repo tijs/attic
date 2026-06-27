@@ -18,6 +18,9 @@ Works with any S3-compatible provider. EU-friendly options include
 [Scaleway](https://www.scaleway.com/en/object-storage/),
 [Hetzner](https://www.hetzner.com/storage/object-storage), and
 [OVH](https://www.ovhcloud.com/en/public-cloud/object-storage/).
+Google Cloud Storage also works through its S3 interoperability/XML API when
+using bucket HMAC keys, the `https://storage.googleapis.com` endpoint, and
+path-style URLs.
 
 ## Install
 
@@ -235,6 +238,18 @@ Attic stores its configuration at `~/.attic/config.json`:
 The `keychain` section is optional and defaults to the service names shown
 above. Credentials are always stored in the macOS Keychain, never in config
 files or environment variables.
+
+For Google Cloud Storage via S3 interoperability, create an HMAC key for a
+service account with access to the bucket, then use:
+
+```json
+{
+  "endpoint": "https://storage.googleapis.com",
+  "region": "us-east-1",
+  "bucket": "my-gcs-bucket",
+  "pathStyle": true
+}
+```
 
 `scan` works without config (it only reads the Photos library). All other
 commands require config and S3 credentials — run `attic init` if missing.

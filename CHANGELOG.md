@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.0.0-beta.21
+
+Improves compatibility with stricter S3-compatible endpoints, including
+Google Cloud Storage's S3 interoperability/XML API.
+
+- Normal S3 requests now use attic's own SigV4 header signer so the canonical
+  request matches the exact URLSession request.
+- Uploads sign the literal `UNSIGNED-PAYLOAD` value instead of signing the
+  SHA-256 hash of that string.
+- `Content-Length` is no longer included in signed headers, since URLSession
+  owns upload framing and may adjust it.
+- Canonical request generation uses the raw percent-encoded URL path bytes,
+  preserving object keys that contain encoded characters such as `%2F`.
+- Adds regression tests for GCS-shaped path-style requests and pre-encoded
+  list prefixes.
+
+Validated with a live smoke test against a Google Cloud Storage bucket:
+PUT, HEAD, GET, LIST, DELETE, and post-delete HEAD all succeeded through
+attic's `URLSessionS3Client`.
+
 ## 1.0.0-beta.12
 
 Hotfix on top of `1.0.0-beta.11`. After a successful v1→v2 migration,

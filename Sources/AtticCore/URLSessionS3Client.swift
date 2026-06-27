@@ -13,6 +13,7 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
     private let region: String
     private let pathStyle: Bool
     private let signer: AWSSigner
+    private let headerSigner: S3V4HeaderSigner
     private let session: URLSession
 
     public init(
@@ -43,6 +44,7 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
             secretAccessKey: credentials.secretAccessKey,
         )
         signer = AWSSigner(credentials: creds, name: "s3", region: region)
+        headerSigner = S3V4HeaderSigner(credentials: credentials, region: region)
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 60
@@ -60,7 +62,6 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         if let contentType {
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         }
-        request.setValue("\(body.count)", forHTTPHeaderField: "Content-Length")
         signRequest(&request, hasBody: true)
 
         let (data, response) = try await session.upload(for: request, from: body)
@@ -68,13 +69,10 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
     }
 
     public func putObject(key: String, fileURL: URL, contentType: String?) async throws {
-        let fileSize = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-
         var request = try makeRequest(key: key, method: "PUT")
         if let contentType {
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         }
-        request.setValue("\(fileSize)", forHTTPHeaderField: "Content-Length")
         signRequest(&request, hasBody: true)
 
         let (data, response) = try await session.upload(for: request, fromFile: fileURL)
@@ -215,7 +213,6 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
 
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.setValue(url.host, forHTTPHeaderField: "Host")
         return request
     }
 
@@ -255,29 +252,18 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
     private func signRequest(_ request: inout URLRequest, hasBody: Bool = false) {
         guard let url = request.url else { return }
 
-        let method = HTTPMethod(rawValue: request.httpMethod ?? "GET")
-
-        // Collect existing headers
-        var nioHeaders = HTTPHeaders()
-        if let allHeaders = request.allHTTPHeaderFields {
-            for (name, value) in allHeaders {
-                nioHeaders.add(name: name, value: value)
-            }
-        }
-
         // For uploads, use UNSIGNED-PAYLOAD to avoid hashing large files.
         // For bodiless requests (GET/HEAD), use an empty body so the signer
         // computes the correct empty-payload hash — some S3-compatible
         // providers reject UNSIGNED-PAYLOAD on non-PUT requests.
-        let body: AWSSigner.BodyData = hasBody
-            ? .string("UNSIGNED-PAYLOAD")
-            : .string("")
-
-        let signedHeaders = signer.signHeaders(
+        let payloadHash = hasBody
+            ? "UNSIGNED-PAYLOAD"
+            : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        let signedHeaders = headerSigner.signHeaders(
             url: url,
-            method: method,
-            headers: nioHeaders,
-            body: body,
+            method: request.httpMethod ?? "GET",
+            headers: request.allHTTPHeaderFields ?? [:],
+            payloadHash: payloadHash,
             date: Date(),
         )
 
