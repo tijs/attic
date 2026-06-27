@@ -54,9 +54,6 @@ func uploadExported(
         inputs.append(UploadInput(exported: exported, asset: asset, s3Key: s3Key, ext: ext))
     }
 
-    // Track inputs by UUID for retry lookup
-    let inputByUUID = Dictionary(uniqueKeysWithValues: inputs.map { ($0.exported.uuid, $0) })
-
     // Concurrent uploads. On a network-down failure we drain the current pass,
     // wait for recovery, then loop with the queued retry set as the next pass.
     let effectiveConcurrency = max(1, ctx.concurrency)

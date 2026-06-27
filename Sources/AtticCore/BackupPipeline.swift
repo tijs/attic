@@ -201,6 +201,11 @@ public func runBackup(
     if options.dryRun {
         var report = BackupReport()
         report.skipped = pending.count
+        progress.backupCompleted(
+            uploaded: report.uploaded,
+            failed: report.failed,
+            totalBytes: report.totalBytes,
+        )
         return report
     }
 

@@ -2,7 +2,6 @@ import ArgumentParser
 import AtticCore
 import Foundation
 import LadderKit
-@preconcurrency import Photos
 
 struct MigrateCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(

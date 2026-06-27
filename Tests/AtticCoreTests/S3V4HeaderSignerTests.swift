@@ -10,9 +10,10 @@ struct S3V4HeaderSignerTests {
 
     private let fixedDate = Date(timeIntervalSince1970: 1_704_067_200)
 
-    @Test func uploadSigningUsesLiteralUnsignedPayload() throws {
+    @Test func uploadSigningUsesProvidedPayloadHash() throws {
         let signer = S3V4HeaderSigner(credentials: credentials, region: "us-east-1")
         let url = try #require(URL(string: "https://storage.googleapis.com/example-bucket/metadata/assets/test.json"))
+        let payloadHash = "9b45b81a4bc8572c12f4c476aa21cd060a4fb2fbf1a102a1c323e781aacf6f76"
 
         let headers = signer.signHeaders(
             url: url,
@@ -22,18 +23,18 @@ struct S3V4HeaderSignerTests {
                 "Content-Length": "42",
                 "Host": "ignored.example.com",
             ],
-            payloadHash: "UNSIGNED-PAYLOAD",
+            payloadHash: payloadHash,
             date: fixedDate,
         )
 
         let authorization = try #require(headers["Authorization"])
-        #expect(headers["X-Amz-Content-Sha256"] == "UNSIGNED-PAYLOAD")
+        #expect(headers["X-Amz-Content-Sha256"] == payloadHash)
         #expect(headers["Host"] == "storage.googleapis.com")
         #expect(!authorization.contains("content-length"))
         #expect(authorization.contains("SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date"))
     }
 
-    @Test func canonicalURIUsesRawPercentEncodedPathBytes() throws {
+    @Test func canonicalURIUsesDecodedPathAndKeepsSlashes() throws {
         let signer = S3V4HeaderSigner(credentials: credentials, region: "us-east-1")
         let url = try #require(URL(
             string: "https://storage.googleapis.com/example-bucket/metadata/assets/uuid%2Fwith%2Fslashes.json",
@@ -51,7 +52,7 @@ struct S3V4HeaderSignerTests {
         )
 
         #expect(canonical.contains(
-            "/example-bucket/metadata/assets/uuid%252Fwith%252Fslashes.json\n",
+            "/example-bucket/metadata/assets/uuid/with/slashes.json\n",
         ))
     }
 

@@ -87,6 +87,37 @@ struct TimeoutExportProvider: ExportProviding {
     func checkPermissions() async throws {}
 }
 
+final class RecordingBackupProgress: BackupProgressDelegate, @unchecked Sendable {
+    enum Event: Equatable {
+        case backupStarted(pending: Int, photos: Int, videos: Int)
+        case backupCompleted(uploaded: Int, failed: Int, totalBytes: Int)
+    }
+
+    private let lock = NSLock()
+    private var recorded: [Event] = []
+
+    func events() -> [Event] {
+        lock.withLock { recorded }
+    }
+
+    func backupStarted(pending: Int, photos: Int, videos: Int) {
+        lock.withLock {
+            recorded.append(.backupStarted(pending: pending, photos: photos, videos: videos))
+        }
+    }
+
+    func batchStarted(batchNumber: Int, totalBatches: Int, assetCount: Int) {}
+    func assetUploaded(uuid: String, filename: String, type: AssetKind, size: Int) {}
+    func assetFailed(uuid: String, filename: String, message: String, classification: ExportClassification) {}
+    func manifestSaved(entriesCount: Int) {}
+
+    func backupCompleted(uploaded: Int, failed: Int, totalBytes: Int) {
+        lock.withLock {
+            recorded.append(.backupCompleted(uploaded: uploaded, failed: failed, totalBytes: totalBytes))
+        }
+    }
+}
+
 func makeTestAsset(
     uuid: String,
     kind: AssetKind = .photo,
@@ -208,6 +239,7 @@ struct BackupPipelineTests {
         let exporter = MockExportProvider()
         let (s3, manifestStore) = try await createTestContext()
         var manifest = try await manifestStore.load()
+        let progress = RecordingBackupProgress()
 
         let report = try await runBackup(
             assets: assets,
@@ -216,6 +248,7 @@ struct BackupPipelineTests {
             exporter: exporter,
             s3: s3,
             options: BackupOptions(dryRun: true),
+            progress: progress,
         )
 
         #expect(report.uploaded == 0)
@@ -223,6 +256,11 @@ struct BackupPipelineTests {
         let objects = try await s3.listObjects(prefix: "")
         #expect(objects.isEmpty)
         #expect(!manifest.isBackedUp("uuid-1"))
+        let events = progress.events()
+        #expect(events == [
+            .backupStarted(pending: 1, photos: 1, videos: 0),
+            .backupCompleted(uploaded: 0, failed: 0, totalBytes: 0),
+        ])
     }
 
     @Test func handlesExportErrorsGracefully() async throws {

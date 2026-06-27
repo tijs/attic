@@ -82,7 +82,9 @@ enum Dependencies {
     /// without a cloud counterpart. Logs a warning when more than 5% of
     /// assets fail resolution — a strong signal that iCloud Photos is
     /// disabled or PhotoKit consent is incomplete.
-    static func loadAssetsAsync() async -> [AssetInfo] {
+    static func loadAssetsAsync() async throws -> [AssetInfo] {
+        try await PhotosPermissionAuthorizer.preflight()
+
         let assets = loadAssets()
         guard !assets.isEmpty else { return assets }
 
@@ -134,6 +136,8 @@ enum Dependencies {
     static func makeMigrationRunner(
         progress: MigrationRunner.ProgressHandler? = nil,
     ) async throws -> MigrationRunner {
+        try await PhotosPermissionAuthorizer.preflight()
+
         let (_, s3, manifestStore) = try makeBackupDeps()
         let library = PhotoKitLibrary()
         let resolver = PhotoKitCloudIdentityResolver()

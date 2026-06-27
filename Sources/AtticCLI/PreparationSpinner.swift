@@ -52,12 +52,15 @@ final class PreparationSpinner: @unchecked Sendable {
     }
 
     func stop() {
-        let printed: Bool = lock.withLock {
+        let shouldClear: Bool = lock.withLock {
+            guard animationTask != nil else { return false }
             animationTask?.cancel()
             animationTask = nil
-            return hasPrinted
+            let printed = hasPrinted
+            hasPrinted = false
+            return printed
         }
-        if printed {
+        if shouldClear {
             // Brief sleep to let the cancelled task finish its current iteration
             Thread.sleep(forTimeInterval: 0.15)
             print("\u{1b}[1A\u{1b}[2K", terminator: "")

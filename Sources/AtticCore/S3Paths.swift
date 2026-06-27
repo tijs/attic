@@ -21,7 +21,7 @@ public enum S3Paths {
 
     /// RFC 3986 unreserved characters. Any character outside this set is
     /// percent-encoded by ``encodeUUIDComponent(_:)``.
-    private nonisolated(unsafe) static let unreservedURLChars: CharacterSet = {
+    private static let unreservedURLChars: CharacterSet = {
         var set = CharacterSet()
         set.insert(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
         return set

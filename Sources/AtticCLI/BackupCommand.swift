@@ -33,6 +33,7 @@ struct BackupCommand: AsyncParsableCommand {
         }
         let spinner = isTTY ? PreparationSpinner() : nil
         spinner?.start()
+        defer { spinner?.stop() }
 
         spinner?.updateStatus("Loading configuration...")
         let (_, s3, manifestStore) = try Dependencies.makeBackupDeps()
@@ -41,7 +42,7 @@ struct BackupCommand: AsyncParsableCommand {
         var manifest = try await Dependencies.loadManifest(store: manifestStore)
 
         spinner?.updateStatus("Scanning Photos library...")
-        let assets = await Dependencies.loadAssetsAsync()
+        let assets = try await Dependencies.loadAssetsAsync()
 
         let assetKind: AssetKind? = switch type?.lowercased() {
         case "photo": .photo

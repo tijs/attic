@@ -204,11 +204,13 @@ final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
         lines.append("  Speed     \(speedText)\(lanesSuffix)")
         lines.append("  Errors    \(s.failed)")
         lines.append("")
+        let contentWidth = max(20, terminalColumnCount() - 2)
         if s.isPaused, let pauseStart = s.pauseStarted {
             let waitTime = Date().timeIntervalSince(pauseStart)
-            lines.append("  Status    \u{1b}[33m⏸ \(s.pauseReason) (\(formatDuration(waitTime)))\u{1b}[0m")
+            let status = "Status    ⏸ \(s.pauseReason) (\(formatDuration(waitTime)))"
+            lines.append("  \u{1b}[33m\(truncateLine(status, maxColumns: contentWidth))\u{1b}[0m")
         } else {
-            lines.append("  Current   \(s.currentFile)")
+            lines.append("  \(truncateLine("Current   \(s.currentFile)", maxColumns: contentWidth))")
         }
         lines.append("  Elapsed   \(formatDuration(elapsed))")
 
@@ -311,4 +313,24 @@ private func formatDuration(_ seconds: TimeInterval) -> String {
     let m = (total % 3600) / 60
     let s = total % 60
     return String(format: "%02d:%02d:%02d", h, m, s)
+}
+
+private func terminalColumnCount() -> Int {
+    if let columns = ProcessInfo.processInfo.environment["COLUMNS"].flatMap(Int.init), columns > 0 {
+        return columns
+    }
+
+    var size = winsize()
+    if ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0, size.ws_col > 0 {
+        return Int(size.ws_col)
+    }
+
+    return 100
+}
+
+private func truncateLine(_ value: String, maxColumns: Int) -> String {
+    guard maxColumns > 1 else { return "" }
+    let singleLine = value.replacingOccurrences(of: "\n", with: " ")
+    guard singleLine.count > maxColumns else { return singleLine }
+    return String(singleLine.prefix(maxColumns - 1)) + "…"
 }

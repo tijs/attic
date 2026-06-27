@@ -1,4 +1,5 @@
 import AWSSigner
+import CryptoKit
 import Foundation
 import NIOHTTP1
 
@@ -62,7 +63,7 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         if let contentType {
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         }
-        signRequest(&request, hasBody: true)
+        signRequest(&request, payloadHash: Self.sha256Hex(body))
 
         let (data, response) = try await session.upload(for: request, from: body)
         try checkResponse(response, data: data, key: key)
@@ -73,7 +74,8 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         if let contentType {
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         }
-        signRequest(&request, hasBody: true)
+        let payloadHash = try Self.sha256Hex(fileURL: fileURL)
+        signRequest(&request, payloadHash: payloadHash)
 
         let (data, response) = try await session.upload(for: request, fromFile: fileURL)
         try checkResponse(response, data: data, key: key)
@@ -249,16 +251,12 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         return url
     }
 
-    private func signRequest(_ request: inout URLRequest, hasBody: Bool = false) {
+    private func signRequest(
+        _ request: inout URLRequest,
+        payloadHash: String = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ) {
         guard let url = request.url else { return }
 
-        // For uploads, use UNSIGNED-PAYLOAD to avoid hashing large files.
-        // For bodiless requests (GET/HEAD), use an empty body so the signer
-        // computes the correct empty-payload hash — some S3-compatible
-        // providers reject UNSIGNED-PAYLOAD on non-PUT requests.
-        let payloadHash = hasBody
-            ? "UNSIGNED-PAYLOAD"
-            : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         let signedHeaders = headerSigner.signHeaders(
             url: url,
             method: request.httpMethod ?? "GET",
@@ -273,6 +271,21 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         }
     }
 
+    private static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).hexDigest()
+    }
+
+    private static func sha256Hex(fileURL: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: fileURL)
+        defer { try? handle.close() }
+
+        var hasher = SHA256()
+        while let chunk = try handle.read(upToCount: 1024 * 1024), !chunk.isEmpty {
+            hasher.update(data: chunk)
+        }
+        return hasher.finalize().hexDigest()
+    }
+
     private func checkResponse(_ response: URLResponse, data: Data, key: String) throws {
         guard let http = response as? HTTPURLResponse else {
             throw S3ClientError.unexpectedResponse("Not an HTTP response")
@@ -284,6 +297,12 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
             }
             throw S3ClientError.httpError(http.statusCode, key)
         }
+    }
+}
+
+private extension Sequence<UInt8> {
+    func hexDigest() -> String {
+        map { String(format: "%02x", $0) }.joined()
     }
 }
 

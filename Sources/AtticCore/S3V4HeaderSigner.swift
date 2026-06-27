@@ -99,7 +99,7 @@ struct S3V4HeaderSigner {
     }
 
     private static func canonicalURI(_ url: URL) -> String {
-        let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? url.path
+        let path = url.path
         return awsPercentEncode(path.isEmpty ? "/" : path, encodeSlash: false)
     }
 
