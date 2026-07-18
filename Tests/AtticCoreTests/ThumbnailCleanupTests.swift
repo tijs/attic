@@ -85,15 +85,25 @@ private actor ListThrowingS3Provider: S3Providing {
 /// prefix is listed. The retired thumbnails prefix must tolerate that shape.
 private actor NoSuchKeyListS3Provider: S3Providing {
     func putObject(key _: String, body _: Data, contentType _: String?) async throws {}
+
     func putObject(key _: String, fileURL _: URL, contentType _: String?) async throws {}
-    func getObject(key _: String) async throws -> Data { Data() }
-    func headObject(key _: String) async throws -> S3ObjectMeta? { nil }
+
+    func getObject(key _: String) async throws -> Data {
+        Data()
+    }
+
+    func headObject(key _: String) async throws -> S3ObjectMeta? {
+        nil
+    }
+
     func listObjects(prefix _: String) async throws -> [S3ListObject] {
         throw S3ClientError.s3Error(code: "NoSuchKey", message: "The specified key does not exist.")
     }
+
     nonisolated func presignedURL(key: String, expires: Int) -> URL {
         URL(string: "http://mock/\(key)?\(expires)")!
     }
+
     func deleteObject(key _: String) async throws {}
 }
 

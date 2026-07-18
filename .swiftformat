@@ -10,6 +10,13 @@
 --enable blankLinesBetweenScopes
 --enable consecutiveBlankLines
 
+# Keep CI stable across SwiftFormat 0.61/0.62: these newer defaults would
+# reformat pre-existing code not governed by Attic's style.
+--disable wrapFunctionBodies
+--disable wrapIfStatementBodies
+--disable indent
+--disable trailingSpace
+
 # Formatting options
 --indent 4
 --indentcase false
