@@ -20,6 +20,13 @@ struct InitCommand: AsyncParsableCommand {
 
         let region = prompt("Region: ")
         let bucket = prompt("Bucket name: ")
+
+        print("")
+        print("URL style controls where the bucket appears in each S3 URL:")
+        print("  Path-style (recommended; press Enter): https://<endpoint>/<bucket>/<object>")
+        print("  Virtual-hosted style:                  https://<bucket>.<endpoint>/<object>")
+        print("  Do not include the bucket name in the endpoint when using path-style URLs.")
+        print("  For Scaleway, use https://s3.<region>.scw.cloud and choose Y.")
         let pathStyleInput = prompt("Use path-style URLs? (Y/n): ")
         let pathStyle = pathStyleInput.lowercased() != "n"
 

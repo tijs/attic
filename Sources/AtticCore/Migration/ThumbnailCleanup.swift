@@ -42,7 +42,16 @@ public func runThumbnailCleanup(
 ) async throws -> ThumbnailCleanupResult {
     // Step 1 — list everything. `URLSessionS3Client.listObjects` paginates
     // internally with continuation tokens; we get the full key list back.
-    let listed = try await s3.listObjects(prefix: thumbnailsPrefix)
+    let listed: [S3ListObject]
+    do {
+        listed = try await s3.listObjects(prefix: thumbnailsPrefix)
+    } catch let S3ClientError.s3Error(code, _) where code == "NoSuchKey" || code == "NotFound" {
+        // Some S3-compatible providers (including Scaleway) return NoSuchKey
+        // instead of an empty ListObjectsV2 result when this retired prefix
+        // has never existed. For this one-shot cleanup, that is equivalent to
+        // an empty prefix and must not block a legacy manifest on a new Mac.
+        listed = []
+    }
     let totalBytes = Int64(listed.reduce(0) { $0 + $1.size })
 
     if dryRun {

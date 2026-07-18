@@ -62,9 +62,13 @@ Run the interactive setup:
 attic init
 ```
 
-This prompts for your S3 endpoint, region, bucket name, and credentials. Config
-is saved to `~/.attic/config.json` and credentials are stored in the macOS
-Keychain.
+Attic asks for your S3 endpoint, region, bucket name, and credentials. For
+**path-style URLs** (the recommended default), enter only the provider endpoint:
+Attic makes requests as `https://<endpoint>/<bucket>/<object>`. Do not include
+the bucket name in the endpoint. For Scaleway, use
+`https://s3.<region>.scw.cloud` (for example, `https://s3.fr-par.scw.cloud`) and
+answer `Y` to the path-style prompt. Config is saved to `~/.attic/config.json`;
+credentials are stored in the macOS Keychain.
 
 ## Unattended backups
 
