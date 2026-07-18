@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.0-beta.24
+
+- Treat Scaleway's `NoSuchKey` response for an unused `thumbnails/` prefix as
+  an empty listing during the one-time legacy thumbnail cleanup. This lets a
+  new Mac open an existing manifest when thumbnails were already removed.
+- Explain path-style versus virtual-hosted S3 URLs during `attic init`, with
+  Scaleway-specific guidance.
+
 ## 1.0.0-beta.21
 
 Improves compatibility with stricter S3-compatible endpoints, including
