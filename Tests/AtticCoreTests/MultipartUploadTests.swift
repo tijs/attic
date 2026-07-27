@@ -21,7 +21,8 @@ struct MultipartUploadTests {
             .init(method: "PUT", query: "partNumber=3&uploadId=upload-id"),
             .init(method: "POST", query: "uploadId=upload-id"),
         ])
-        #expect(S3MultipartURLProtocol.signedRequests.allSatisfy(\.self))
+        let allRequestsSigned = S3MultipartURLProtocol.signedRequests.allSatisfy(\.self)
+        #expect(allRequestsSigned)
 
         let completion = [
             "<CompleteMultipartUpload>",
@@ -172,7 +173,8 @@ private final class S3MultipartURLProtocol: URLProtocol, @unchecked Sendable {
         Self.signedRequests.append(self.request.value(forHTTPHeaderField: "Authorization") != nil)
         Self.payloadHashes.append(self.request.value(forHTTPHeaderField: "X-Amz-Content-Sha256"))
 
-        let isPart = request.method == "PUT" && request.query?.hasPrefix("partNumber=") == true
+        let isPart = request.method == "PUT"
+            && request.query?.hasPrefix("partNumber=") == true
         let statusCode: Int
         let headers: [String: String]
         if Self.failPart, isPart {
@@ -180,7 +182,12 @@ private final class S3MultipartURLProtocol: URLProtocol, @unchecked Sendable {
             headers = [:]
         } else {
             statusCode = 200
-            if let partNumber = request.query?.split(separator: "&").first?.split(separator: "=").last {
+            let partNumber = request.query?
+                .split(separator: "&")
+                .first?
+                .split(separator: "=")
+                .last
+            if let partNumber {
                 headers = ["ETag": "\"part-\(partNumber)\""]
             } else {
                 headers = [:]
@@ -192,7 +199,11 @@ private final class S3MultipartURLProtocol: URLProtocol, @unchecked Sendable {
             if Self.malformedInitiation {
                 data = Data("<InitiateMultipartUploadResult/>".utf8)
             } else {
-                let xml = "<InitiateMultipartUploadResult><UploadId>upload-id</UploadId></InitiateMultipartUploadResult>"
+                let xml = [
+                    "<InitiateMultipartUploadResult>",
+                    "<UploadId>upload-id</UploadId>",
+                    "</InitiateMultipartUploadResult>",
+                ].joined()
                 data = Data(xml.utf8)
             }
         } else if request.method == "POST", request.query == "uploadId=upload-id", Self.completeWithError {
