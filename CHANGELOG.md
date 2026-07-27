@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.0-beta.25
+
+- Add multipart S3 uploads for originals larger than the single-PUT limit.
+  Uploads use bounded parts, clean up failed attempts, and preserve the normal
+  single-PUT path for smaller files.
+
 ## 1.0.0-beta.24
 
 - Treat Scaleway's `NoSuchKey` response for an unused `thumbnails/` prefix as
@@ -143,6 +149,7 @@ on any Mac signed into the same iCloud Photos library. Run `attic migrate`
 once on the Mac that originally produced the backup.
 
 ### Identity model
+
 - `Manifest` v2: per-entry `identityKind` (`.cloud` or `.local`) and
   `legacyLocalIdentifier`. v1 manifests decode without these fields and
   default to `.local`. Tampered or future identityKind values fall back to
@@ -157,6 +164,7 @@ once on the Mac that originally produced the backup.
   loudly; stale locks are reclaimable with `attic migrate --repair`.
 
 ### Safety
+
 - Resolver-anomaly guards: migration aborts before any v2 write if PhotoKit
   returns 0 cloud identifiers for the library, or if at least 95% of
   entries fall back to `.local`. The likely root cause is iCloud Photos
@@ -176,6 +184,7 @@ once on the Mac that originally produced the backup.
   manifest.
 
 ### Breaking changes
+
 - `S3Providing.deleteObject(key:)` is now part of the protocol. External
   conformers built against earlier betas inherit a default extension impl
   that throws `S3OperationError.unsupported` so they continue to compile,
@@ -184,6 +193,7 @@ once on the Mac that originally produced the backup.
   Do not downgrade without restoring `manifest.v1.json` first.
 
 ### Commands
+
 - `attic migrate` (new) — interactive, with `--yes`, `--dry-run`,
   `--repair`, and `--force` flags.
 - All other commands ensure the manifest is migrated before running, with
@@ -195,6 +205,7 @@ Architectural cleanup, security hardening, and pipeline simplification. No
 behavior changes for the golden path.
 
 ### Architecture
+
 - `RetryQueue`: dropped the legacy `failedUUIDs: [String]` decoder and the
   custom `Codable` conformance. Uses compiler-synthesized coding now.
 - `BackupPipeline`: extracted `filterPending`, `exportBatchWithFallback`, and
@@ -214,6 +225,7 @@ behavior changes for the golden path.
   the type it holds), `BackupConstants.swift` → `DateFormatting.swift`.
 
 ### Security
+
 - `attic init` fails closed if `tcgetattr`/`tcsetattr` can't disable terminal
   echo (e.g. stdin isn't a TTY). Previously, a piped/redirected stdin would
   read the secret in plaintext and could leak it to the screen or a tee'd
@@ -229,6 +241,7 @@ behavior changes for the golden path.
   in-flight plaintext copies of the user's photos.
 
 ### Performance
+
 - `ViewerDataStore` load path: parse year from the `YYYY-` prefix instead of
   allocating a `Date.ISO8601FormatStyle` per asset. Noticeable on large
   libraries.
@@ -345,11 +358,13 @@ Skip slow assets, finish the rest, retry later.
 - **Deferred retry** — assets that timed out individually are retried with a
   longer timeout after all remaining batches complete.
 - **Clear feedback** — you see exactly which file is slow:
+
   ```
   Batch 1/2  (37 photos, 13 videos, ~1.6 GB)
     Batch timed out — retrying 50 assets individually...
     Deferring BIG_VIDEO.MOV (video, 450.2 MB) — timed out, will retry after remaining batches
   ```
+
 - **Size-scaled timeouts** — 5 min base + 1 min per 100 MB of estimated batch
   size.
 - **Sorted batches** — photos first (by size), then videos (by size).
