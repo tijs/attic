@@ -16,6 +16,13 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
     private let signer: AWSSigner
     private let headerSigner: S3V4HeaderSigner
     private let session: URLSession
+    private let multipartThreshold: Int
+    private let multipartPreferredPartSize: Int
+
+    private static let singlePutMaximumSize = 5 * 1024 * 1024 * 1024
+    private static let multipartMinimumPartSize = 5 * 1024 * 1024
+    private static let defaultMultipartPreferredPartSize = 64 * 1024 * 1024
+    private static let multipartMaximumPartCount = 10000
 
     public init(
         credentials: S3Credentials,
@@ -24,12 +31,35 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         region: String,
         pathStyle: Bool,
     ) throws {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 3600
+        // Default is 6, which throttles concurrent uploads to one bucket host.
+        // Align with our bounded-concurrency upload group (effectively ~16).
+        config.httpMaximumConnectionsPerHost = 32
+        try self.init(
+            credentials: credentials,
+            bucket: bucket,
+            endpoint: endpoint,
+            region: region,
+            pathStyle: pathStyle,
+            session: URLSession(configuration: config),
+        )
+    }
+
+    init(
+        credentials: S3Credentials,
+        bucket: String,
+        endpoint: String,
+        region: String,
+        pathStyle: Bool,
+        session: URLSession,
+        multipartThreshold: Int = Self.singlePutMaximumSize,
+        multipartPreferredPartSize: Int = Self.defaultMultipartPreferredPartSize,
+    ) throws {
         guard let endpointURL = URL(string: endpoint) else {
             throw S3ClientError.unexpectedResponse("Invalid endpoint URL: \(endpoint)")
         }
-        // Virtual-hosted style and dots in bucket name don't mix: TLS cert
-        // covers *.s3.amazonaws.com (one label) and "my.bucket" would need
-        // two wildcards. AWS rejects these at request time; catch it at init.
         if !pathStyle, bucket.contains(".") {
             throw S3ClientError.unexpectedResponse(
                 "Bucket name \"\(bucket)\" contains a dot — use path-style URLs instead.",
@@ -39,21 +69,15 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         self.endpoint = endpointURL
         self.region = region
         self.pathStyle = pathStyle
-
         let creds = StaticCredential(
             accessKeyId: credentials.accessKeyId,
             secretAccessKey: credentials.secretAccessKey,
         )
         signer = AWSSigner(credentials: creds, name: "s3", region: region)
         headerSigner = S3V4HeaderSigner(credentials: credentials, region: region)
-
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 60
-        config.timeoutIntervalForResource = 3600
-        // Default is 6, which throttles concurrent uploads to one bucket host.
-        // Align with our bounded-concurrency upload group (effectively ~16).
-        config.httpMaximumConnectionsPerHost = 32
-        session = URLSession(configuration: config)
+        self.session = session
+        self.multipartThreshold = multipartThreshold
+        self.multipartPreferredPartSize = multipartPreferredPartSize
     }
 
     // MARK: - S3Providing
@@ -70,6 +94,12 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
     }
 
     public func putObject(key: String, fileURL: URL, contentType: String?) async throws {
+        let size = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        if size > multipartThreshold {
+            try await putMultipartObject(key: key, fileURL: fileURL, size: size, contentType: contentType)
+            return
+        }
+
         var request = try makeRequest(key: key, method: "PUT")
         if let contentType {
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
@@ -269,6 +299,135 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         for (name, value) in signedHeaders {
             request.setValue(value, forHTTPHeaderField: name)
         }
+    }
+
+    private func putMultipartObject(
+        key: String,
+        fileURL: URL,
+        size: Int,
+        contentType: String?,
+    ) async throws {
+        let uploadID = try await initiateMultipartUpload(key: key, contentType: contentType)
+
+        do {
+            let handle = try FileHandle(forReadingFrom: fileURL)
+            defer { try? handle.close() }
+
+            let partSize = multipartPartSize(for: size)
+            var remaining = size
+            var partNumber = 1
+            var parts: [(number: Int, eTag: String)] = []
+
+            while remaining > 0 {
+                let count = min(partSize, remaining)
+                guard let body = try handle.read(upToCount: count), body.count == count else {
+                    throw S3ClientError.unexpectedResponse("Failed to read multipart upload part")
+                }
+
+                var request = try makeMultipartRequest(
+                    key: key,
+                    method: "PUT",
+                    query: "partNumber=\(partNumber)&uploadId=\(uriEncodeQueryValue(uploadID))",
+                )
+                signRequest(&request, payloadHash: Self.sha256Hex(body))
+                let (data, response) = try await session.upload(for: request, from: body)
+                try checkResponse(response, data: data, key: key)
+                guard let eTag = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "ETag") else {
+                    throw S3ClientError.unexpectedResponse("Multipart upload part missing ETag")
+                }
+
+                parts.append((partNumber, eTag))
+                remaining -= count
+                partNumber += 1
+            }
+
+            try await completeMultipartUpload(key: key, uploadID: uploadID, parts: parts)
+        } catch {
+            try? await abortMultipartUpload(key: key, uploadID: uploadID)
+            throw error
+        }
+    }
+
+    private func initiateMultipartUpload(key: String, contentType: String?) async throws -> String {
+        var request = try makeMultipartRequest(key: key, method: "POST", query: "uploads=")
+        if let contentType {
+            request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        }
+        signRequest(&request)
+
+        let (data, response) = try await session.data(for: request)
+        try checkResponse(response, data: data, key: key)
+        guard let uploadID = parseInitiateMultipartUpload(data: data) else {
+            throw S3ClientError.unexpectedResponse("Multipart initiation response missing UploadId")
+        }
+        return uploadID
+    }
+
+    private func completeMultipartUpload(
+        key: String,
+        uploadID: String,
+        parts: [(number: Int, eTag: String)],
+    ) async throws {
+        let partsXML = parts.map {
+            "<Part><PartNumber>\($0.number)</PartNumber><ETag>\(Self.xmlEscaped($0.eTag))</ETag></Part>"
+        }.joined()
+        let body = Data("<CompleteMultipartUpload>\(partsXML)</CompleteMultipartUpload>".utf8)
+        var request = try makeMultipartRequest(
+            key: key,
+            method: "POST",
+            query: "uploadId=\(uriEncodeQueryValue(uploadID))",
+        )
+        request.setValue("application/xml", forHTTPHeaderField: "Content-Type")
+        signRequest(&request, payloadHash: Self.sha256Hex(body))
+
+        let (data, response) = try await session.upload(for: request, from: body)
+        try checkResponse(response, data: data, key: key)
+        if let s3Error = parseS3Error(data: data) {
+            throw S3ClientError.s3Error(code: s3Error.code, message: s3Error.message)
+        }
+    }
+
+    private func abortMultipartUpload(key: String, uploadID: String) async throws {
+        var request = try makeMultipartRequest(
+            key: key,
+            method: "DELETE",
+            query: "uploadId=\(uriEncodeQueryValue(uploadID))",
+        )
+        signRequest(&request)
+
+        let (data, response) = try await session.data(for: request)
+        try checkResponse(response, data: data, key: key)
+    }
+
+    private func makeMultipartRequest(key: String, method: String, query: String) throws -> URLRequest {
+        var request = try makeRequest(key: key, method: method)
+        guard var components = try URLComponents(url: requireURL(request), resolvingAgainstBaseURL: false) else {
+            throw S3ClientError.unexpectedResponse("Failed to construct multipart upload URL")
+        }
+        components.percentEncodedQuery = query
+        request.url = components.url
+        return request
+    }
+
+    private func requireURL(_ request: URLRequest) throws -> URL {
+        guard let url = request.url else {
+            throw S3ClientError.unexpectedResponse("Failed to construct multipart upload URL")
+        }
+        return url
+    }
+
+    private func multipartPartSize(for size: Int) -> Int {
+        let minimumForPartCount = (size + Self.multipartMaximumPartCount - 1) / Self.multipartMaximumPartCount
+        return max(Self.multipartMinimumPartSize, multipartPreferredPartSize, minimumForPartCount)
+    }
+
+    private static func xmlEscaped(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&apos;")
     }
 
     private static func sha256Hex(_ data: Data) -> String {

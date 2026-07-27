@@ -26,6 +26,45 @@ func parseS3Error(data: Data) -> (code: String, message: String)? {
     return (parser.code, parser.message)
 }
 
+/// Parse the upload ID returned by S3's InitiateMultipartUpload operation.
+func parseInitiateMultipartUpload(data: Data) -> String? {
+    let parser = MultipartUploadIDParser()
+    let xmlParser = XMLParser(data: data)
+    xmlParser.delegate = parser
+    guard xmlParser.parse() else { return nil }
+    return parser.uploadID.isEmpty ? nil : parser.uploadID
+}
+
+// MARK: - Multipart upload parser
+
+private class MultipartUploadIDParser: NSObject, XMLParserDelegate {
+    var uploadID = ""
+    private var currentText = ""
+
+    func parser(
+        _ parser: XMLParser, didStartElement elementName: String,
+        namespaceURI: String?, qualifiedName: String?,
+        attributes: [String: String] = [:],
+    ) {
+        if elementName == "UploadId" {
+            currentText = ""
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        currentText += string
+    }
+
+    func parser(
+        _ parser: XMLParser, didEndElement elementName: String,
+        namespaceURI: String?, qualifiedName: String?,
+    ) {
+        if elementName == "UploadId" {
+            uploadID = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+}
+
 // MARK: - ListObjectsV2 Parser
 
 private class ListObjectsV2Parser: NSObject, XMLParserDelegate {
