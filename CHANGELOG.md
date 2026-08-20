@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `backup` exits non-zero when any asset fails to upload, and `verify` exits
+  non-zero on missing or errored objects, so unattended runs can be monitored
+  by exit code. New `--on-success` / `--on-failure` options run a shell
+  command with the outcome in `ATTIC_*` environment variables. (#6)
+
 ## 1.0.0-beta.25
 
 - Add multipart S3 uploads for originals larger than the single-PUT limit.

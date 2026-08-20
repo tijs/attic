@@ -42,5 +42,11 @@ struct VerifyCommand: AsyncParsableCommand {
                 print("  ... and \(report.errors.count - 20) more")
             }
         }
+
+        // Non-zero exit when anything is missing or errored, so unattended
+        // verify runs can be monitored by exit code.
+        if report.missing > 0 || report.failed > 0 {
+            throw ExitCode(1)
+        }
     }
 }

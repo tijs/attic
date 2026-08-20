@@ -21,6 +21,12 @@ struct BackupCommand: AsyncParsableCommand {
     @Flag(name: .long, help: "Show what would be backed up without uploading.")
     var dryRun: Bool = false
 
+    @Option(name: .long, help: "Shell command to run after a fully successful backup.")
+    var onSuccess: String?
+
+    @Option(name: .long, help: "Shell command to run after a failed backup.")
+    var onFailure: String?
+
     func run() async throws {
         try await Dependencies.ensureManifestMigrated()
 
@@ -90,19 +96,25 @@ struct BackupCommand: AsyncParsableCommand {
         // Prevent idle sleep during backup (released automatically via deinit)
         let powerAssertion = PowerAssertion(reason: "Backing up photos to S3")
 
-        let report = try await runBackup(
-            assets: assets,
-            manifest: &manifest,
-            manifestStore: manifestStore,
-            exporter: exporter,
-            s3: s3,
-            options: options,
-            progress: progress,
-            networkMonitor: NWPathNetworkMonitor(),
-            retryQueue: FileRetryQueueStore(),
-            unavailableStore: FileUnavailableAssetStore(),
-            adaptiveController: adaptiveController,
-        )
+        let report: BackupReport
+        do {
+            report = try await runBackup(
+                assets: assets,
+                manifest: &manifest,
+                manifestStore: manifestStore,
+                exporter: exporter,
+                s3: s3,
+                options: options,
+                progress: progress,
+                networkMonitor: NWPathNetworkMonitor(),
+                retryQueue: FileRetryQueueStore(),
+                unavailableStore: FileUnavailableAssetStore(),
+                adaptiveController: adaptiveController,
+            )
+        } catch {
+            runHook(onFailure, result: "failure", report: nil)
+            throw error
+        }
 
         _ = powerAssertion // prevent unused warning, released in deinit
 
@@ -111,6 +123,23 @@ struct BackupCommand: AsyncParsableCommand {
                 + "\(report.failed) failed (\(formatBytes(report.totalBytes)))"
             print(summary)
         }
+
+        // Signal the outcome for unattended runs: run the matching hook and
+        // exit non-zero when any upload failed, so launchd/monitors can
+        // detect a bad run instead of scraping logs.
+        if report.failed > 0 {
+            runHook(onFailure, result: "failure", report: report)
+            throw ExitCode(1)
+        }
+        runHook(onSuccess, result: "success", report: report)
+    }
+
+    private func runHook(_ command: String?, result: String, report: BackupReport?) {
+        guard let command else { return }
+        PostRunHook.run(
+            command: command,
+            environment: PostRunHook.environment(result: result, report: report),
+        )
     }
 }
 
