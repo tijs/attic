@@ -88,6 +88,57 @@ struct AtticConfigTests {
         }
     }
 
+    @Test func validateAcceptsStorageClass() throws {
+        let config = try AtticConfig.validate([
+            "endpoint": "https://s3.eu-north-1.amazonaws.com",
+            "region": "eu-north-1",
+            "bucket": "my-photo-backup",
+            "storageClass": "GLACIER_IR",
+        ] as [String: Any])
+
+        #expect(config.storageClass == "GLACIER_IR")
+    }
+
+    @Test func validateDefaultsStorageClassToNil() throws {
+        let config = try AtticConfig.validate([
+            "endpoint": "https://s3.fr-par.scw.cloud",
+            "region": "fr-par",
+            "bucket": "my-photo-backup",
+        ] as [String: Any])
+
+        #expect(config.storageClass == nil)
+    }
+
+    @Test func validateTreatsEmptyStorageClassAsNil() throws {
+        let config = try AtticConfig.validate([
+            "endpoint": "https://s3.fr-par.scw.cloud",
+            "region": "fr-par",
+            "bucket": "my-photo-backup",
+            "storageClass": "",
+        ] as [String: Any])
+
+        #expect(config.storageClass == nil)
+    }
+
+    @Test func validateRejectsInvalidStorageClass() {
+        #expect(throws: ConfigError.self) {
+            try AtticConfig.validate([
+                "endpoint": "https://s3.fr-par.scw.cloud",
+                "region": "fr-par",
+                "bucket": "my-photo-backup",
+                "storageClass": "glacier-ir",
+            ] as [String: Any])
+        }
+        #expect(throws: ConfigError.self) {
+            try AtticConfig.validate([
+                "endpoint": "https://s3.fr-par.scw.cloud",
+                "region": "fr-par",
+                "bucket": "my-photo-backup",
+                "storageClass": 42,
+            ] as [String: Any])
+        }
+    }
+
     @Test func writeAndLoadConfigRoundTrip() throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -98,6 +149,7 @@ struct AtticConfigTests {
             endpoint: "https://s3.fr-par.scw.cloud",
             region: "fr-par",
             bucket: "test-bucket",
+            storageClass: "GLACIER_IR",
         )
 
         try provider.write(config)
