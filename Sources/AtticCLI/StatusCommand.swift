@@ -9,6 +9,9 @@ struct StatusCommand: AsyncParsableCommand {
         abstract: "Show library stats, backup progress, and S3 manifest info.",
     )
 
+    @Flag(name: .long, help: "Emit status as a single JSON object on stdout.")
+    var json: Bool = false
+
     func run() async throws {
         try await Dependencies.ensureManifestMigrated()
 
@@ -45,6 +48,12 @@ struct StatusCommand: AsyncParsableCommand {
             retry: retry,
         )
 
-        StatusRenderer(isTTY: isTTY).render(data)
+        if json {
+            let out = try formatDashboardJSON(data)
+            FileHandle.standardOutput.write(out)
+            FileHandle.standardOutput.write(Data("\n".utf8))
+        } else {
+            StatusRenderer(isTTY: isTTY).render(data)
+        }
     }
 }

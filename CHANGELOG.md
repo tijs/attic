@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add `attic status --json`: emits library, backup-progress, retry-queue,
+  and S3 manifest stats as a single stable JSON object on stdout, for
+  dashboards and monitoring scripts. (#7)
+
 ## 1.0.0-beta.25
 
 - Add multipart S3 uploads for originals larger than the single-PUT limit.
