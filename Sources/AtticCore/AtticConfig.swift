@@ -6,6 +6,11 @@ public struct AtticConfig: Codable, Equatable, Sendable {
     public var region: String
     public var bucket: String
     public var pathStyle: Bool
+    /// S3 storage class for original asset uploads (e.g. "GLACIER_IR").
+    /// `nil` uses the provider default (STANDARD). Manifest and metadata
+    /// objects always use the provider default — they are small and
+    /// frequently rewritten, a poor fit for archive classes.
+    public var storageClass: String?
     public var keychain: KeychainConfig
 
     public struct KeychainConfig: Codable, Equatable, Sendable {
@@ -26,12 +31,14 @@ public struct AtticConfig: Codable, Equatable, Sendable {
         region: String,
         bucket: String,
         pathStyle: Bool = true,
+        storageClass: String? = nil,
         keychain: KeychainConfig = KeychainConfig(),
     ) {
         self.endpoint = endpoint
         self.region = region
         self.bucket = bucket
         self.pathStyle = pathStyle
+        self.storageClass = storageClass
         self.keychain = keychain
     }
 }
@@ -107,6 +114,7 @@ public struct FileConfigProvider: ConfigProviding {
 // MARK: - Validation
 
 private nonisolated(unsafe) let bucketPattern = /^[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9]$/
+private nonisolated(unsafe) let storageClassPattern = /^[A-Z0-9_]+$/
 
 extension AtticConfig {
     /// Validate a raw JSON object into an AtticConfig.
@@ -148,6 +156,22 @@ extension AtticConfig {
             true
         }
 
+        var storageClass: String?
+        if let sc = obj["storageClass"] {
+            guard let value = sc as? String else {
+                throw ConfigError.invalid(#"Config: "storageClass" must be a string"#)
+            }
+            if !value.isEmpty {
+                guard value.wholeMatch(of: storageClassPattern) != nil else {
+                    throw ConfigError.invalid(
+                        "Config: \"storageClass\" \"\(value)\" is invalid. "
+                            + "Use an S3 storage class name such as \"GLACIER_IR\" or \"STANDARD_IA\".",
+                    )
+                }
+                storageClass = value
+            }
+        }
+
         let keychainObj = obj["keychain"] as? [String: Any] ?? [:]
         let accessKeyService = (keychainObj["accessKeyService"] as? String)
             .flatMap { $0.isEmpty ? nil : $0 } ?? "attic-s3-access-key"
@@ -159,6 +183,7 @@ extension AtticConfig {
             region: region,
             bucket: bucket,
             pathStyle: pathStyle,
+            storageClass: storageClass,
             keychain: KeychainConfig(
                 accessKeyService: accessKeyService,
                 secretKeyService: secretKeyService,

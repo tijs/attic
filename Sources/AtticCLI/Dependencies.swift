@@ -30,6 +30,7 @@ enum Dependencies {
             endpoint: config.endpoint,
             region: config.region,
             pathStyle: config.pathStyle,
+            storageClass: config.storageClass,
         )
     }
 

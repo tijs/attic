@@ -232,12 +232,20 @@ Attic stores its configuration at `~/.attic/config.json`:
   "region": "fr-par",
   "bucket": "my-photo-backup",
   "pathStyle": true,
+  "storageClass": "GLACIER_IR",
   "keychain": {
     "accessKeyService": "attic-s3-access-key",
     "secretKeyService": "attic-s3-secret-key"
   }
 }
 ```
+
+`storageClass` is optional. When set, original asset uploads are stored in
+that S3 storage class (for example `GLACIER_IR` — Glacier Instant Retrieval,
+which is cheaper than STANDARD but still instant-read, so `verify` and
+restores keep working). The manifest and per-asset metadata always use the
+provider's default class, since they are small and frequently rewritten.
+When omitted, everything uses the provider default.
 
 The `keychain` section is optional and defaults to the service names shown
 above. Credentials are always stored in the macOS Keychain, never in config

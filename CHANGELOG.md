@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add optional `storageClass` config setting. When set (e.g. `"GLACIER_IR"`),
+  original asset uploads send `x-amz-storage-class` on single PUTs and
+  multipart initiations. Manifest and metadata objects keep the provider
+  default class. (#5)
+
 ## 1.0.0-beta.25
 
 - Add multipart S3 uploads for originals larger than the single-PUT limit.
