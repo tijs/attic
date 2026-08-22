@@ -226,6 +226,38 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/org.tijs.attic.verify.pl
 
 Sunday at 04:00, in this example, separate log file.
 
+## Failure signalling and hooks
+
+`attic backup` exits non-zero when any asset fails to upload, and `attic
+verify` exits non-zero when objects are missing or errored — so launchd
+logs, monitors, and wrappers can detect a bad run from the exit code alone.
+
+For active alerting, pass a shell command to run after the backup:
+
+```xml
+<key>ProgramArguments</key>
+<array>
+    <string>/opt/homebrew/bin/attic</string>
+    <string>backup</string>
+    <string>--limit</string>
+    <string>2000</string>
+    <string>--on-failure</string>
+    <string>curl -fsS https://hc-ping.com/YOUR-UUID/fail</string>
+    <string>--on-success</string>
+    <string>curl -fsS https://hc-ping.com/YOUR-UUID</string>
+</array>
+```
+
+The hook runs via `sh -c` with the outcome in its environment:
+`ATTIC_RESULT` (`success`/`failure`) and, when the run completed,
+`ATTIC_UPLOADED`, `ATTIC_FAILED`, `ATTIC_SKIPPED`, `ATTIC_TOTAL_BYTES`.
+`--on-failure` also fires when the run aborts early (config, network, S3
+errors) — then only `ATTIC_RESULT` is set. A hook's own exit status never
+changes attic's exit code, so a broken notifier can't mask a good backup.
+A hook that hangs (say, a `curl` stalled on a dead network) is terminated
+after 60 seconds with a warning, so a stuck notifier can't keep the attic
+process alive past the run either.
+
 ## Gotchas
 
 ### Brew upgrade re-prompts the keychain

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `backup` exits non-zero when any asset fails to upload, and `verify` exits
+  non-zero on missing or errored objects, so unattended runs can be monitored
+  by exit code. New `--on-success` / `--on-failure` options run a shell
+  command with the outcome in `ATTIC_*` environment variables. (#6)
 - Add `attic status --json`: emits library, backup-progress, retry-queue,
   and S3 manifest stats as a single stable JSON object on stdout, for
   dashboards and monitoring scripts. (#7)

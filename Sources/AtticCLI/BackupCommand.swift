@@ -21,7 +21,34 @@ struct BackupCommand: AsyncParsableCommand {
     @Flag(name: .long, help: "Show what would be backed up without uploading.")
     var dryRun: Bool = false
 
+    @Option(name: .long, help: "Shell command to run after a fully successful backup.")
+    var onSuccess: String?
+
+    @Option(name: .long, help: "Shell command to run after a failed backup.")
+    var onFailure: String?
+
     func run() async throws {
+        // Signal the outcome for unattended runs: run the matching hook and
+        // exit non-zero when any upload failed, so launchd/monitors can
+        // detect a bad run instead of scraping logs. The failure boundary
+        // covers setup too (config, keychain, manifest, Photos permission),
+        // not just the upload loop — an aborted run is still a failed run.
+        let report: BackupReport
+        do {
+            report = try await executeBackup()
+        } catch {
+            runHook(onFailure, result: "failure", report: nil)
+            throw error
+        }
+
+        if report.failed > 0 {
+            runHook(onFailure, result: "failure", report: report)
+            throw ExitCode(1)
+        }
+        runHook(onSuccess, result: "success", report: report)
+    }
+
+    private func executeBackup() async throws -> BackupReport {
         try await Dependencies.ensureManifestMigrated()
 
         let isTTY = isatty(STDOUT_FILENO) != 0
@@ -111,6 +138,16 @@ struct BackupCommand: AsyncParsableCommand {
                 + "\(report.failed) failed (\(formatBytes(report.totalBytes)))"
             print(summary)
         }
+
+        return report
+    }
+
+    private func runHook(_ command: String?, result: String, report: BackupReport?) {
+        guard let command else { return }
+        PostRunHook.run(
+            command: command,
+            environment: PostRunHook.environment(result: result, report: report),
+        )
     }
 }
 
