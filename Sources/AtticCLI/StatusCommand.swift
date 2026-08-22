@@ -14,7 +14,7 @@ struct StatusCommand: AsyncParsableCommand {
 
     func run() async throws {
         let data = try await Self.buildDashboard(
-            ensureMigrated: { try await Dependencies.ensureManifestMigrated() },
+            ensureMigrated: { try await Dependencies.ensureManifestMigrated(statusToStderr: json) },
             loadAssets: { try await Dependencies.loadAssetsAsync() },
             loadLocalAvailability: { Dependencies.loadLocalAvailability() },
             loadRetryQueue: { FileRetryQueueStore().load() },
