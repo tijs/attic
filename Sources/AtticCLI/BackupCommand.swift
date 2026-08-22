@@ -28,6 +28,27 @@ struct BackupCommand: AsyncParsableCommand {
     var onFailure: String?
 
     func run() async throws {
+        // Signal the outcome for unattended runs: run the matching hook and
+        // exit non-zero when any upload failed, so launchd/monitors can
+        // detect a bad run instead of scraping logs. The failure boundary
+        // covers setup too (config, keychain, manifest, Photos permission),
+        // not just the upload loop — an aborted run is still a failed run.
+        let report: BackupReport
+        do {
+            report = try await executeBackup()
+        } catch {
+            runHook(onFailure, result: "failure", report: nil)
+            throw error
+        }
+
+        if report.failed > 0 {
+            runHook(onFailure, result: "failure", report: report)
+            throw ExitCode(1)
+        }
+        runHook(onSuccess, result: "success", report: report)
+    }
+
+    private func executeBackup() async throws -> BackupReport {
         try await Dependencies.ensureManifestMigrated()
 
         let isTTY = isatty(STDOUT_FILENO) != 0
@@ -96,25 +117,19 @@ struct BackupCommand: AsyncParsableCommand {
         // Prevent idle sleep during backup (released automatically via deinit)
         let powerAssertion = PowerAssertion(reason: "Backing up photos to S3")
 
-        let report: BackupReport
-        do {
-            report = try await runBackup(
-                assets: assets,
-                manifest: &manifest,
-                manifestStore: manifestStore,
-                exporter: exporter,
-                s3: s3,
-                options: options,
-                progress: progress,
-                networkMonitor: NWPathNetworkMonitor(),
-                retryQueue: FileRetryQueueStore(),
-                unavailableStore: FileUnavailableAssetStore(),
-                adaptiveController: adaptiveController,
-            )
-        } catch {
-            runHook(onFailure, result: "failure", report: nil)
-            throw error
-        }
+        let report = try await runBackup(
+            assets: assets,
+            manifest: &manifest,
+            manifestStore: manifestStore,
+            exporter: exporter,
+            s3: s3,
+            options: options,
+            progress: progress,
+            networkMonitor: NWPathNetworkMonitor(),
+            retryQueue: FileRetryQueueStore(),
+            unavailableStore: FileUnavailableAssetStore(),
+            adaptiveController: adaptiveController,
+        )
 
         _ = powerAssertion // prevent unused warning, released in deinit
 
@@ -124,14 +139,7 @@ struct BackupCommand: AsyncParsableCommand {
             print(summary)
         }
 
-        // Signal the outcome for unattended runs: run the matching hook and
-        // exit non-zero when any upload failed, so launchd/monitors can
-        // detect a bad run instead of scraping logs.
-        if report.failed > 0 {
-            runHook(onFailure, result: "failure", report: report)
-            throw ExitCode(1)
-        }
-        runHook(onSuccess, result: "success", report: report)
+        return report
     }
 
     private func runHook(_ command: String?, result: String, report: BackupReport?) {
