@@ -16,21 +16,31 @@ public enum PostRunHook {
         return env
     }
 
+    /// How long a hook may run before it is terminated. Bounded so a hung
+    /// notifier (e.g. a stalled curl) cannot keep attic alive forever —
+    /// launchd must always receive the backup's own exit status.
+    public static let defaultTimeout: TimeInterval = 60
+
     /// Run `command` via `sh -c` with `environment` merged over the current
     /// process environment. Returns the hook's exit status, or nil if the
-    /// hook could not be launched. Hook outcomes never affect attic's own
-    /// exit code — a broken notifier should not mask a successful backup.
+    /// hook could not be launched or exceeded `timeout` and was terminated.
+    /// Hook outcomes never affect attic's own exit code — a broken or hung
+    /// notifier should not mask a successful backup.
     @discardableResult
     public static func run(
         command: String,
         environment: [String: String],
         shellPath: String = "/bin/sh",
+        timeout: TimeInterval = defaultTimeout,
     ) -> Int32? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shellPath)
         process.arguments = ["-c", command]
         process.environment = ProcessInfo.processInfo.environment
             .merging(environment) { _, new in new }
+
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
 
         do {
             try process.run()
@@ -40,7 +50,18 @@ public enum PostRunHook {
             ))
             return nil
         }
-        process.waitUntilExit()
+
+        if exited.wait(timeout: .now() + timeout) == .timedOut {
+            process.terminate()
+            if exited.wait(timeout: .now() + 5) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                exited.wait()
+            }
+            FileHandle.standardError.write(Data(
+                "Warning: post-run hook timed out after \(String(format: "%g", timeout))s and was terminated\n".utf8,
+            ))
+            return nil
+        }
         if process.terminationStatus != 0 {
             FileHandle.standardError.write(Data(
                 "Warning: post-run hook exited with status \(process.terminationStatus)\n".utf8,

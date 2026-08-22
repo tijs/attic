@@ -29,6 +29,16 @@ struct PostRunHookTests {
         #expect(status == nil)
     }
 
+    @Test func terminatesHungHookAfterTimeout() {
+        let clock = ContinuousClock()
+        let start = clock.now
+
+        let status = PostRunHook.run(command: "sleep 30", environment: [:], timeout: 0.5)
+
+        #expect(status == nil)
+        #expect(clock.now - start < .seconds(10))
+    }
+
     @Test func environmentIncludesReportCounts() {
         var report = BackupReport()
         report.uploaded = 5

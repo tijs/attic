@@ -254,6 +254,9 @@ The hook runs via `sh -c` with the outcome in its environment:
 `--on-failure` also fires when the run aborts early (config, network, S3
 errors) — then only `ATTIC_RESULT` is set. A hook's own exit status never
 changes attic's exit code, so a broken notifier can't mask a good backup.
+A hook that hangs (say, a `curl` stalled on a dead network) is terminated
+after 60 seconds with a warning, so a stuck notifier can't keep the attic
+process alive past the run either.
 
 ## Gotchas
 
