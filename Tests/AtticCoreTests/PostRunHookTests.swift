@@ -39,6 +39,33 @@ struct PostRunHookTests {
         #expect(clock.now - start < .seconds(10))
     }
 
+    @Test func timeoutTerminatesDescendantProcesses() throws {
+        let pidFile = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        var childPID: pid_t = 0
+        defer {
+            try? FileManager.default.removeItem(at: pidFile)
+            if childPID > 0 {
+                kill(childPID, SIGKILL)
+            }
+        }
+
+        let status = PostRunHook.run(
+            command: "sh -c 'trap \"\" HUP TERM; exec sleep 30' & echo $! > \"$PID_FILE\"; wait",
+            environment: ["PID_FILE": pidFile.path],
+            timeout: 0.5,
+        )
+
+        #expect(status == nil)
+        childPID =
+            try #require(pid_t(String(contentsOf: pidFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)))
+        let descendantIsGone = kill(childPID, 0) == -1 && errno == ESRCH
+        #expect(descendantIsGone)
+        if descendantIsGone {
+            childPID = 0
+        }
+    }
+
     @Test func environmentIncludesReportCounts() {
         var report = BackupReport()
         report.uploaded = 5
