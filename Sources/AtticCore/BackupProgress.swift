@@ -38,6 +38,10 @@ public protocol BackupProgressDelegate: Sendable {
     /// Adaptive export concurrency limit changed (AIMD controller backed off
     /// or recovered).
     func concurrencyChanged(limit: Int)
+
+    /// Human-readable diagnostic detail. Machine-readable delegates route
+    /// this to stderr so their stdout contract remains parseable.
+    func diagnostic(message: String)
 }
 
 /// Default no-op implementations for optional delegate methods.
@@ -47,6 +51,9 @@ public extension BackupProgressDelegate {
     func backupPaused(reason: String) {}
     func backupResumed() {}
     func concurrencyChanged(limit: Int) {}
+    func diagnostic(message: String) {
+        FileHandle.standardError.write(Data((message + "\n").utf8))
+    }
 }
 
 /// No-op delegate for quiet/test runs.
@@ -61,4 +68,5 @@ public struct NullProgressDelegate: BackupProgressDelegate {
     public func manifestSaved(entriesCount: Int) {}
     public func backupCompleted(uploaded: Int, failed: Int, totalBytes: Int) {}
     public func concurrencyChanged(limit: Int) {}
+    public func diagnostic(message: String) {}
 }

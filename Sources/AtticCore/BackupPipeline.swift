@@ -334,7 +334,7 @@ public func runBackup(
                     progress.manifestSaved(entriesCount: manifest.entries.count)
                     sinceLastSave = 0
                 } catch {
-                    debugPrint("Batch manifest save failed: \(error)")
+                    progress.diagnostic(message: "Batch manifest save failed: \(error)")
                 }
             }
         }
@@ -388,6 +388,7 @@ public func runBackup(
             report: report,
             attempted: [],
             failureClassifications: failureClassifications,
+            progress: progress,
         )
         throw CancellationError()
     }
@@ -431,7 +432,7 @@ private func finalizeBackup(
     do {
         try unavailableStore?.save(unavailable)
     } catch {
-        debugPrint("Failed to save unavailable assets store: \(error)")
+        progress.diagnostic(message: "Failed to save unavailable assets store: \(error)")
     }
 
     persistRetryQueue(
@@ -440,6 +441,7 @@ private func finalizeBackup(
         report: report,
         attempted: Set(pending.map(\.uuid)),
         failureClassifications: failureClassifications,
+        progress: progress,
     )
 
     progress.backupCompleted(
@@ -464,6 +466,7 @@ private func persistRetryQueue(
     report: BackupReport,
     attempted: Set<String>,
     failureClassifications: [String: ExportClassification],
+    progress: any BackupProgressDelegate,
 ) {
     let retryableErrors = report.errors.filter { !unavailable.contains($0.uuid) }
     let failures: [FailureRecord] = retryableErrors.map { entry in
@@ -486,6 +489,6 @@ private func persistRetryQueue(
             try retryQueue?.save(merged)
         }
     } catch {
-        debugPrint("Failed to update retry queue: \(error)")
+        progress.diagnostic(message: "Failed to update retry queue: \(error)")
     }
 }

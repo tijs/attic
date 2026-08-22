@@ -21,6 +21,9 @@ struct BackupCommand: AsyncParsableCommand {
     @Flag(name: .long, help: "Show what would be backed up without uploading.")
     var dryRun: Bool = false
 
+    @Flag(name: .long, help: "Emit machine-readable JSON Lines on stdout.")
+    var json: Bool = false
+
     @Option(name: .long, help: "Shell command to run after a fully successful backup.")
     var onSuccess: String?
 
@@ -33,25 +36,51 @@ struct BackupCommand: AsyncParsableCommand {
         // detect a bad run instead of scraping logs. The failure boundary
         // covers setup too (config, keychain, manifest, Photos permission),
         // not just the upload loop — an aborted run is still a failed run.
+        let jsonProgress = json ? BackupJSONProgressDelegate() : nil
+        let successCommand = onSuccess
+        let failureCommand = onFailure
+        let json = json
+        try await Self.performBackup(
+            dryRun: dryRun,
+            jsonProgress: jsonProgress,
+            execute: { try await executeBackup(jsonProgress: jsonProgress) },
+            successHook: { report in
+                Self.runHook(successCommand, result: "success", report: report, json: json)
+            },
+            failureHook: { report in
+                Self.runHook(failureCommand, result: "failure", report: report, json: json)
+            },
+        )
+    }
+
+    static func performBackup(
+        dryRun: Bool,
+        jsonProgress: BackupJSONProgressDelegate?,
+        execute: @Sendable () async throws -> BackupReport,
+        successHook: @Sendable (BackupReport) -> Void,
+        failureHook: @Sendable (BackupReport?) -> Void,
+    ) async throws {
         let report: BackupReport
         do {
-            report = try await executeBackup()
+            report = try await execute()
         } catch {
-            runHook(onFailure, result: "failure", report: nil)
+            jsonProgress?.finishFatal(cancelled: error is CancellationError)
+            failureHook(nil)
             throw error
         }
 
+        jsonProgress?.finish(report: report, dryRun: dryRun)
         if report.failed > 0 {
-            runHook(onFailure, result: "failure", report: report)
+            failureHook(report)
             throw ExitCode(1)
         }
-        runHook(onSuccess, result: "success", report: report)
+        successHook(report)
     }
 
-    private func executeBackup() async throws -> BackupReport {
-        try await Dependencies.ensureManifestMigrated()
+    private func executeBackup(jsonProgress: BackupJSONProgressDelegate?) async throws -> BackupReport {
+        try await Dependencies.ensureManifestMigrated(statusToStderr: json)
 
-        let isTTY = isatty(STDOUT_FILENO) != 0
+        let isTTY = !json && isatty(STDOUT_FILENO) != 0
         if !isTTY {
             // Force line buffering so launchd-captured logs flush per line
             // instead of every ~4 KB. Without this the log file looks empty
@@ -104,7 +133,14 @@ struct BackupCommand: AsyncParsableCommand {
         spinner?.updateStatus("Comparing assets...")
 
         let renderer = isTTY ? TerminalRenderer(spinner: spinner) : nil
-        let progress: any BackupProgressDelegate = renderer ?? LogProgressDelegate()
+        defer { renderer?.finish() }
+        let progress: any BackupProgressDelegate = if let jsonProgress {
+            jsonProgress
+        } else if let renderer {
+            renderer
+        } else {
+            LogProgressDelegate()
+        }
 
         let options = BackupOptions(
             batchSize: batchSize,
@@ -133,7 +169,7 @@ struct BackupCommand: AsyncParsableCommand {
 
         _ = powerAssertion // prevent unused warning, released in deinit
 
-        if !isTTY {
+        if !isTTY, !json {
             let summary = "Backup complete: \(report.uploaded) uploaded, "
                 + "\(report.failed) failed (\(formatBytes(report.totalBytes)))"
             print(summary)
@@ -142,10 +178,19 @@ struct BackupCommand: AsyncParsableCommand {
         return report
     }
 
-    private func runHook(_ command: String?, result: String, report: BackupReport?) {
+    static func hookCommand(_ command: String, json: Bool) -> String {
+        json ? "exec 1>&2; \(command)" : command
+    }
+
+    private static func runHook(
+        _ command: String?,
+        result: String,
+        report: BackupReport?,
+        json: Bool,
+    ) {
         guard let command else { return }
         PostRunHook.run(
-            command: command,
+            command: hookCommand(command, json: json),
             environment: PostRunHook.environment(result: result, report: report),
         )
     }

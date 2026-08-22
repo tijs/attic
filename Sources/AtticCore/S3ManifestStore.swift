@@ -63,9 +63,11 @@ public func loadManifestWithMigration(
         let localManifest = try Manifest.parse(from: data)
 
         if !localManifest.entries.isEmpty {
-            debugPrint("  Migrating local manifest (\(localManifest.entries.count) entries) to S3...")
+            FileHandle.standardError.write(Data(
+                "  Migrating local manifest (\(localManifest.entries.count) entries) to S3...\n".utf8,
+            ))
             try await s3Store.save(localManifest)
-            debugPrint("  Migration complete.\n")
+            FileHandle.standardError.write(Data("  Migration complete.\n\n".utf8))
             return localManifest
         }
     } catch {

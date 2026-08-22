@@ -157,7 +157,7 @@ func uploadExported(
                 ctx.progress.manifestSaved(entriesCount: manifest.entries.count)
                 sinceLastSave = 0
             } catch {
-                debugPrint("Pre-pause manifest save failed: \(error)")
+                ctx.progress.diagnostic(message: "Pre-pause manifest save failed: \(error)")
             }
         }
 

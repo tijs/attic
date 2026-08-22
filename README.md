@@ -152,10 +152,15 @@ attic backup
 | `--limit N`           | Stop after N assets (useful for test runs) |
 | `--batch-size N`      | Assets per export batch (default: 50)      |
 | `--type photo\|video` | Only back up photos or videos              |
+| `--json`              | Emit a JSON Lines progress stream          |
 
 During a backup, a live-updating terminal dashboard shows progress, speed,
 current file, elapsed time, and the adaptive iCloud-lane concurrency limit.
-Non-TTY output (pipes, CI) falls back to line-by-line progress.
+Non-TTY output (pipes, CI) falls back to line-by-line progress. `backup --json`
+reserves stdout for independently parseable JSON objects and sends human
+failure details and diagnostics to stderr; unlike `status --json`, it is a
+stream with exactly one final `completed` event. See the
+[unattended-backup JSONL contract](docs/unattended-backups.md#machine-readable-json-lines).
 
 Attic is crash- and network-resilient:
 
