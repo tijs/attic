@@ -18,6 +18,7 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
     private let session: URLSession
     private let multipartThreshold: Int
     private let multipartPreferredPartSize: Int
+    private let storageClass: String?
 
     private static let singlePutMaximumSize = 5 * 1024 * 1024 * 1024
     private static let multipartMinimumPartSize = 5 * 1024 * 1024
@@ -30,6 +31,7 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         endpoint: String,
         region: String,
         pathStyle: Bool,
+        storageClass: String? = nil,
     ) throws {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 60
@@ -44,6 +46,7 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
             region: region,
             pathStyle: pathStyle,
             session: URLSession(configuration: config),
+            storageClass: storageClass,
         )
     }
 
@@ -56,6 +59,7 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         session: URLSession,
         multipartThreshold: Int = Self.singlePutMaximumSize,
         multipartPreferredPartSize: Int = Self.defaultMultipartPreferredPartSize,
+        storageClass: String? = nil,
     ) throws {
         guard let endpointURL = URL(string: endpoint) else {
             throw S3ClientError.unexpectedResponse("Invalid endpoint URL: \(endpoint)")
@@ -78,6 +82,7 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         self.session = session
         self.multipartThreshold = multipartThreshold
         self.multipartPreferredPartSize = multipartPreferredPartSize
+        self.storageClass = storageClass
     }
 
     // MARK: - S3Providing
@@ -104,6 +109,7 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         if let contentType {
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         }
+        applyStorageClass(&request)
         let payloadHash = try Self.sha256Hex(fileURL: fileURL)
         signRequest(&request, payloadHash: payloadHash)
 
@@ -281,6 +287,15 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         return url
     }
 
+    /// Set `x-amz-storage-class` for original asset uploads (single PUT and
+    /// multipart initiation). Manifest/metadata bodies keep the provider
+    /// default. Call before ``signRequest(_:payloadHash:)`` so it is signed.
+    private func applyStorageClass(_ request: inout URLRequest) {
+        if let storageClass {
+            request.setValue(storageClass, forHTTPHeaderField: "x-amz-storage-class")
+        }
+    }
+
     private func signRequest(
         _ request: inout URLRequest,
         payloadHash: String = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -353,6 +368,7 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         if let contentType {
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         }
+        applyStorageClass(&request)
         signRequest(&request)
 
         let (data, response) = try await session.data(for: request)
