@@ -6,6 +6,10 @@
   non-zero on missing or errored objects, so unattended runs can be monitored
   by exit code. New `--on-success` / `--on-failure` options run a shell
   command with the outcome in `ATTIC_*` environment variables. (#6)
+- Add optional `storageClass` config setting. When set (e.g. `"GLACIER_IR"`),
+  original asset uploads send `x-amz-storage-class` on single PUTs and
+  multipart initiations. Manifest and metadata objects keep the provider
+  default class. (#5)
 
 ## 1.0.0-beta.25
 
