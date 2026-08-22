@@ -107,12 +107,16 @@ public struct RetryInfo: Sendable, Equatable {
 public struct S3Info: Sendable, Equatable {
     public let bucket: String
     public let manifestEntries: Int
+    /// Display form of the newest backup time (YYYY-MM-DD).
     public let lastBackup: String?
+    /// Full ISO 8601 timestamp of the newest backup, for machine consumers.
+    public let lastBackupAt: String?
 
-    public init(bucket: String, manifestEntries: Int, lastBackup: String?) {
+    public init(bucket: String, manifestEntries: Int, lastBackup: String?, lastBackupAt: String? = nil) {
         self.bucket = bucket
         self.manifestEntries = manifestEntries
         self.lastBackup = lastBackup
+        self.lastBackupAt = lastBackupAt
     }
 }
 
@@ -212,6 +216,56 @@ public enum StatusStats {
             bucket: bucket,
             manifestEntries: manifest.entries.count,
             lastBackup: displayDate,
+            lastBackupAt: lastBackup,
         )
     }
+}
+
+/// Format ``DashboardData`` as a stable JSON object for `status --json`.
+/// Pure: no I/O — caller writes to stdout. Optional sections (`backup`,
+/// `s3`, `retry`) are omitted when unavailable rather than emitted as null.
+public func formatDashboardJSON(_ data: DashboardData) throws -> Data {
+    var json: [String: Any] = [
+        "version": data.version,
+        "library": [
+            "photos": data.library.photos,
+            "videos": data.library.videos,
+            "favorites": data.library.favorites,
+            "edited": data.library.edited,
+            "total": data.library.total,
+        ],
+        "types": data.types.map { ["uti": $0.uti, "percentage": $0.percentage] },
+    ]
+    if let backup = data.backup {
+        var section: [String: Any] = [
+            "backedUp": backup.backedUp,
+            "backedUpBytes": backup.backedUpBytes,
+            "pending": backup.pending,
+            "total": backup.total,
+            "percentage": backup.percentage,
+        ]
+        section["pendingLocal"] = backup.pendingLocal
+        section["pendingCloud"] = backup.pendingCloud
+        json["backup"] = section
+    }
+    if let s3 = data.s3 {
+        var section: [String: Any] = [
+            "bucket": s3.bucket,
+            "manifestEntries": s3.manifestEntries,
+        ]
+        section["lastBackupAt"] = s3.lastBackupAt
+        json["s3"] = section
+    }
+    if let retry = data.retry {
+        var section: [String: Any] = [
+            "count": retry.count,
+            "maxAttempts": retry.maxAttempts,
+        ]
+        section["oldestFirstFailedAt"] = retry.oldestFirstFailedAt
+        json["retry"] = section
+    }
+    return try JSONSerialization.data(
+        withJSONObject: json,
+        options: [.prettyPrinted, .sortedKeys],
+    )
 }

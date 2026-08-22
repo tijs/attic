@@ -130,7 +130,13 @@ summary (count, max attempts, oldest first-failed timestamp).
 
 ```bash
 attic status
+attic status --json   # machine-readable: single JSON object on stdout
 ```
+
+`--json` emits the same data as a stable JSON object (library counts, backup
+progress, pending lanes, retry queue, manifest entries, last-backup
+timestamp) for dashboards and monitoring scripts. Optional sections are
+omitted — not null — when unavailable.
 
 ### backup
 
