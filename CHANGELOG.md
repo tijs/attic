@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add `attic status --json`: emits library, backup-progress, retry-queue,
+  and S3 manifest stats as a single stable JSON object on stdout, for
+  dashboards and monitoring scripts. (#7)
 - Add optional `storageClass` config setting. When set (e.g. `"GLACIER_IR"`),
   original asset uploads send `x-amz-storage-class` on single PUTs and
   multipart initiations. Manifest and metadata objects keep the provider

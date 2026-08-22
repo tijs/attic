@@ -32,7 +32,7 @@ let package = Package(
         ),
         .testTarget(
             name: "AtticCoreTests",
-            dependencies: ["AtticCore"],
+            dependencies: ["AtticCore", "AtticCLI"],
             path: "Tests/AtticCoreTests"
         ),
     ]
