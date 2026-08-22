@@ -13,39 +13,16 @@ struct StatusCommand: AsyncParsableCommand {
     var json: Bool = false
 
     func run() async throws {
-        try await Dependencies.ensureManifestMigrated()
-
-        let isTTY = isatty(STDOUT_FILENO) != 0
-        let assets = try await Dependencies.loadAssetsAsync()
-
-        let library = StatusStats.computeLibraryStats(assets)
-        let types = StatusStats.computeUTIBreakdown(assets)
-        let localAvailability = Dependencies.loadLocalAvailability()
-        let retry = StatusStats.computeRetryInfo(FileRetryQueueStore().load())
-
-        var backup: BackupStats?
-        var s3: S3Info?
-
-        do {
-            let (config, _, manifestStore) = try Dependencies.makeBackupDeps()
-            let manifest = try await Dependencies.loadManifest(store: manifestStore)
-            backup = StatusStats.computeBackupStats(
-                assets: assets,
-                manifest: manifest,
-                localAvailability: localAvailability,
-            )
-            s3 = StatusStats.computeS3Info(bucket: config.bucket, manifest: manifest)
-        } catch CLIError.notInitialized {
-            // No config — show library only with init hint
-        }
-
-        let data = DashboardData(
-            version: AtticCore.version,
-            library: library,
-            backup: backup,
-            s3: s3,
-            types: types,
-            retry: retry,
+        let data = try await Self.buildDashboard(
+            ensureMigrated: { try await Dependencies.ensureManifestMigrated() },
+            loadAssets: { try await Dependencies.loadAssetsAsync() },
+            loadLocalAvailability: { Dependencies.loadLocalAvailability() },
+            loadRetryQueue: { FileRetryQueueStore().load() },
+            loadBackupContext: {
+                let (config, _, manifestStore) = try Dependencies.makeBackupDeps()
+                let manifest = try await Dependencies.loadManifest(store: manifestStore)
+                return (bucket: config.bucket, manifest: manifest)
+            },
         )
 
         if json {
@@ -53,7 +30,55 @@ struct StatusCommand: AsyncParsableCommand {
             FileHandle.standardOutput.write(out)
             FileHandle.standardOutput.write(Data("\n".utf8))
         } else {
-            StatusRenderer(isTTY: isTTY).render(data)
+            StatusRenderer(isTTY: isatty(STDOUT_FILENO) != 0).render(data)
         }
+    }
+
+    /// Assemble ``DashboardData`` from injected loaders. An unconfigured
+    /// install (`CLIError.notInitialized` from the migration guard or the
+    /// backup context) degrades to library-only data instead of failing,
+    /// so `status` works before `attic init`.
+    static func buildDashboard(
+        ensureMigrated: () async throws -> Void,
+        loadAssets: () async throws -> [AssetInfo],
+        loadLocalAvailability: () -> (any LocalAvailabilityProviding)?,
+        loadRetryQueue: () -> RetryQueue?,
+        loadBackupContext: () async throws -> (bucket: String, manifest: Manifest),
+    ) async throws -> DashboardData {
+        do {
+            try await ensureMigrated()
+        } catch CLIError.notInitialized {
+            // No config — the backup/S3 section below degrades the same way.
+        }
+
+        let assets = try await loadAssets()
+        let library = StatusStats.computeLibraryStats(assets)
+        let types = StatusStats.computeUTIBreakdown(assets)
+        let localAvailability = loadLocalAvailability()
+        let retry = StatusStats.computeRetryInfo(loadRetryQueue())
+
+        var backup: BackupStats?
+        var s3: S3Info?
+
+        do {
+            let (bucket, manifest) = try await loadBackupContext()
+            backup = StatusStats.computeBackupStats(
+                assets: assets,
+                manifest: manifest,
+                localAvailability: localAvailability,
+            )
+            s3 = StatusStats.computeS3Info(bucket: bucket, manifest: manifest)
+        } catch CLIError.notInitialized {
+            // No config — show library only with init hint
+        }
+
+        return DashboardData(
+            version: AtticCore.version,
+            library: library,
+            backup: backup,
+            s3: s3,
+            types: types,
+            retry: retry,
+        )
     }
 }
