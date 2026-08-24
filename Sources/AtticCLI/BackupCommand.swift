@@ -40,10 +40,18 @@ struct BackupCommand: AsyncParsableCommand {
         let successCommand = onSuccess
         let failureCommand = onFailure
         let json = json
+        let execute: @Sendable () async throws -> BackupReport
+        #if DEBUG
+            execute = CLIRegressionHarness.backupOperation {
+                try await executeBackup(jsonProgress: jsonProgress)
+            }
+        #else
+            execute = { try await executeBackup(jsonProgress: jsonProgress) }
+        #endif
         try await Self.performBackup(
             dryRun: dryRun,
             jsonProgress: jsonProgress,
-            execute: { try await executeBackup(jsonProgress: jsonProgress) },
+            execute: execute,
             successHook: { report in
                 Self.runHook(successCommand, result: "success", report: report, json: json)
             },
@@ -54,6 +62,29 @@ struct BackupCommand: AsyncParsableCommand {
     }
 
     static func performBackup(
+        dryRun: Bool,
+        jsonProgress: BackupJSONProgressDelegate?,
+        execute: @escaping @Sendable () async throws -> BackupReport,
+        successHook: @escaping @Sendable (BackupReport) -> Void,
+        failureHook: @escaping @Sendable (BackupReport?) -> Void,
+    ) async throws {
+        #if DEBUG
+            let signalHandlersInstalled = CLIRegressionHarness.signalHandlersInstalled
+        #else
+            let signalHandlersInstalled: @Sendable () -> Void = {}
+        #endif
+        try await CLISignalCancellation.run(onHandlersInstalled: signalHandlersInstalled) {
+            try await performBackupAfterSignalBridge(
+                dryRun: dryRun,
+                jsonProgress: jsonProgress,
+                execute: execute,
+                successHook: successHook,
+                failureHook: failureHook,
+            )
+        }
+    }
+
+    private static func performBackupAfterSignalBridge(
         dryRun: Bool,
         jsonProgress: BackupJSONProgressDelegate?,
         execute: @Sendable () async throws -> BackupReport,

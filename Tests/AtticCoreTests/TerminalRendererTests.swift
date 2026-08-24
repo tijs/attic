@@ -142,6 +142,41 @@ struct TerminalRendererTests {
         }
     }
 
+    @Test func terminalCellWidthFitsEmojiCJKCombiningMarksAndNarrowColumns() {
+        #expect(terminalDisplayWidth("ASCII") == 5)
+        #expect(terminalDisplayWidth("界") == 2)
+        #expect(terminalDisplayWidth("🙂") >= 2)
+        #expect(terminalDisplayWidth("©️") >= 2)
+        #expect(terminalDisplayWidth("1️⃣") >= 2)
+        #expect(terminalDisplayWidth("e\u{301}") == 1)
+
+        for value in ["🙂🙂🙂", "界界界", "e\u{301}e\u{301}e\u{301}"] {
+            #expect(terminalDisplayWidth(fit(value, width: 5)) <= 5)
+        }
+        #expect(fit("界", width: 1) == "…")
+        for line in wrap("界界界 emoji🙂🙂 combining-e\u{301}", width: 4) {
+            #expect(terminalDisplayWidth(line) <= 4)
+        }
+    }
+
+    @Test func unicodeFilenameResizeKeepsEveryPhysicalRowWithinNewWidth() throws {
+        let output = RendererOutput()
+        let width = RendererWidth(40)
+        let renderer = makeRenderer(output: output, width: width)
+        renderer.backupStarted(pending: 1, photos: 1, videos: 0)
+        renderer.assetStarting(uuid: "private", filename: "🙂-東京-e\u{301}-archive.HEIC", size: 1)
+        width.set(14)
+        renderer.assetStarting(uuid: "private", filename: "🙂🙂東京東京e\u{301}e\u{301}.HEIC", size: 1)
+
+        let rendered = try stripANSI(#require(output.values().last))
+        #expect(rendered.contains("…"))
+        for line in rendered.split(separator: "\n", omittingEmptySubsequences: false) where !line.isEmpty {
+            #expect(terminalDisplayWidth(String(line)) <= 14)
+        }
+        let previousHeight = output.values()[1].filter { $0 == "\n" }.count
+        #expect(try #require(output.values().last).hasPrefix("\u{1B}[\(previousHeight)A"))
+    }
+
     @Test func concurrentCallbacksAreSerializedAsCompleteFrames() {
         let output = RendererOutput()
         let renderer = makeRenderer(output: output)
@@ -176,6 +211,43 @@ struct TerminalRendererTests {
         #expect(stripANSI(chunks[1]).contains("00:00:00"))
         #expect(try stripANSI(#require(chunks.last)).contains("00:00:05"))
         #expect(stripANSI(chunks[0]).contains("00:00:00"))
+    }
+
+    @Test func sanitizesTerminalControlsInEveryDynamicRenderPath() {
+        let output = RendererOutput()
+        let renderer = makeRenderer(output: output)
+        renderer.backupStarted(pending: 1, photos: 1, videos: 0)
+        renderer.assetStarting(
+            uuid: "private",
+            filename: "safe\u{1B}[999A-file\u{7}-name.HEIC",
+            size: 1,
+        )
+        renderer.backupPaused(reason: "offline\u{009D}terminal-title\u{009C} now")
+        renderer.backupResumed()
+        renderer.diagnostic(message: "diag\u{1B}Pdevice-payload\u{1B}\\end")
+        renderer.assetFailed(
+            uuid: "private",
+            filename: "failed\u{009B}12A.HEIC",
+            message: "provider\u{1B}]2;owned-title\u{7} error",
+            classification: .other,
+        )
+        renderer.backupCompleted(uploaded: 0, failed: 1, totalBytes: 0)
+
+        let transcript = output.values().joined()
+        #expect(!transcript.contains("\u{1B}[999A"))
+        #expect(!transcript.contains("\u{009B}"))
+        #expect(!transcript.contains("\u{009D}"))
+        #expect(!transcript.contains("\u{009C}"))
+        #expect(!transcript.contains("\u{7}"))
+        #expect(!transcript.contains("terminal-title"))
+        #expect(!transcript.contains("device-payload"))
+        #expect(!transcript.contains("owned-title"))
+
+        let plain = stripANSI(transcript)
+        #expect(plain.contains("safe-file -name.HEIC") || plain.contains("safe-file-name.HEIC"))
+        #expect(plain.contains("offline now") || plain.contains("offline  now"))
+        #expect(plain.contains("Warning: diagend") || plain.contains("Warning: diag end"))
+        #expect(plain.contains("failed.HEIC: provider error") || plain.contains("failed.HEIC: provider  error"))
     }
 
     @Test func failuresAreRenderedOnlyInFinalFrame() throws {
