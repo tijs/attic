@@ -2,317 +2,376 @@ import AtticCore
 import Foundation
 import LadderKit
 
+protocol TerminalSessionControlling: Sendable {
+    func begin()
+    func end()
+}
+
+/// The renderer deliberately leaves stdin modes unchanged and keeps the cursor
+/// below every complete frame. A SIGINT/SIGTERM therefore cannot strand the
+/// user's terminal in raw/no-echo mode or leave its cursor inside the frame.
+private struct InterruptSafeTerminalSession: TerminalSessionControlling {
+    func begin() {}
+    func end() {}
+}
+
 /// ANSI live-updating dashboard for backup progress.
 ///
-/// Redraws a fixed-height block in-place using ANSI escape codes.
-/// Shows progress bar, counts, speed, current file, and elapsed time.
+/// Every callback mutates state, takes an immutable frame snapshot, and writes
+/// the complete ANSI redraw while holding one lock. This prevents concurrent
+/// upload callbacks and timer ticks from interleaving terminal bytes.
 final class TerminalRenderer: BackupProgressDelegate, @unchecked Sendable {
-    private let lock = NSLock()
-    private var state = RenderState()
-    private var startTime: Date?
-    private var lastRenderTime: Date?
-    private let spinner: PreparationSpinner?
-    private var originalTermios: termios?
-    private var tickTask: Task<Void, Never>?
+    typealias Output = @Sendable (String) -> Void
+    typealias Clock = @Sendable () -> Date
+    typealias TerminalWidth = @Sendable () -> Int
 
-    init(spinner: PreparationSpinner? = nil) {
-        self.spinner = spinner
-    }
-
-    /// Disable stdin echo and canonical mode so keypresses don't disrupt the dashboard.
-    private func disableInputEcho() {
-        var raw = termios()
-        tcgetattr(STDIN_FILENO, &raw)
-        originalTermios = raw
-        raw.c_lflag &= ~UInt(ECHO | ICANON)
-        tcsetattr(STDIN_FILENO, TCSANOW, &raw)
-    }
-
-    /// Restore the original terminal settings.
-    private func restoreInputEcho() {
-        guard var original = originalTermios else { return }
-        tcsetattr(STDIN_FILENO, TCSANOW, &original)
-        originalTermios = nil
+    private struct Failure {
+        let filename: String
+        let message: String
+        let classification: ExportClassification
     }
 
     private struct RenderState {
-        var total: Int = 0
-        var photos: Int = 0
-        var videos: Int = 0
-        var uploaded: Int = 0
-        var failed: Int = 0
-        var totalBytes: Int = 0
-        var currentFile: String = ""
-        var currentBatch: Int = 0
-        var totalBatches: Int = 0
-        var uploadedPhotos: Int = 0
-        var uploadedVideos: Int = 0
-        var headerPrinted: Bool = false
-        var isPaused: Bool = false
-        var pauseReason: String = ""
+        var total = 0
+        var uploaded = 0
+        var failed = 0
+        var totalBytes = 0
+        var currentFile = ""
+        var uploadedPhotos = 0
+        var uploadedVideos = 0
+        var isPaused = false
+        var pauseReason = ""
         var pauseStarted: Date?
         var totalPauseDuration: TimeInterval = 0
-        var failedAssets: [(filename: String, message: String, classification: ExportClassification)] = []
+        var failedAssets: [Failure] = []
+        var diagnostics: [String] = []
         var concurrencyLimit: Int?
+        var startTime: Date?
     }
 
-    // MARK: - BackupProgressDelegate
+    private struct FrameSnapshot {
+        let lines: [String]
+    }
+
+    private let lock = NSLock()
+    private let spinner: PreparationSpinner?
+    private let output: Output
+    private let now: Clock
+    private let terminalWidth: TerminalWidth
+    private let terminalSession: any TerminalSessionControlling
+    private let tickInterval: Duration?
+    private var state = RenderState()
+    private var renderedHeight = 0
+    private var terminalActive = false
+    private var completed = false
+    private var tickTask: Task<Void, Never>?
+
+    init(
+        spinner: PreparationSpinner? = nil,
+        output: @escaping Output = { chunk in
+            FileHandle.standardOutput.write(Data(chunk.utf8))
+        },
+        now: @escaping Clock = Date.init,
+        terminalWidth: @escaping TerminalWidth = terminalColumnCount,
+        terminalSession: any TerminalSessionControlling = InterruptSafeTerminalSession(),
+        tickInterval: Duration? = .seconds(1),
+    ) {
+        self.spinner = spinner
+        self.output = output
+        self.now = now
+        self.terminalWidth = terminalWidth
+        self.terminalSession = terminalSession
+        self.tickInterval = tickInterval
+    }
+
+    deinit {
+        tickTask?.cancel()
+        terminalSession.end()
+    }
 
     func backupStarted(pending: Int, photos: Int, videos: Int) {
         spinner?.stop()
-        disableInputEcho()
         lock.withLock {
+            guard !completed else { return }
+            terminalSession.begin()
+            terminalActive = true
             state.total = pending
-            state.photos = photos
-            state.videos = videos
-            startTime = Date()
-        }
-        render()
-        startTick()
-    }
-
-    /// Refresh the display every second so elapsed time and speed stay current.
-    private func startTick() {
-        tickTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                guard !Task.isCancelled else { break }
-                self?.render()
-            }
+            state.startTime = now()
+            renderLiveLocked()
+            startTickLocked()
         }
     }
 
     func batchStarted(batchNumber: Int, totalBatches: Int, assetCount: Int) {
-        lock.withLock {
-            state.currentBatch = batchNumber
-            state.totalBatches = totalBatches
-        }
-        render()
+        renderAfterUpdate { _ in }
     }
 
     func assetStarting(uuid: String, filename: String, size: Int) {
-        lock.withLock {
+        renderAfterUpdate { state in
             state.currentFile = "\(filename) (\(formatBytes(size)))"
         }
-        render()
     }
 
     func assetUploaded(uuid: String, filename: String, type: AssetKind, size: Int) {
-        lock.withLock {
+        renderAfterUpdate { state in
             state.uploaded += 1
             state.totalBytes += size
             state.currentFile = "\(filename) (\(formatBytes(size)))"
-            if type == .photo { state.uploadedPhotos += 1 } else { state.uploadedVideos += 1 }
+            if type == .photo {
+                state.uploadedPhotos += 1
+            } else {
+                state.uploadedVideos += 1
+            }
         }
-        render()
     }
 
     func assetRetrying(uuid: String, filename: String, attempt: Int, maxAttempts: Int) {
-        lock.withLock {
-            state.currentFile = "\u{1b}[33m\(filename) — retry \(attempt)/\(maxAttempts)\u{1b}[0m"
+        renderAfterUpdate { state in
+            state.currentFile = "\(filename) — retry \(attempt)/\(maxAttempts)"
         }
-        render()
     }
 
     func assetFailed(uuid: String, filename: String, message: String, classification: ExportClassification) {
-        lock.withLock {
+        renderAfterUpdate { state in
             state.failed += 1
             state.currentFile = "\(filename) — \(message)"
             if state.failedAssets.count < 50 {
-                state.failedAssets.append((filename: filename, message: message, classification: classification))
+                state.failedAssets.append(Failure(
+                    filename: filename,
+                    message: message,
+                    classification: classification,
+                ))
             }
         }
-        render()
     }
 
-    func manifestSaved(entriesCount: Int) {
-        // No visual update needed
-    }
+    func manifestSaved(entriesCount: Int) {}
 
     func backupPaused(reason: String) {
-        lock.withLock {
+        renderAfterUpdate { state in
             state.isPaused = true
             state.pauseReason = reason
-            state.pauseStarted = Date()
+            state.pauseStarted = now()
         }
-        render()
     }
 
     func backupResumed() {
-        lock.withLock {
+        renderAfterUpdate { state in
             state.isPaused = false
-            if let pauseStart = state.pauseStarted {
-                state.totalPauseDuration += Date().timeIntervalSince(pauseStart)
+            if let pauseStarted = state.pauseStarted {
+                state.totalPauseDuration += now().timeIntervalSince(pauseStarted)
             }
             state.pauseStarted = nil
             state.pauseReason = ""
         }
-        render()
     }
 
     func concurrencyChanged(limit: Int) {
-        lock.withLock {
+        renderAfterUpdate { state in
             state.concurrencyLimit = limit
         }
-        render()
+    }
+
+    func diagnostic(message: String) {
+        renderAfterUpdate { state in
+            if state.diagnostics.count < 20 {
+                state.diagnostics.append(message)
+            }
+            state.currentFile = "Warning: \(message)"
+        }
     }
 
     func backupCompleted(uploaded: Int, failed: Int, totalBytes: Int) {
-        tickTask?.cancel()
-        tickTask = nil
         lock.withLock {
+            guard !completed else { return }
+            completed = true
+            tickTask?.cancel()
+            tickTask = nil
             state.uploaded = uploaded
             state.failed = failed
             state.totalBytes = totalBytes
             state.currentFile = ""
+            let snapshot = finalSnapshot(state: state, at: now(), width: terminalWidth())
+            writeLocked(snapshot)
+            restoreTerminalLocked()
         }
-        renderFinal()
     }
 
-    // MARK: - Rendering
-
-    private func render() {
-        let (s, elapsed): (RenderState, TimeInterval) = lock.withLock {
-            let total = startTime.map { Date().timeIntervalSince($0) } ?? 0
-            // Exclude pause time from elapsed for accurate speed calculation
-            var currentPause: TimeInterval = 0
-            if let pauseStart = state.pauseStarted {
-                currentPause = Date().timeIntervalSince(pauseStart)
-            }
-            let active = total - state.totalPauseDuration - currentPause
-            return (state, max(0, active))
+    /// Restore terminal state when the pipeline exits without a completion
+    /// callback, including thrown errors and cooperative cancellation.
+    func finish() {
+        lock.withLock {
+            completed = true
+            tickTask?.cancel()
+            tickTask = nil
+            restoreTerminalLocked()
         }
-        let speed = elapsed > 0 ? Double(s.totalBytes) / elapsed : 0
+    }
 
-        let completed = s.uploaded + s.failed
-        let barWidth = 30
-        let filled = s.total > 0 ? (completed * barWidth) / s.total : 0
+    private func renderAfterUpdate(_ update: (inout RenderState) -> Void) {
+        lock.withLock {
+            guard !completed else { return }
+            update(&state)
+            renderLiveLocked()
+        }
+    }
+
+    private func renderLiveLocked() {
+        let snapshot = liveSnapshot(state: state, at: now(), width: terminalWidth())
+        writeLocked(snapshot)
+    }
+
+    private func startTickLocked() {
+        guard tickTask == nil, let tickInterval else { return }
+        tickTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: tickInterval)
+                guard !Task.isCancelled else { break }
+                self?.renderAfterUpdate { _ in }
+            }
+        }
+    }
+
+    private func restoreTerminalLocked() {
+        guard terminalActive else { return }
+        terminalSession.end()
+        terminalActive = false
+    }
+
+    private func writeLocked(_ snapshot: FrameSnapshot) {
+        let newHeight = snapshot.lines.count
+        let rowsToRewrite = max(renderedHeight, newHeight)
+        var chunk = ""
+        if renderedHeight > 0 {
+            chunk += "\u{1B}[\(renderedHeight)A"
+        }
+        for row in 0 ..< rowsToRewrite {
+            chunk += "\u{1B}[2K"
+            if row < newHeight {
+                chunk += snapshot.lines[row]
+            }
+            chunk += "\n"
+        }
+        if rowsToRewrite > newHeight {
+            chunk += "\u{1B}[\(rowsToRewrite - newHeight)A"
+        }
+        renderedHeight = newHeight
+        output(chunk)
+    }
+
+    private func liveSnapshot(state: RenderState, at date: Date, width: Int) -> FrameSnapshot {
+        let columns = max(1, width)
+        let elapsed = activeElapsed(state: state, at: date)
+        let speed = elapsed > 0 ? Double(state.totalBytes) / elapsed : 0
+        let completed = state.uploaded + state.failed
+        let barWidth = max(5, min(30, columns - 25))
+        let filled = state.total > 0 ? min(barWidth, (completed * barWidth) / state.total) : 0
         let bar = String(repeating: "█", count: filled) + String(repeating: "░", count: barWidth - filled)
+        let speedText = state.isPaused ? "—" : "\(formatBytes(Int(speed)))/s"
+        let lanes = state.concurrencyLimit.map { "  ·  \($0) lane\($0 == 1 ? "" : "s")" } ?? ""
 
-        var lines: [String] = []
-
-        if !s.headerPrinted {
-            lines.append("")
-            lock.withLock { state.headerPrinted = true }
-        }
-
-        lines.append("  Progress  [\(bar)] \(completed)/\(s.total)")
-        lines.append("  Photos    \(s.uploadedPhotos) uploaded")
-        lines.append("  Videos    \(s.uploadedVideos) uploaded")
-        let speedText = s.isPaused ? "—" : "\(formatBytes(Int(speed)))/s"
-        let lanesSuffix = s.concurrencyLimit.map { "  ·  \($0) lane\($0 == 1 ? "" : "s")" } ?? ""
-        lines.append("  Speed     \(speedText)\(lanesSuffix)")
-        lines.append("  Errors    \(s.failed)")
-        lines.append("")
-        let contentWidth = max(20, terminalColumnCount() - 2)
-        if s.isPaused, let pauseStart = s.pauseStarted {
-            let waitTime = Date().timeIntervalSince(pauseStart)
-            let status = "Status    ⏸ \(s.pauseReason) (\(formatDuration(waitTime)))"
-            lines.append("  \u{1b}[33m\(truncateLine(status, maxColumns: contentWidth))\u{1b}[0m")
+        let status: String
+        if state.isPaused, let pauseStarted = state.pauseStarted {
+            let plain = fit(
+                "  Status    ⏸ \(state.pauseReason) (\(formatDuration(date.timeIntervalSince(pauseStarted))))",
+                width: columns,
+            )
+            status = "\u{1B}[33m\(plain)\u{1B}[0m"
         } else {
-            lines.append("  \(truncateLine("Current   \(s.currentFile)", maxColumns: contentWidth))")
-        }
-        lines.append("  Elapsed   \(formatDuration(elapsed))")
-
-        // Move cursor up to overwrite previous render (8 lines of content)
-        let now = Date()
-        let shouldMoveCursor: Bool = lock.withLock {
-            if lastRenderTime != nil {
-                return true
-            }
-            lastRenderTime = now
-            return false
+            status = fit("  Current   \(state.currentFile)", width: columns)
         }
 
-        if shouldMoveCursor {
-            // Move up 8 lines and clear each
-            print("\u{1b}[\(lines.count)A", terminator: "")
-        }
-        lock.withLock { lastRenderTime = now }
-
-        for line in lines {
-            print("\u{1b}[2K\(line)")
-        }
-
-        fflush(stdout)
+        return FrameSnapshot(lines: [
+            "",
+            fit("  Progress  [\(bar)] \(completed)/\(state.total)", width: columns),
+            fit("  Photos    \(state.uploadedPhotos) uploaded", width: columns),
+            fit("  Videos    \(state.uploadedVideos) uploaded", width: columns),
+            fit("  Speed     \(speedText)\(lanes)", width: columns),
+            fit("  Errors    \(state.failed)", width: columns),
+            "",
+            status,
+            fit("  Elapsed   \(formatDuration(elapsed))", width: columns),
+        ])
     }
 
-    private func renderFinal() {
-        restoreInputEcho()
+    private func finalSnapshot(state: RenderState, at date: Date, width: Int) -> FrameSnapshot {
+        let columns = max(1, width)
+        let elapsed = activeElapsed(state: state, at: date)
+        let speed = elapsed > 0 ? Double(state.totalBytes) / elapsed : 0
+        let status = state.failed > 0
+            ? "Completed with \(state.failed) error\(state.failed == 1 ? "" : "s")"
+            : "Complete"
+        let completionLine = fit(
+            "  ✓ \(status) — \(formatBytes(state.totalBytes)) in \(formatDuration(elapsed))",
+            width: columns,
+        ).replacingOccurrences(of: "✓", with: "\u{1B}[32m✓\u{1B}[0m")
+        var lines = [
+            completionLine,
+            fit("  Photos    \(state.uploadedPhotos) uploaded", width: columns),
+            fit("  Videos    \(state.uploadedVideos) uploaded", width: columns),
+            fit("  Speed     \(formatBytes(Int(speed)))/s avg", width: columns),
+            fit("  Errors    \(state.failed)", width: columns),
+        ]
 
-        let s: RenderState = lock.withLock { state }
-        let elapsed = lock.withLock { startTime.map { Date().timeIntervalSince($0) } ?? 0 }
-        let speed = elapsed > 0 ? Double(s.totalBytes) / elapsed : 0
+        if !state.diagnostics.isEmpty {
+            lines.append("")
+            lines += state.diagnostics.map { fit("  Warning: \($0)", width: columns) }
+        }
 
-        // Overwrite the live display in-place
-        let lineCount = 8
-        print("\u{1b}[\(lineCount)A", terminator: "")
-
-        let status = s.failed > 0 ? "Completed with \(s.failed) error\(s.failed == 1 ? "" : "s")" : "Complete"
-        print("\u{1b}[2K  \u{1b}[32m✓\u{1b}[0m \(status) — \(formatBytes(s.totalBytes)) in \(formatDuration(elapsed))")
-        print("\u{1b}[2K  Photos    \(s.uploadedPhotos) uploaded")
-        print("\u{1b}[2K  Videos    \(s.uploadedVideos) uploaded")
-        print("\u{1b}[2K  Speed     \(formatBytes(Int(speed)))/s avg")
-        print("\u{1b}[2K  Errors    \(s.failed)")
-
-        // Use remaining lines for failures or clear them
-        if s.failed > 0 {
-            print("\u{1b}[2K")
-            print("\u{1b}[2K  Failed assets:")
-            // Clear the last live-display line (Elapsed) before printing failure details
-            print("\u{1b}[2K", terminator: "")
+        if state.failed > 0 {
+            lines += ["", fit("  Failed assets:", width: columns)]
             var permanentCount = 0
-            var retryableCount = 0
-            for failure in s.failedAssets {
-                let suffix = failure.classification == .permanentlyUnavailable ? " (permanently unavailable)" : ""
-                print("  ✗ \(failure.filename): \(failure.message)\(suffix)")
+            for failure in state.failedAssets {
+                let suffix = failure.classification == .permanentlyUnavailable
+                    ? " (permanently unavailable)"
+                    : ""
+                lines.append(fit("  ✗ \(failure.filename): \(failure.message)\(suffix)", width: columns))
                 if failure.classification == .permanentlyUnavailable {
                     permanentCount += 1
-                } else {
-                    retryableCount += 1
                 }
             }
-            if s.failed > s.failedAssets.count {
-                print("  ... and \(s.failed - s.failedAssets.count) more")
+            if state.failed > state.failedAssets.count {
+                lines.append(fit("  ... and \(state.failed - state.failedAssets.count) more", width: columns))
             }
-            print("")
+            lines.append("")
+            let retryableCount = state.failedAssets.count - permanentCount
             if permanentCount > 0, retryableCount == 0 {
-                print(
+                lines += wrap(
                     "Note: These assets are permanently unavailable from iCloud "
                         + "(typically shared-album originals iCloud cannot deliver, "
                         + "or assets removed from the source library). They've been "
                         + "recorded in `~/.attic/unavailable-assets.json` and will "
                         + "be skipped on future runs.",
+                    width: columns,
                 )
             } else if permanentCount > 0 {
-                print(
+                lines += wrap(
                     "Note: \(permanentCount) asset(s) are permanently unavailable "
                         + "from iCloud (recorded in `~/.attic/unavailable-assets.json` "
                         + "and skipped on future runs). The remaining \(retryableCount) "
                         + "failure(s) are retryable — run `attic backup` again to retry.",
+                    width: columns,
                 )
             } else {
-                print("Tip: Run `attic backup` again to retry failed assets.")
-            }
-        } else {
-            // Clear the remaining 3 lines (blank, Current, Elapsed)
-            for _ in 0 ..< 3 {
-                print("\u{1b}[2K")
+                lines.append(fit("Tip: Run `attic backup` again to retry failed assets.", width: columns))
             }
         }
+        return FrameSnapshot(lines: lines)
+    }
 
-        fflush(stdout)
+    private func activeElapsed(state: RenderState, at date: Date) -> TimeInterval {
+        guard let startTime = state.startTime else { return 0 }
+        let currentPause = state.pauseStarted.map { date.timeIntervalSince($0) } ?? 0
+        return max(0, date.timeIntervalSince(startTime) - state.totalPauseDuration - currentPause)
     }
 }
 
-// MARK: - Formatting
-
 private func formatDuration(_ seconds: TimeInterval) -> String {
     let total = Int(seconds)
-    let h = total / 3600
-    let m = (total % 3600) / 60
-    let s = total % 60
-    return String(format: "%02d:%02d:%02d", h, m, s)
+    let hours = total / 3600
+    let minutes = (total % 3600) / 60
+    let seconds = total % 60
+    return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
 }
 
 private func terminalColumnCount() -> Int {
@@ -324,13 +383,5 @@ private func terminalColumnCount() -> Int {
     if ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0, size.ws_col > 0 {
         return Int(size.ws_col)
     }
-
     return 100
-}
-
-private func truncateLine(_ value: String, maxColumns: Int) -> String {
-    guard maxColumns > 1 else { return "" }
-    let singleLine = value.replacingOccurrences(of: "\n", with: " ")
-    guard singleLine.count > maxColumns else { return singleLine }
-    return String(singleLine.prefix(maxColumns - 1)) + "…"
 }

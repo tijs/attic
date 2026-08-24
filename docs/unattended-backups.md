@@ -258,6 +258,107 @@ A hook that hangs (say, a `curl` stalled on a dead network) is terminated
 after 60 seconds with a warning, so a stuck notifier can't keep the attic
 process alive past the run either.
 
+## Machine-readable JSON Lines
+
+Use `attic backup --json` when a monitor needs live structured progress rather
+than the human log:
+
+```bash
+attic backup --json >~/Library/Logs/attic/backup.jsonl \
+  2>~/Library/Logs/attic/backup-errors.log
+```
+
+This is deliberately different from `attic status --json`: status remains one
+stable JSON object, while backup is a long-running **JSON Lines** stream. The
+flag is opt-in; without it, TTY sessions retain the live dashboard and non-TTY
+sessions retain the existing line-by-line human log. The dashboard redraws
+complete serialized frames, adapts to terminal resizes, and leaves stdin modes
+unchanged so interruption cannot strand the terminal without echo.
+
+Every stdout line in JSON mode is an independently parseable JSON object.
+Stdout contains no ANSI escapes, spinner text, filenames, paths, or raw
+provider errors. Migration messages, warnings, failure details, and output from
+`--on-success` or `--on-failure` hooks go to stderr in JSON mode.
+
+### Schema version 1
+
+Every event contains these required fields:
+
+| Field | Contract |
+| --- | --- |
+| `schema_version` | Integer `1`. Consumers should reject unsupported versions. |
+| `event` | One of the event kinds listed below. |
+| `timestamp` | UTC ISO-8601 timestamp with fractional seconds. |
+| `counts` | Object with integer `total`, `photos`, `videos`, `completed`, `uploaded`, `failed`, and `skipped`. |
+| `bytes` | Object with integer `uploaded`, the successfully uploaded bytes in this run. |
+| `percentage` | Number from 0 through 100, based on `completed / total`; a completed empty run is 100. |
+| `pause` | Object with Boolean `paused`. Pause reasons stay in human diagnostics rather than the JSON contract. |
+| `concurrency` | Object with nullable integer `limit`; null until the adaptive controller reports a limit. |
+
+`completed` is always `uploaded + failed + skipped`. `total`, `photos`, and
+`videos` describe the pending assets selected for this invocation after type
+and limit filtering. A fatal setup error can happen before those totals are
+known, in which case they are zero.
+
+Event kinds are:
+
+- `started` — pending totals are known.
+- `batch_started` — includes `batch` with integer `number`, `total`, and
+  `assets`.
+- `asset_started` — an asset entered an upload lane; identifying details are
+  intentionally omitted.
+- `progress` — an upload or failure changed the counters.
+- `retrying` — includes `retry.attempt` and `retry.max_attempts`, but no asset
+  identity or provider text.
+- `manifest_saved` — a batch checkpoint reached durable storage.
+- `paused` / `resumed` — network pause state changed.
+- `concurrency_changed` — `concurrency.limit` changed.
+- `completed` — the final event. It is emitted exactly once, including empty,
+  dry-run, partial-failure, cancellation, and fatal setup paths.
+
+Only `completed` contains `final`:
+
+```json
+{
+  "result": "success",
+  "exit_classification": "success",
+  "dry_run": false
+}
+```
+
+`result` is `success`, `failure`, or `cancelled`.
+`exit_classification` is one of:
+
+- `success` — the command exits zero;
+- `partial_failure` — the pipeline completed but one or more assets failed,
+  and the command exits non-zero;
+- `fatal_failure` — setup or the pipeline aborted with an error, and the
+  command exits non-zero;
+- `cancelled` — cooperative cancellation interrupted the run, and the command
+  exits non-zero.
+
+The final counters and uploaded bytes come from the same `BackupReport` used
+for exit classification and hook environment variables. A dry run reports its
+selected assets as `skipped`, with `final.dry_run` set to true.
+
+Example completion line (spacing and key order are not part of the contract):
+
+```json
+{"bytes":{"uploaded":3670016},"concurrency":{"limit":4},"counts":{"completed":3,"failed":0,"photos":2,"skipped":0,"total":3,"uploaded":3,"videos":1},"event":"completed","final":{"dry_run":false,"exit_classification":"success","result":"success"},"pause":{"paused":false},"percentage":100,"schema_version":1,"timestamp":"2026-08-22T18:30:00.000Z"}
+```
+
+A simple consumer can select only the final result while still validating each
+line as JSON:
+
+```bash
+set -o pipefail
+attic backup --json | jq -c 'select(.event == "completed") | .final'
+```
+
+Do not scrape stderr for automation; it is intentionally human-readable and
+may contain filenames, paths, or provider-specific details. Drive monitoring
+from the JSON schema and the process exit status.
+
 ## Gotchas
 
 ### Brew upgrade re-prompts the keychain
