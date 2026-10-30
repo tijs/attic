@@ -91,8 +91,13 @@ transport downloads to a temporary file, followed by verified destination-local
 staging and atomic publication. Concurrent downloads default to four and can be
 set with `--concurrency 1` through `16`.
 
-The `.attic-restore.json` journal binds the operation to a backup identity and
-records each completed key, checksum and size. Keep it with the recovered files.
+The `.attic-restore.json` header binds the operation to a backup identity.
+Atomic per-resource files in `.attic-restore-records/` record each completed key,
+checksum, size and optional Photos import state. Keep both with the recovered
+files. Updating a resource writes only its record; unchanged completion records
+are not rewritten on resume. Older single-file journals upgrade once to version
+2, preserving their records and import state. Older Attic binaries cannot read
+an upgraded journal, so do not downgrade during a recovery.
 Repeat the same command to resume. Existing files are rehashed and size-checked;
 the journal alone is never proof of completion. Correct files are skipped;
 missing files are downloaded again. Different existing bytes are preserved and

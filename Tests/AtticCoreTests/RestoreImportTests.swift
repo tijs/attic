@@ -62,11 +62,10 @@ struct RestoreImportTests {
         )
         #expect(resumed.imported == 0)
         #expect(await importer.imported.count == 1)
-        let journal = try #require(JSONSerialization
-            .jsonObject(with: Data(contentsOf: root.appendingPathComponent(".attic-restore.json"))) as? [String: Any])
-        let records = try #require(journal["records"] as? [String: [String: Any]])
-        #expect(records.values.first?["importState"] as? String == "imported")
-        #expect((records.values.first?["importedIDs"] as? [String]) == (duplicate ? [] : ["imported/L0/001"]))
+        let journal = try RestoreJournalStore(directory: SafeDirectory(url: root), sourceID: "fixture")
+        let record = try #require(try await journal.record(for: plan.items[0]))
+        #expect(record.importState == "imported")
+        #expect(record.importedIDs == (duplicate ? [] : ["imported/L0/001"]))
     }
 
     @Test func permissionFailureLeavesValidFilesAndCanRetryWithoutDuplicateRisk() async throws {
