@@ -5,6 +5,12 @@ import Foundation
 /// macOS exposes library selection through Photos.app, rather than PhotoKit.
 /// Refuses an existing session and verifies the selected database before/after each import.
 struct PhotosLibraryImporter: PhotosImportProviding {
+    private var auxiliaryDatabases: [String] {
+        [FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Photos/Libraries/Syndication.photoslibrary/database/Photos.sqlite")
+            .resolvingSymlinksInPath().path]
+    }
+
     func libraryIdentity(for library: URL) async throws -> String {
         let directory = try checkedLibrary(library)
         let identity = try directory.identity()
@@ -61,6 +67,9 @@ struct PhotosLibraryImporter: PhotosImportProviding {
             throw RestoreError.invalid("Select an existing .photoslibrary explicitly")
         }
         let directory = try SafeDirectory(url: library)
+        guard !auxiliaryDatabases.contains(directory.url.appendingPathComponent("database/Photos.sqlite").path) else {
+            throw RestoreError.invalid("Select a normal Photos library, not a system auxiliary library")
+        }
         guard let database = try directory.reader(key: "database/Photos.sqlite") else {
             throw RestoreError.invalid("The selected Photos library has no database")
         }
@@ -77,82 +86,16 @@ struct PhotosLibraryImporter: PhotosImportProviding {
         guard files.status == 0 else { return false }
         return Self.selectionMatches(
             database: directory.url.appendingPathComponent("database/Photos.sqlite").path, output: files.output,
+            auxiliaryDatabases: auxiliaryDatabases,
         )
     }
 
-    static func selectionMatches(database: String, output: String) -> Bool {
+    static func selectionMatches(database: String, output: String, auxiliaryDatabases: [String] = []) -> Bool {
+        let auxiliary = Set(auxiliaryDatabases)
+        guard !auxiliary.contains(database) else { return false }
         let databases = Set(output.split(whereSeparator: \.isNewline).filter {
             $0.hasPrefix("n") && $0.hasSuffix("/Photos.sqlite")
         }.map { String($0.dropFirst()) })
-        return databases == [database]
-    }
-}
-
-private final class RestoreProcessOutput: @unchecked Sendable {
-    private let lock = NSLock()
-    private var data = Data()
-    private var overflow = false
-    func append(_ chunk: Data) {
-        lock.withLock {
-            let available = max(0, 64 * 1024 - data.count)
-            data.append(chunk.prefix(available))
-            if chunk.count > available { overflow = true }
-        }
-    }
-
-    func result() throws -> String {
-        try lock.withLock {
-            guard !overflow else { throw RestoreError.invalid("Import subprocess output exceeded its limit") }
-            guard let string = String(data: data, encoding: .utf8) else {
-                throw RestoreError.invalid("Invalid import subprocess response encoding")
-            }
-            return string
-        }
-    }
-}
-
-private enum RestoreProcess {
-    static func run(
-        _ executable: String,
-        arguments: [String],
-        timeout: Double,
-    ) async throws -> (status: Int32, output: String) {
-        try Task.checkCancellation()
-        let process = Process()
-        let pipe = Pipe()
-        let output = RestoreProcessOutput()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = pipe
-        process.standardError = pipe
-        try Task.checkCancellation()
-        try process.run()
-        let reader = Task.detached {
-            while true {
-                guard let chunk = try pipe.fileHandleForReading.read(upToCount: 4096), !chunk.isEmpty else { break }
-                output.append(chunk)
-            }
-        }
-        let deadline = ProcessInfo.processInfo.systemUptime + timeout
-        do {
-            while process.isRunning {
-                try Task.checkCancellation()
-                guard ProcessInfo.processInfo.systemUptime < deadline else {
-                    throw RestoreError.invalid("Import subprocess timed out")
-                }
-                try await Task.sleep(for: .milliseconds(100))
-            }
-        } catch {
-            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-            process.waitUntilExit()
-            try? pipe.fileHandleForWriting.close()
-            try? await reader.value
-            throw error
-        }
-        process.waitUntilExit()
-        try pipe.fileHandleForWriting.close()
-        try await reader.value
-        return try (process.terminationStatus, output.result())
+        return databases.subtracting(auxiliary) == [database]
     }
 }

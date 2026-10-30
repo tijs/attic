@@ -177,4 +177,24 @@ struct RestoreImportTests {
         #expect(command.source.profile == "external")
         #expect(throws: (any Error).self) { try RestoreCommand.utcDay("2024-02-30") }
     }
+
+    @Test func systemSyndicationDatabaseDoesNotHideAnotherPrimaryLibrary() {
+        let selected = "/selected/database/Photos.sqlite"
+        let auxiliary = "/Users/fixture/Library/Photos/Libraries/Syndication.photoslibrary/database/Photos.sqlite"
+        let output = "n\(selected)\nn\(auxiliary)\n"
+        #expect(PhotosLibraryImporter.selectionMatches(
+            database: selected, output: output, auxiliaryDatabases: [auxiliary],
+        ))
+        #expect(!PhotosLibraryImporter.selectionMatches(database: selected, output: output))
+        #expect(!PhotosLibraryImporter.selectionMatches(
+            database: selected, output: output + "n/other/database/Photos.sqlite\n", auxiliaryDatabases: [auxiliary],
+        ))
+        #expect(!PhotosLibraryImporter.selectionMatches(
+            database: auxiliary, output: "n\(auxiliary)\n", auxiliaryDatabases: [auxiliary],
+        ))
+        #expect(!PhotosLibraryImporter.selectionMatches(
+            database: selected, output: output + "n/other/Syndication.photoslibrary/database/Photos.sqlite\n",
+            auxiliaryDatabases: [auxiliary],
+        ))
+    }
 }
