@@ -66,7 +66,7 @@ public final class FilesystemObjectStore: IntegrityCheckedObjectPutting, @unchec
         return parts.map { part in
             part.utf8.enumerated().map { index, byte in
                 let literal = (97 ... 122).contains(byte) || (48 ... 57).contains(byte) || [45, 46, 95].contains(byte)
-                if literal, !(index == 0 && byte == 46) {
+                return if literal, !(index == 0 && byte == 46) {
                     String(UnicodeScalar(byte))
                 } else {
                     String(format: "%%%02X", byte)
