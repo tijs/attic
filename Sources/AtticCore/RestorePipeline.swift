@@ -29,10 +29,11 @@ public func runRestore(
     try archive.validate()
     let archiveDeadline = ProcessInfo.processInfo.systemUptime + archive.waitSeconds
     if let filesystem = source as? FilesystemObjectStore {
-        let sourcePath = filesystem.directory.url.path.lowercased()
-        let targetPath = destination.resolvingSymlinksInPath().standardizedFileURL.path.lowercased()
-        guard targetPath != sourcePath, !targetPath.hasPrefix(sourcePath + "/") else {
-            throw RestoreError.invalid("Recovery destination must be outside the filesystem backup source")
+        let sourcePath = filesystem.directory.url.pathComponents.map { $0.lowercased() }
+        let targetPath = destination.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+            .map { $0.lowercased() }
+        guard !targetPath.starts(with: sourcePath), !sourcePath.starts(with: targetPath) else {
+            throw RestoreError.invalid("Recovery destination must not overlap the filesystem backup source")
         }
     }
     let directory = try SafeDirectory(url: destination)
