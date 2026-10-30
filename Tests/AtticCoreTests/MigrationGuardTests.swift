@@ -1,3 +1,4 @@
+import ArgumentParser
 @testable import AtticCLI
 @testable import AtticCore
 import Foundation
@@ -102,6 +103,87 @@ struct MigrationGuardTests {
 
         let manifest = try await S3ManifestStore(s3: s3).load()
         #expect(manifest.version == 2)
+    }
+
+    @Test func backupJSONMigratesThenBacksUpWithoutHumanTextOnStdout() async throws {
+        let s3 = try await seedV1Bucket()
+        let stderr = OutputSink()
+        let stdout = OutputSink()
+        let progress = BackupJSONProgressDelegate(output: { stdout.append($0 + "\n") })
+        let migrationGuard = makeGuard(s3: s3, prompts: stderr, status: stderr)
+        let staging = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: staging) }
+
+        try await BackupCommand.performBackup(
+            dryRun: false,
+            jsonProgress: progress,
+            execute: {
+                try await migrationGuard.ensureMigrated()
+                let store = S3ManifestStore(s3: s3)
+                var manifest = try await store.load()
+                return try await runBackup(
+                    assets: [makeTestAsset(uuid: "B")],
+                    manifest: &manifest,
+                    manifestStore: store,
+                    exporter: MockExportProvider(
+                        assets: ["B": (filename: "private.heic", data: Data("original".utf8))],
+                        stagingDir: staging,
+                    ),
+                    s3: s3,
+                    progress: progress,
+                )
+            },
+            successHook: { _ in stderr.append("success hook\n") },
+            failureHook: { _ in stderr.append("failure hook\n") },
+        )
+
+        let events = try stdout.text.split(separator: "\n").map {
+            try #require(JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any])
+        }
+        #expect(events.filter { $0["event"] as? String == "completed" }.count == 1)
+        let final = try #require(events.last)
+        let counts = try #require(final["counts"] as? [String: Any])
+        #expect(counts["uploaded"] as? Int == 1)
+        #expect(counts["failed"] as? Int == 0)
+        #expect((final["bytes"] as? [String: Any])?["uploaded"] as? Int == 8)
+        #expect((final["final"] as? [String: Any])?["exit_classification"] as? String == "success")
+        #expect(!stdout.text.contains("\u{1B}"))
+        #expect(!stdout.text.contains("Migration"))
+        #expect(!stdout.text.contains("private.heic"))
+        #expect(stderr.text.contains("Migration complete: 1 cloud, 0 local fallback."))
+        #expect(stderr.text.contains("success hook"))
+        let manifest = try await S3ManifestStore(s3: s3).load()
+        #expect(manifest.version == 2)
+        #expect(manifest.entries["CLOUD-A"] != nil)
+        #expect(manifest.entries["B"] != nil)
+    }
+
+    @Test func backupJSONNonInteractiveMigrationEmitsOneFatalEventAndPreservesV1() async throws {
+        let s3 = try await seedV1Bucket()
+        let stderr = OutputSink()
+        let stdout = OutputSink()
+        let progress = BackupJSONProgressDelegate(output: { stdout.append($0 + "\n") })
+        let migrationGuard = makeGuard(s3: s3, prompts: stderr, status: stderr, isTTY: false)
+        await #expect(throws: CLIError.self) {
+            try await BackupCommand.performBackup(
+                dryRun: false,
+                jsonProgress: progress,
+                execute: {
+                    try await migrationGuard.ensureMigrated()
+                    return BackupReport()
+                },
+                successHook: { _ in stderr.append("unexpected success") },
+                failureHook: { _ in stderr.append("failure hook") },
+            )
+        }
+        let lines = stdout.text.split(separator: "\n")
+        #expect(lines.count == 1)
+        let event = try #require(JSONSerialization.jsonObject(with: Data(stdout.text.utf8)) as? [String: Any])
+        #expect(event["event"] as? String == "completed")
+        #expect((event["final"] as? [String: Any])?["exit_classification"] as? String == "fatal_failure")
+        #expect(stderr.text.contains(MigrationPrompt.nonInteractiveHint))
+        #expect(stderr.text.contains("failure hook"))
+        #expect(try await S3ManifestStore(s3: s3).load().version == 1)
     }
 
     @Test func alreadyMigratedBucketEmitsNothing() async throws {
