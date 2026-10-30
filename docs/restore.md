@@ -160,8 +160,10 @@ attic restore --profile recovery --destination ~/RecoveredPhotos \
 
 Only verified successful file resources enter the import phase. Attic opens the
 selected library without interrupting an existing Photos session, checks the
-library identity, and requires that Photos has that sole Photos.sqlite database
-open. It rechecks selection before and after every import. If targeting cannot
+library identity, and requires that Photos has that sole primary Photos.sqlite
+database open. The exact system Shared with You (Syndication) auxiliary database
+is allowed alongside it; another primary library still fails selection. It
+rechecks selection before and after every import. If targeting cannot
 be verified on the installed macOS/Photos version, import fails safely while the
 recovered files remain usable. Do not switch libraries or modify the recovery
 files while this optional phase is running. This cooperative constraint is
@@ -183,6 +185,9 @@ not repeat it automatically. Inspect the selected library first, then use
 Duplicate checking remains enabled. The journal is bound to the selected library
 identity; choose a new recovery directory to import into a different library.
 Permission or preparation failure does not invalidate recovered originals.
+Each import subprocess has a two-minute deadline. Timeout or cancellation kills
+and reaps the subprocess without waiting on a Foundation run loop; it cannot
+roll back an import Photos may already have accepted.
 
 ## Validation boundaries
 
@@ -195,8 +200,10 @@ URLSession download-to-file path. Synthetic old/new SQLite album schemas pass
 through released Ladder 0.7.0 enrichment, backup to mock S3 and filesystem,
 verification, restore and hash checks; the fixture also validates backup JSONL.
 
-No live bucket, chargeable archive request, real Photos library or real Photos
-import has been used for validation. In particular, positive library-targeting
-behavior of the macOS import adapter remains unverified against a disposable
-real Photos library. Physical drive unplug/power-loss behavior is also untested.
+Real subprocess tests cover timeout, cancellation, descendant cleanup, output
+limits and exit status. A disposable empty Photos library has been opened and
+selected successfully, but the actual import event has not completed, so positive
+import/ID/resume behavior remains unverified. No household Photos library, live
+bucket or chargeable archive request is used for validation. Physical drive
+unplug/power-loss behavior is also untested.
 These limits must be retained in release/review evidence.
