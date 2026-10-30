@@ -27,7 +27,8 @@ attic init --profile recovery --filesystem /Volumes/PhotoBackup/Attic
 attic restore --profile recovery --destination ~/RecoveredPhotos
 ```
 
-The recovery directory must be outside a filesystem backup's directory tree.
+The recovery directory must neither contain the filesystem backup's directory
+nor be inside it. The two directory trees must be disjoint.
 No original or manifest is rewritten by recovery. `init` and the destination
 lock use internal target bookkeeping; they do not rewrite backed-up originals.
 If the manifest is missing or damaged, `restore` stops with instructions to run
