@@ -3,12 +3,29 @@ import AtticCore
 import Foundation
 
 struct InitCommand: AsyncParsableCommand {
+    @OptionGroup var destination: DestinationOptions
+
     static let configuration = CommandConfiguration(
         commandName: "init",
-        abstract: "Set up Attic with S3 endpoint, bucket, and credentials.",
+        abstract: "Configure an S3 or filesystem backup destination.",
     )
 
+    @Option(name: .long, help: "Initialize an existing empty directory on a local APFS/HFS+ volume.")
+    var filesystem: String?
+
     func run() async throws {
+        let profile = try AtticProfile(name: destination.profile)
+        let configProvider = FileConfigProvider(directory: profile.directory)
+        guard try configProvider.load() == nil else {
+            throw ValidationError("This profile is already configured. Select a new --profile for another destination.")
+        }
+        if let filesystem {
+            let target = try FilesystemDestination.initialize(at: URL(fileURLWithPath: filesystem))
+            try configProvider.write(AtticConfig(filesystem: target))
+            print("Filesystem destination initialized: \(target.path)")
+            print("Use the same --profile on backup, status, verify, refresh-metadata and rebuild.")
+            return
+        }
         print("Attic Setup")
         print("===========")
         print("")
@@ -33,20 +50,24 @@ struct InitCommand: AsyncParsableCommand {
         let accessKey = prompt("Access key ID: ")
         let secretKey = try promptSecret("Secret access key: ")
 
+        let keychain = AtticConfig.KeychainConfig(
+            accessKeyService: destination.profile.map { "attic-\($0)-s3-access-key" } ?? "attic-s3-access-key",
+            secretKeyService: destination.profile.map { "attic-\($0)-s3-secret-key" } ?? "attic-s3-secret-key",
+        )
         let config = AtticConfig(
             endpoint: endpoint,
             region: region,
             bucket: bucket,
             pathStyle: pathStyle,
+            keychain: keychain,
         )
         // Save config
-        let configProvider = FileConfigProvider()
         try configProvider.write(config)
 
         // Save credentials to Keychain
-        let keychain = SecurityKeychain()
-        try keychain.store(service: config.keychain.accessKeyService, value: accessKey)
-        try keychain.store(service: config.keychain.secretKeyService, value: secretKey)
+        let keychainStore = SecurityKeychain()
+        try keychainStore.store(service: config.keychain.accessKeyService, value: accessKey)
+        try keychainStore.store(service: config.keychain.secretKeyService, value: secretKey)
 
         print("")
         print("Configuration saved.")

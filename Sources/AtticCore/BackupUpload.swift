@@ -4,7 +4,7 @@ import LadderKit
 /// Bundles the non-mutating dependencies for uploadExported.
 struct UploadContext {
     let assetByUUID: [String: AssetInfo]
-    let s3: any S3Providing
+    let s3: any ObjectProviding
     let manifestStore: any ManifestStoring
     let concurrency: Int
     let progress: any BackupProgressDelegate
@@ -91,6 +91,8 @@ func uploadExported(
                         s3Key: result.s3Key,
                         checksum: checksum,
                         size: result.size,
+                        legacyLocalIdentifier: ctx.assetByUUID[result.uuid]?.legacyLocalIdentifier,
+                        identityKind: ctx.assetByUUID[result.uuid]?.cloudIdentifier != nil ? .cloud : .local,
                     )
                     sinceLastSave += 1
                     report.uploaded += 1
@@ -225,7 +227,7 @@ func actualFileSize(_ input: UploadInput) -> Int {
 /// Manifest updates happen in the caller's `for await` loop.
 func uploadSingleAsset(
     input: UploadInput,
-    s3: any S3Providing,
+    s3: any ObjectProviding,
     progress: (any BackupProgressDelegate)? = nil,
 ) async -> UploadResult {
     let exported = input.exported
@@ -246,22 +248,30 @@ func uploadSingleAsset(
                 )
             },
             operation: {
-                try await s3.putObject(
-                    key: s3Key,
-                    fileURL: fileURL,
-                    contentType: contentTypeForExtension(ext),
-                )
+                if let checked = s3 as? any IntegrityCheckedObjectPutting {
+                    try await checked.putVerifiedObject(
+                        key: s3Key, fileURL: fileURL, expectedSHA256: exported.sha256,
+                        contentType: contentTypeForExtension(ext),
+                    )
+                } else {
+                    try await s3.putObject(
+                        key: s3Key,
+                        fileURL: fileURL,
+                        contentType: contentTypeForExtension(ext),
+                    )
+                }
             },
         )
 
         // Build and upload metadata
         let isoNow = formatISO8601(Date())
-        let meta = buildMetadataJSON(
+        var meta = buildMetadataJSON(
             asset: asset,
             s3Key: s3Key,
             checksum: "sha256:\(exported.sha256)",
             backedUpAt: isoNow,
         )
+        meta.fileSize = actualSize
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         let metaData = try encoder.encode(meta)

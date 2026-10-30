@@ -2,6 +2,8 @@ import ArgumentParser
 import AtticCore
 
 struct RefreshMetadataCommand: AsyncParsableCommand {
+    @OptionGroup var destination: DestinationOptions
+
     static let configuration = CommandConfiguration(
         commandName: "refresh-metadata",
         abstract: "Re-generate and upload metadata JSON for all backed-up assets.",
@@ -14,9 +16,9 @@ struct RefreshMetadataCommand: AsyncParsableCommand {
     var dryRun: Bool = false
 
     func run() async throws {
-        try await Dependencies.ensureManifestMigrated()
+        try await Dependencies.ensureManifestMigrated(profile: destination.profile)
 
-        let (_, s3, manifestStore) = try Dependencies.makeBackupDeps()
+        let (_, s3, manifestStore) = try Dependencies.makeBackupDeps(profile: destination.profile)
         let manifest = try await Dependencies.loadManifest(store: manifestStore)
         let assets = try await Dependencies.loadAssetsAsync()
 

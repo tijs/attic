@@ -60,7 +60,7 @@ public struct MigrationRunner: Sendable {
     /// `(count, totalBytes)`; returns the decision.
     public typealias CleanupConfirmHandler = @Sendable (Int, Int64) async -> CleanupConfirmation
 
-    private let s3: any S3Providing
+    private let s3: any ObjectProviding
     private let manifestStore: any ManifestStoring
     private let resolver: any CloudIdentityResolving
     private let assetIdentifierProvider: @Sendable () -> [(bareUUID: String, fullLocalIdentifier: String)]
@@ -71,7 +71,7 @@ public struct MigrationRunner: Sendable {
     private let progress: ProgressHandler?
 
     public init(
-        s3: any S3Providing,
+        s3: any ObjectProviding,
         manifestStore: any ManifestStoring,
         resolver: any CloudIdentityResolving,
         assetIdentifierProvider: @escaping @Sendable () -> [(bareUUID: String, fullLocalIdentifier: String)],

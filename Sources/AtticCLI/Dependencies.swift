@@ -5,8 +5,8 @@ import LadderKit
 /// Builds the real dependencies for CLI commands from config + keychain.
 enum Dependencies {
     /// Load config from default location, or throw with a helpful message.
-    static func loadConfig() throws -> AtticConfig {
-        let provider = FileConfigProvider()
+    static func loadConfig(profile: String? = nil) throws -> AtticConfig {
+        let provider = try FileConfigProvider(directory: AtticProfile(name: profile).directory)
         guard let config = try provider.load() else {
             throw CLIError.notInitialized
         }
@@ -35,15 +35,20 @@ enum Dependencies {
     }
 
     /// Create the full set of backup dependencies.
-    static func makeBackupDeps() throws -> (
+    static func makeBackupDeps(profile: String? = nil) throws -> (
         config: AtticConfig,
-        s3: URLSessionS3Client,
-        manifestStore: S3ManifestStore
+        s3: any ObjectProviding,
+        manifestStore: ObjectManifestStore
     ) {
-        let config = try loadConfig()
-        let creds = try loadCredentials(config: config)
-        let s3 = try makeS3Client(config: config, credentials: creds)
-        let manifestStore = S3ManifestStore(s3: s3)
+        let config = try loadConfig(profile: profile)
+        let s3: any ObjectProviding = if let destination = config.filesystem {
+            try FilesystemObjectStore(destination: destination)
+        } else {
+            try makeS3Client(config: config, credentials: loadCredentials(config: config))
+        }
+        let state = try AtticProfile(name: profile).stateDirectory(config: config)
+        let legacyState = config.filesystem == nil && profile == nil && state == FileConfigProvider.defaultDirectory
+        let manifestStore = ObjectManifestStore(s3: s3, allowsLegacyLocalMigration: legacyState)
         return (config, s3, manifestStore)
     }
 
@@ -52,8 +57,23 @@ enum Dependencies {
     /// On first run after upgrading from the Deno CLI, this detects a local
     /// `~/.attic/manifest.json`, uploads it to S3, and returns it. Subsequent
     /// runs use the S3 manifest directly.
-    static func loadManifest(store: S3ManifestStore) async throws -> Manifest {
-        try await loadManifestWithMigration(s3Store: store)
+    static func loadManifest(store: S3ManifestStore, localDirectory: URL? = nil) async throws -> Manifest {
+        if store.allowsLegacyLocalMigration {
+            try await loadManifestWithMigration(s3Store: store, localDirectory: localDirectory)
+        } else {
+            try await store.load()
+        }
+    }
+
+    static func stateDirectory(profile: String? = nil) throws -> URL {
+        try AtticProfile(name: profile).stateDirectory(config: loadConfig(profile: profile))
+    }
+
+    static func requireS3Migration(profile: String? = nil) throws {
+        guard try loadConfig(profile: profile).filesystem == nil else {
+            throw ConfigError
+                .invalid("S3 migration/repair is not supported for filesystem destinations (initialized as v2)")
+        }
     }
 
     /// Default system Photos library location.
@@ -136,14 +156,17 @@ enum Dependencies {
     /// and unavailable stores. Caller owns prompting / confirmation flow.
     static func makeMigrationRunner(
         progress: MigrationRunner.ProgressHandler? = nil,
+        profile: String? = nil,
     ) async throws -> MigrationRunner {
+        try requireS3Migration(profile: profile)
         try await PhotosPermissionAuthorizer.preflight()
 
-        let (_, s3, manifestStore) = try makeBackupDeps()
+        let (config, s3, manifestStore) = try makeBackupDeps(profile: profile)
         let library = PhotoKitLibrary()
         let resolver = PhotoKitCloudIdentityResolver()
-        let retry = FileRetryQueueStore()
-        let unavailable = FileUnavailableAssetStore()
+        let state = try AtticProfile(name: profile).stateDirectory(config: config)
+        let retry = FileRetryQueueStore(directory: state)
+        let unavailable = FileUnavailableAssetStore(directory: state)
 
         let identifiers: @Sendable () -> [(bareUUID: String, fullLocalIdentifier: String)] = {
             library.enumerateAssets().map {
@@ -163,15 +186,17 @@ enum Dependencies {
     }
 
     /// Delete any leftover migration staging key on S3.
-    static func deleteMigrationStagingKey() async throws {
-        let (_, s3, _) = try makeBackupDeps()
+    static func deleteMigrationStagingKey(profile: String? = nil) async throws {
+        try requireS3Migration(profile: profile)
+        let (_, s3, _) = try makeBackupDeps(profile: profile)
         try? await s3.deleteObject(key: manifestV2StagingS3Key)
     }
 
     /// Delete any leftover migration lock on S3 (e.g. orphaned by a crash on
     /// another machine).
-    static func deleteMigrationLock() async throws {
-        let (_, s3, _) = try makeBackupDeps()
+    static func deleteMigrationLock(profile: String? = nil) async throws {
+        try requireS3Migration(profile: profile)
+        let (_, s3, _) = try makeBackupDeps(profile: profile)
         try? await s3.deleteObject(key: migrationLockS3Key)
     }
 
@@ -179,8 +204,9 @@ enum Dependencies {
     /// human-readable summary for the CLI to print before `--repair` deletes
     /// anything, so the user can recognize when a "stale" lock is actually
     /// a migration in flight elsewhere.
-    static func describeMigrationCleanupState() async throws -> String {
-        let (_, s3, _) = try makeBackupDeps()
+    static func describeMigrationCleanupState(profile: String? = nil) async throws -> String {
+        try requireS3Migration(profile: profile)
+        let (_, s3, _) = try makeBackupDeps(profile: profile)
         var lines: [String] = []
 
         if try await s3.headObject(key: manifestV2StagingS3Key) != nil {
@@ -202,7 +228,15 @@ enum Dependencies {
     /// See ``MigrationGuard`` for the control flow. With `statusToStderr`
     /// (JSON mode), progress and completion output is routed to stderr so
     /// stdout stays reserved for the machine-readable document.
-    static func ensureManifestMigrated(statusToStderr: Bool = false) async throws {
+    static func ensureManifestMigrated(statusToStderr: Bool = false, profile: String? = nil) async throws {
+        if try loadConfig(profile: profile).filesystem != nil {
+            let (_, _, store) = try makeBackupDeps(profile: profile)
+            guard try await store.load().version == currentManifestVersion else {
+                throw ConfigError
+                    .invalid("Filesystem destination requires a v2 manifest; use rebuild to recover metadata")
+            }
+            return
+        }
         let emitStatus: @Sendable (String) -> Void = if statusToStderr {
             { FileHandle.standardError.write(Data(($0 + "\n").utf8)) }
         } else {
@@ -211,10 +245,10 @@ enum Dependencies {
 
         let migrationGuard = MigrationGuard(
             loadManifest: {
-                let (_, _, manifestStore) = try makeBackupDeps()
+                let (_, _, manifestStore) = try makeBackupDeps(profile: profile)
                 return try await loadManifest(store: manifestStore)
             },
-            makeRunner: { progress in try await makeMigrationRunner(progress: progress) },
+            makeRunner: { progress in try await makeMigrationRunner(progress: progress, profile: profile) },
             isTTY: isatty(STDOUT_FILENO) != 0 && isatty(STDIN_FILENO) != 0,
             readAnswer: { readLine() },
             emitPrompt: { FileHandle.standardError.write(Data($0.utf8)) },

@@ -4,9 +4,11 @@ import Foundation
 import LadderKit
 
 struct BackupCommand: AsyncParsableCommand {
+    @OptionGroup var destination: DestinationOptions
+
     static let configuration = CommandConfiguration(
         commandName: "backup",
-        abstract: "Back up photos and videos to S3.",
+        abstract: "Back up photos and videos to the selected destination.",
     )
 
     @Option(name: .long, help: "Number of assets per export batch.")
@@ -109,7 +111,7 @@ struct BackupCommand: AsyncParsableCommand {
     }
 
     private func executeBackup(jsonProgress: BackupJSONProgressDelegate?) async throws -> BackupReport {
-        try await Dependencies.ensureManifestMigrated(statusToStderr: json)
+        try await Dependencies.ensureManifestMigrated(statusToStderr: json, profile: destination.profile)
 
         let isTTY = !json && isatty(STDOUT_FILENO) != 0
         if !isTTY {
@@ -123,9 +125,9 @@ struct BackupCommand: AsyncParsableCommand {
         defer { spinner?.stop() }
 
         spinner?.updateStatus("Loading configuration...")
-        let (_, s3, manifestStore) = try Dependencies.makeBackupDeps()
+        let (config, s3, manifestStore) = try Dependencies.makeBackupDeps(profile: destination.profile)
 
-        spinner?.updateStatus("Loading manifest from S3...")
+        spinner?.updateStatus("Loading backup manifest...")
         var manifest = try await Dependencies.loadManifest(store: manifestStore)
 
         spinner?.updateStatus("Scanning Photos library...")
@@ -140,7 +142,7 @@ struct BackupCommand: AsyncParsableCommand {
         // Stable staging dir — files persist across runs for reuse, cleaned per-asset after upload.
         // 0o700: staged originals are plaintext copies of the user's photos; keep them out of
         // other local accounts.
-        let stagingDir = FileConfigProvider.defaultDirectory.appendingPathComponent("staging")
+        let stagingDir = try Dependencies.stateDirectory(profile: destination.profile).appendingPathComponent("staging")
         try FileManager.default.createDirectory(
             at: stagingDir,
             withIntermediateDirectories: true,
@@ -182,7 +184,7 @@ struct BackupCommand: AsyncParsableCommand {
         )
 
         // Prevent idle sleep during backup (released automatically via deinit)
-        let powerAssertion = PowerAssertion(reason: "Backing up photos to S3")
+        let powerAssertion = PowerAssertion(reason: "Backing up Photos originals")
 
         let report = try await runBackup(
             assets: assets,
@@ -192,9 +194,10 @@ struct BackupCommand: AsyncParsableCommand {
             s3: s3,
             options: options,
             progress: progress,
-            networkMonitor: NWPathNetworkMonitor(),
-            retryQueue: FileRetryQueueStore(),
-            unavailableStore: FileUnavailableAssetStore(),
+            networkMonitor: config.filesystem == nil ? NWPathNetworkMonitor() : nil,
+            retryQueue: FileRetryQueueStore(directory: Dependencies.stateDirectory(profile: destination.profile)),
+            unavailableStore: FileUnavailableAssetStore(directory: Dependencies
+            .stateDirectory(profile: destination.profile)),
             adaptiveController: adaptiveController,
         )
 

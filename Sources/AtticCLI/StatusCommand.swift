@@ -4,27 +4,36 @@ import Foundation
 import LadderKit
 
 struct StatusCommand: AsyncParsableCommand {
+    @OptionGroup var destination: DestinationOptions
+
     static let configuration = CommandConfiguration(
         commandName: "status",
-        abstract: "Show library stats, backup progress, and S3 manifest info.",
+        abstract: "Show library stats, backup progress, and destination info.",
     )
 
     @Flag(name: .long, help: "Emit status as a single JSON object on stdout.")
     var json: Bool = false
 
     func run() async throws {
-        let data = try await Self.buildDashboard(
-            ensureMigrated: { try await Dependencies.ensureManifestMigrated(statusToStderr: json) },
+        var data = try await Self.buildDashboard(
+            ensureMigrated: { try await Dependencies.ensureManifestMigrated(
+                statusToStderr: json,
+                profile: destination.profile,
+            ) },
             loadAssets: { try await Dependencies.loadAssetsAsync() },
             loadLocalAvailability: { Dependencies.loadLocalAvailability() },
-            loadRetryQueue: { FileRetryQueueStore().load() },
+            loadRetryQueue: {
+                guard let state = try? Dependencies.stateDirectory(profile: destination.profile) else { return nil }
+                return FileRetryQueueStore(directory: state).load()
+            },
             loadBackupContext: {
-                let (config, _, manifestStore) = try Dependencies.makeBackupDeps()
+                let (config, _, manifestStore) = try Dependencies.makeBackupDeps(profile: destination.profile)
                 let manifest = try await Dependencies.loadManifest(store: manifestStore)
-                return (bucket: config.bucket, manifest: manifest)
+                return (bucket: config.destinationLabel, manifest: manifest)
             },
         )
 
+        data.filesystemPath = try? Dependencies.loadConfig(profile: destination.profile).filesystem?.path
         if json {
             let out = try formatDashboardJSON(data)
             FileHandle.standardOutput.write(out)

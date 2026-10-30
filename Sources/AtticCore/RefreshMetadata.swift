@@ -45,7 +45,7 @@ public struct NullRefreshMetadataProgressDelegate: RefreshMetadataProgressDelega
 public func runRefreshMetadata(
     assets: [AssetInfo],
     manifest: Manifest,
-    s3: any S3Providing,
+    s3: any ObjectProviding,
     options: RefreshMetadataOptions = RefreshMetadataOptions(),
     progress: any RefreshMetadataProgressDelegate = NullRefreshMetadataProgressDelegate(),
 ) async throws -> RefreshMetadataReport {
@@ -139,19 +139,20 @@ private actor RefreshReport {
 private func refreshSingle(
     asset: AssetInfo,
     manifest: Manifest,
-    s3: any S3Providing,
+    s3: any ObjectProviding,
     report: RefreshReport,
     progress: any RefreshMetadataProgressDelegate,
 ) async {
     guard let entry = manifest.entries[asset.uuid] else { return }
 
     do {
-        let meta = buildMetadataJSON(
+        var meta = buildMetadataJSON(
             asset: asset,
             s3Key: entry.s3Key,
             checksum: entry.checksum,
             backedUpAt: entry.backedUpAt,
         )
+        meta.fileSize = entry.size
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         let data = try encoder.encode(meta)

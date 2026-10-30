@@ -5,7 +5,7 @@ import AtticCore
 struct AtticCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "attic",
-        abstract: "Back up iCloud Photos to S3-compatible storage.",
+        abstract: "Back up iCloud Photos to S3-compatible storage or a filesystem.",
         version: AtticCore.version,
         subcommands: [
             StatusCommand.self,

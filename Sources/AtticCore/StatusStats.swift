@@ -20,6 +20,7 @@ public struct DashboardData: Sendable {
     public let s3: S3Info?
     public let types: [TypeBreakdown]
     public let retry: RetryInfo?
+    public var filesystemPath: String?
 
     public init(
         version: String,
@@ -254,7 +255,13 @@ public func formatDashboardJSON(_ data: DashboardData) throws -> Data {
             "manifestEntries": s3.manifestEntries,
         ]
         section["lastBackupAt"] = s3.lastBackupAt
-        json["s3"] = section
+        if let path = data.filesystemPath {
+            section.removeValue(forKey: "bucket")
+            section["path"] = path
+            json["filesystem"] = section
+        } else {
+            json["s3"] = section
+        }
     }
     if let retry = data.retry {
         var section: [String: Any] = [

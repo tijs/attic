@@ -4,6 +4,8 @@ import Foundation
 import LadderKit
 
 struct MigrateCommand: AsyncParsableCommand {
+    @OptionGroup var destination: DestinationOptions
+
     static let configuration = CommandConfiguration(
         commandName: "migrate",
         abstract: "Migrate the manifest from device-local to cloud-stable identity (one-time).",
@@ -40,18 +42,18 @@ struct MigrateCommand: AsyncParsableCommand {
     var json: Bool = false
 
     func run() async throws {
-        let runner = try await Dependencies.makeMigrationRunner()
+        let runner = try await Dependencies.makeMigrationRunner(profile: destination.profile)
 
         if !dryRun, repair {
             // Surface what's about to be cleared so the user catches the
             // "stale" lock that is actually a different Mac mid-flight.
-            let summary = await (try? Dependencies.describeMigrationCleanupState()) ?? ""
+            let summary = await (try? Dependencies.describeMigrationCleanupState(profile: destination.profile)) ?? ""
             if !summary.isEmpty {
                 print("Repair: pre-delete state:")
                 print(summary)
             }
-            try? await Dependencies.deleteMigrationStagingKey()
-            try? await Dependencies.deleteMigrationLock()
+            try? await Dependencies.deleteMigrationStagingKey(profile: destination.profile)
+            try? await Dependencies.deleteMigrationLock(profile: destination.profile)
             print("Repair: cleared manifest.v2.json staging key and migration.lock.")
         }
 

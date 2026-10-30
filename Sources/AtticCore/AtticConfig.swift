@@ -2,6 +2,7 @@ import Foundation
 
 /// S3 connection configuration stored at ~/.attic/config.json.
 public struct AtticConfig: Codable, Equatable, Sendable {
+    public var filesystem: FilesystemDestination?
     public var endpoint: String
     public var region: String
     public var bucket: String
@@ -34,12 +35,27 @@ public struct AtticConfig: Codable, Equatable, Sendable {
         storageClass: String? = nil,
         keychain: KeychainConfig = KeychainConfig(),
     ) {
+        filesystem = nil
         self.endpoint = endpoint
         self.region = region
         self.bucket = bucket
         self.pathStyle = pathStyle
         self.storageClass = storageClass
         self.keychain = keychain
+    }
+
+    public init(filesystem: FilesystemDestination) {
+        self.filesystem = filesystem
+        endpoint = ""
+        region = ""
+        bucket = ""
+        pathStyle = true
+        storageClass = nil
+        keychain = KeychainConfig()
+    }
+
+    public var destinationLabel: String {
+        filesystem?.path ?? bucket
     }
 }
 
@@ -121,6 +137,13 @@ extension AtticConfig {
     static func validate(_ raw: Any) throws -> AtticConfig {
         guard let obj = raw as? [String: Any] else {
             throw ConfigError.invalid("Config must be a JSON object")
+        }
+
+        if let destination = obj["filesystem"], !(destination is NSNull) {
+            let data = try JSONSerialization.data(withJSONObject: destination)
+            let filesystem = try JSONDecoder().decode(FilesystemDestination.self, from: data)
+            try filesystem.validateConfiguration()
+            return AtticConfig(filesystem: filesystem)
         }
 
         guard let endpoint = obj["endpoint"] as? String, !endpoint.isEmpty else {

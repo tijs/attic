@@ -35,7 +35,7 @@ private let thumbnailsPrefix = "thumbnails/"
 ///   - concurrency: Max in-flight `deleteObject` calls. Default `16` to
 ///     mirror `MigrationRunner.rewriteMetadataJSONs`.
 public func runThumbnailCleanup(
-    s3: any S3Providing,
+    s3: any ObjectProviding,
     dryRun: Bool,
     progress: @Sendable @escaping (Int, Int) -> Void,
     concurrency: Int = 16,
@@ -101,7 +101,7 @@ public func runThumbnailCleanup(
 }
 
 private func deleteSingle(
-    s3: any S3Providing,
+    s3: any ObjectProviding,
     item: S3ListObject,
     counter: DeleteCounter,
     total: Int,

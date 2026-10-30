@@ -22,8 +22,8 @@ public struct S3ListObject: Sendable {
     }
 }
 
-/// Protocol for S3-compatible storage operations.
-public protocol S3Providing: Sendable {
+/// Object operations shared by S3 and filesystem backup destinations.
+public protocol ObjectProviding: Sendable {
     /// Upload an object from data.
     func putObject(key: String, body: Data, contentType: String?) async throws
 
@@ -38,9 +38,6 @@ public protocol S3Providing: Sendable {
 
     /// List objects with a given prefix.
     func listObjects(prefix: String) async throws -> [S3ListObject]
-
-    /// Generate a pre-signed URL for temporary direct access to an object.
-    func presignedURL(key: String, expires: Int) -> URL
 
     /// Delete an object. Idempotent — succeeds whether the key exists or not.
     /// Default implementation throws ``S3OperationError/unsupported`` so
@@ -64,7 +61,7 @@ public enum S3OperationError: Error, CustomStringConvertible {
 }
 
 /// Convenience overloads.
-public extension S3Providing {
+public extension ObjectProviding {
     func putObject(key: String, body: Data) async throws {
         try await putObject(key: key, body: body, contentType: nil)
     }
@@ -80,4 +77,14 @@ public extension S3Providing {
     func deleteObject(key: String) async throws {
         throw S3OperationError.unsupported(operation: "deleteObject")
     }
+}
+
+/// S3-only capabilities remain separate from the object storage contract.
+public protocol S3Providing: ObjectProviding {
+    func presignedURL(key: String, expires: Int) -> URL
+}
+
+/// Optional integrity capability for destinations that verify the export before publication.
+public protocol IntegrityCheckedObjectPutting: ObjectProviding {
+    func putVerifiedObject(key: String, fileURL: URL, expectedSHA256: String, contentType: String?) async throws
 }

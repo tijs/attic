@@ -1,13 +1,15 @@
 import Foundation
 
 /// Manifest store backed by S3. This is the primary store.
-public struct S3ManifestStore: ManifestStoring {
-    private let s3: any S3Providing
+public struct ObjectManifestStore: ManifestStoring {
+    private let s3: any ObjectProviding
     private let key: String
+    public let allowsLegacyLocalMigration: Bool
 
-    public init(s3: any S3Providing, key: String = manifestS3Key) {
+    public init(s3: any ObjectProviding, key: String = manifestS3Key, allowsLegacyLocalMigration: Bool = true) {
         self.s3 = s3
         self.key = key
+        self.allowsLegacyLocalMigration = allowsLegacyLocalMigration
     }
 
     public func load() async throws -> Manifest {
@@ -16,7 +18,7 @@ public struct S3ManifestStore: ManifestStoring {
             return try Manifest.parse(from: data)
         } catch {
             if isNotFoundError(error) {
-                return Manifest()
+                return Manifest(thumbnailsCleanupApplied: !allowsLegacyLocalMigration)
             }
             throw error
         }
@@ -92,3 +94,6 @@ private func isNotFoundError(_ error: Error) -> Bool {
     return description.contains("NotFound") || description.contains("NoSuchKey")
         || description.contains("notFound")
 }
+
+/// Compatibility name retained for existing S3 library clients.
+public typealias S3ManifestStore = ObjectManifestStore

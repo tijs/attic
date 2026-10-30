@@ -59,7 +59,7 @@ struct StatusRenderer {
         // S3 section
         if let s3 = data.s3 {
             print("")
-            print("\(bold)S3\(reset) \(dim)- \(s3.bucket)\(reset)")
+            print("\(bold)\(data.filesystemPath == nil ? "S3" : "Filesystem")\(reset) \(dim)- \(s3.bucket)\(reset)")
             print("  Manifest   \(padLeft(format(s3.manifestEntries), width: 8)) entries")
             if let lastBackup = s3.lastBackup {
                 print("  Last backup \(lastBackup)")
@@ -69,7 +69,7 @@ struct StatusRenderer {
         // No config hint
         if data.backup == nil {
             print("")
-            print("\(dim)Run 'attic init' to configure S3 backup.\(reset)")
+            print("\(dim)Run 'attic init' to configure a backup destination.\(reset)")
         }
 
         // Types section
@@ -117,7 +117,7 @@ struct StatusRenderer {
 
         if let s3 = data.s3 {
             print("")
-            print("S3 - \(s3.bucket)")
+            print("\(data.filesystemPath == nil ? "S3" : "Filesystem") - \(s3.bucket)")
             print("  Manifest:    \(format(s3.manifestEntries)) entries")
             if let lastBackup = s3.lastBackup {
                 print("  Last backup: \(lastBackup)")
@@ -126,7 +126,7 @@ struct StatusRenderer {
 
         if data.backup == nil {
             print("")
-            print("Run 'attic init' to configure S3 backup.")
+            print("Run 'attic init' to configure a backup destination.")
         }
 
         if !data.types.isEmpty {
