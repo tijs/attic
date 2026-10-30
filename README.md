@@ -210,6 +210,25 @@ attic verify
 | ----------------- | --------------------------------- |
 | `--concurrency N` | Concurrent requests (default: 20) |
 
+### restore
+
+Recover checksum-verified originals to an existing local directory, with a
+resumable journal and metadata sidecars. Recovery reads the existing backup
+without needing the old Photos library or running identity migration.
+
+```bash
+mkdir ~/RecoveredPhotos
+attic restore --destination ~/RecoveredPhotos --dry-run
+attic restore --destination ~/RecoveredPhotos
+attic restore --profile external --destination ~/RecoveredPhotos --album ALBUM-UUID
+```
+
+UTC date/type/album filters, explicit archive retrieval and separately selected
+Photos import are described in [restore and disaster recovery](docs/restore.md).
+File recovery does not reconstruct missing Live Photo components or editing
+history. Optional import fails safely if its target library cannot be verified;
+positive import targeting against a real disposable library remains unvalidated.
+
 ### refresh-metadata
 
 Re-upload metadata JSON for already backed-up assets without re-uploading the
