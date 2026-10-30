@@ -317,7 +317,7 @@ MockExportProvider) — no external services or credentials needed.
 
 ## Dependencies
 
-- [LadderKit](https://github.com/tijs/ladder) (≥ 0.5.1) — PhotoKit access,
+- [LadderKit](https://github.com/tijs/ladder) (≥ 0.7.0) — PhotoKit access,
   Photos.sqlite enrichment, photo export with AppleScript fallback,
   local/iCloud lane partitioning, and the
   `AdaptiveConcurrencyControlling` protocol.

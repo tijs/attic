@@ -4,7 +4,6 @@
 *.xcodeproj/
 xcuserdata/
 DerivedData/
-Package.resolved
 Packages/
 
 # User config (contains endpoint, bucket, keychain service names)
