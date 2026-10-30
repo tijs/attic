@@ -13,7 +13,7 @@ public struct RebuildManifestReport: Sendable {
 /// manifest entries. Used as a disaster recovery mechanism when the manifest
 /// is lost or corrupted.
 public func runRebuildManifest(
-    s3: any S3Providing,
+    s3: any ObjectProviding,
     manifestStore: any ManifestStoring,
 ) async throws -> (Manifest, RebuildManifestReport) {
     let objects = try await s3.listObjects(prefix: "metadata/assets/")
@@ -56,6 +56,7 @@ public func runRebuildManifest(
                 uuid: parsed.uuid,
                 s3Key: parsed.s3Key,
                 checksum: parsed.checksum,
+                size: parsed.fileSize,
                 backedUpAt: parsed.backedUpAt ?? formatISO8601(Date()),
                 legacyLocalIdentifier: parsed.legacyLocalIdentifier,
                 identityKind: inferredKind,
@@ -78,6 +79,7 @@ private struct MetadataForRebuild: Decodable {
     let s3Key: String
     let checksum: String
     let backedUpAt: String?
+    let fileSize: Int?
     let legacyLocalIdentifier: String?
     let identityKind: IdentityKind?
 }

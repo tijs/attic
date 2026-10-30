@@ -11,7 +11,7 @@ public struct VerifyReport: Sendable {
 /// Verify backed-up assets exist in S3 via HEAD requests.
 public func runVerify(
     manifest: Manifest,
-    s3: any S3Providing,
+    s3: any ObjectProviding,
     concurrency: Int = 20,
 ) async throws -> VerifyReport {
     let entries = Array(manifest.entries.values)
@@ -83,7 +83,7 @@ private actor VerifyReportAccumulator {
 
 private func verifySingle(
     entry: ManifestEntry,
-    s3: any S3Providing,
+    s3: any ObjectProviding,
     report: VerifyReportAccumulator,
 ) async {
     do {

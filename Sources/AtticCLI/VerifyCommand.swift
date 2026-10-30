@@ -2,18 +2,20 @@ import ArgumentParser
 import AtticCore
 
 struct VerifyCommand: AsyncParsableCommand {
+    @OptionGroup var destination: DestinationOptions
+
     static let configuration = CommandConfiguration(
         commandName: "verify",
-        abstract: "Verify backed-up assets exist in S3.",
+        abstract: "Verify backed-up assets exist in the selected destination.",
     )
 
     @Option(name: .long, help: "Number of concurrent verification requests.")
     var concurrency: Int = 20
 
     func run() async throws {
-        try await Dependencies.ensureManifestMigrated()
+        try await Dependencies.ensureManifestMigrated(profile: destination.profile)
 
-        let (_, s3, manifestStore) = try Dependencies.makeBackupDeps()
+        let (_, s3, manifestStore) = try Dependencies.makeBackupDeps(profile: destination.profile)
         let manifest = try await Dependencies.loadManifest(store: manifestStore)
 
         guard !manifest.entries.isEmpty else {

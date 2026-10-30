@@ -43,13 +43,13 @@ public let migrationLockS3Key = "migration.lock"
 public struct MigrationLock: Sendable {
     public static let defaultTTLSeconds = 30 * 60 // 30 minutes
 
-    private let s3: any S3Providing
+    private let s3: any ObjectProviding
     private let now: @Sendable () -> Date
     private let machineId: String
     private let ttlSeconds: Int
 
     public init(
-        s3: any S3Providing,
+        s3: any ObjectProviding,
         machineId: String = MigrationLock.defaultMachineId(),
         ttlSeconds: Int = MigrationLock.defaultTTLSeconds,
         now: @escaping @Sendable () -> Date = { Date() },

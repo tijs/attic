@@ -70,6 +70,22 @@ the bucket name in the endpoint. For Scaleway, use
 answer `Y` to the path-style prompt. Config is saved to `~/.attic/config.json`;
 credentials are stored in the macOS Keychain.
 
+## Filesystem destinations
+
+To back up to a local APFS/HFS+ directory or external drive, create an empty
+existing directory and initialize a separate profile:
+
+```sh
+attic init --filesystem /Volumes/PhotoBackup/Attic --profile external
+attic backup --profile external
+attic verify --profile external
+```
+
+Attic checks the drive and destination identity and fails when a drive is absent;
+it never creates a replacement backup root on the internal disk. No S3
+credentials are needed. See [filesystem backups](docs/filesystem-backups.md) for
+setup, state isolation, supported volumes, locking and recovery.
+
 ## Unattended backups
 
 To run `attic backup` automatically on a daily schedule — on a Mac mini, an

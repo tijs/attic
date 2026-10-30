@@ -2,15 +2,17 @@ import ArgumentParser
 import AtticCore
 
 struct RebuildCommand: AsyncParsableCommand {
+    @OptionGroup var destination: DestinationOptions
+
     static let configuration = CommandConfiguration(
         commandName: "rebuild",
-        abstract: "Rebuild manifest from S3 metadata files (disaster recovery).",
+        abstract: "Rebuild the selected destination manifest from metadata files.",
     )
 
     func run() async throws {
-        let (_, s3, manifestStore) = try Dependencies.makeBackupDeps()
+        let (_, s3, manifestStore) = try Dependencies.makeBackupDeps(profile: destination.profile)
 
-        print("Rebuilding manifest from S3 metadata...")
+        print("Rebuilding manifest from backup metadata...")
 
         let (manifest, report) = try await runRebuildManifest(
             s3: s3, manifestStore: manifestStore,

@@ -169,7 +169,7 @@ public func runBackup(
     manifest: inout Manifest,
     manifestStore: any ManifestStoring,
     exporter: any ExportProviding,
-    s3: any S3Providing,
+    s3: any ObjectProviding,
     options: BackupOptions = BackupOptions(),
     progress: any BackupProgressDelegate = NullProgressDelegate(),
     networkMonitor: (any NetworkMonitoring)? = nil,

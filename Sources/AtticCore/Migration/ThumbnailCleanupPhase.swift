@@ -50,7 +50,7 @@ public enum MigrationRunnerError: Error, CustomStringConvertible {
 ///    `MigrationRunnerError`.
 /// 5. On clean delete, atomically flips the flag and saves.
 func runThumbnailCleanupPhaseImpl(
-    s3: any S3Providing,
+    s3: any ObjectProviding,
     manifestStore: any ManifestStoring,
     progress: (@Sendable (String) -> Void)?,
     manifest: Manifest,
