@@ -147,8 +147,7 @@ func uploadExported(
             }
         }
 
-        guard networkPaused, !retryInputs.isEmpty else { return }
-        guard let monitor = ctx.networkMonitor else { return }
+        guard networkPaused, !retryInputs.isEmpty, let monitor = ctx.networkMonitor else { return }
 
         // Save progress before waiting
         if sinceLastSave > 0 {

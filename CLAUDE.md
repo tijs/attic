@@ -37,7 +37,7 @@ Swift package with three targets:
 - `AtticCoreTests` — tests using Swift Testing framework.
 
 Dependencies: `aws-signer-v4` (SigV4 signing for `URLSessionS3Client` — no full
-AWS SDK), `swift-argument-parser`, and `LadderKit` pinned to `0.6.1+` via
+AWS SDK), `swift-argument-parser`, and `LadderKit` pinned to `0.7.0+` via
 `https://github.com/tijs/ladder.git`.
 
 Platform: macOS 14+, Swift 6.x, Apple Silicon only.
