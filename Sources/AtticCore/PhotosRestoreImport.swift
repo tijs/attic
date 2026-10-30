@@ -87,7 +87,7 @@ private func pendingImports(
 ) async throws -> [RestoreItem] {
     var pending: [RestoreItem] = []
     for item in items {
-        guard let record = await journal.record(for: item) else { continue }
+        guard let record = try await journal.record(for: item) else { continue }
         if let previous = record.importLibrary, previous != identity {
             throw RestoreError.invalid("Restore journal is bound to a different Photos library")
         }
