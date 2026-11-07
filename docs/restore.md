@@ -182,8 +182,11 @@ an import that Photos completed with no new IDs after duplicate checking. A lost
 response, timeout, crash or cancellation after intent is uncertain. Attic does
 not repeat it automatically. Inspect the selected library first, then use
 `--retry-uncertain-imports` only if you deliberately want another attempt.
-Duplicate checking remains enabled. The journal is bound to the selected library
-identity; choose a new recovery directory to import into a different library.
+Photos may pause to ask whether to import a duplicate. Choose **Don’t Import**
+to keep the existing copy; **Import** can create another copy. Stay at the Mac
+to answer any prompts before the import deadline. The journal is bound to the
+selected library identity; choose a new recovery directory to import into a
+different library.
 Permission or preparation failure does not invalidate recovered originals.
 Each import subprocess has a two-minute deadline. Timeout or cancellation kills
 and reaps the subprocess without waiting on a Foundation run loop; it cannot
@@ -201,9 +204,9 @@ through released Ladder 0.7.0 enrichment, backup to mock S3 and filesystem,
 verification, restore and hash checks; the fixture also validates backup JSONL.
 
 Real subprocess tests cover timeout, cancellation, descendant cleanup, output
-limits and exit status. A disposable empty Photos library has been opened and
-selected successfully, but the actual import event has not completed, so positive
-import/ID/resume behavior remains unverified. No household Photos library, live
+limits and exit status. A disposable Photos library confirmed PNG and MOV
+imports, returned asset IDs, a duplicate prompt on explicit retry, and zero
+new imports on normal resume. No household Photos library, live
 bucket or chargeable archive request is used for validation. Physical drive
 unplug/power-loss behavior is also untested.
 These limits must be retained in release/review evidence.

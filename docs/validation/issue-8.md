@@ -40,14 +40,16 @@ Actual CLI evidence:
 - Resume without explicit uncertain retry reports 2 uncertain resources and
   starts no AppleScript subprocess. Recovered originals remain valid.
 
-## Open acceptance gate
+## Photos import and resume verified on 2026-11-07
 
-The Photos AppleEvent does not complete on this host. The disposable library
-still contains zero assets. Positive import, returned IDs and completed-import
-duplicate/resume behavior are therefore **not validated**. Mock coverage does
-not close this gap. PR #18 remains draft and issue #8 remains open pending that
-runtime validation. No Attic release, version bump or Homebrew update is justified
-by this evidence alone.
+The disposable library contained one fixture PNG after the earlier cancelled
+attempt. An explicit retry raised Photos’ duplicate prompt. The operator chose
+**Import**, which added a second PNG. The MOV also imported successfully.
+Attic reported 2 processed, 0 failed and 0 uncertain, and both returned IDs
+matched entries in the selected library. The imported originals matched the
+fixture SHA-256 hashes. A normal resume verified both recovered files, processed
+zero Photos resources, and left the library at two PNGs and one MOV. This also
+confirms why Attic never automatically retries an uncertain import.
 
 Archive status/request/polling contracts and native HTTP downloads have fixture
 coverage. Live archive-provider behavior and physical drive unplug/power-loss

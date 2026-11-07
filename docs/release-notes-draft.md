@@ -30,8 +30,7 @@ Unreleased: review the separate PRs before choosing an Attic version or publishi
 
 Recovery covers every resource represented in a manifest. Missing Live Photo
 motion resources and edit history cannot be reconstructed. Photos import does
-not rebuild database IDs, albums or complete library state. Archive transport and
-Photos orchestration have fixture/mock coverage; positive import targeting in a
-real disposable Photos library, live archive-provider behavior, and physical
-unplug/power-loss experiments remain unverified. No release or version bump is
-performed by this draft.
+not rebuild database IDs, albums or complete library state. A disposable Photos
+library verified photo and video import, returned IDs, a duplicate prompt on
+explicit retry, and no new imports on normal resume. Live archive-provider
+behavior and physical unplug/power-loss experiments remain unverified.

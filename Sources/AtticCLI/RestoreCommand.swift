@@ -28,7 +28,7 @@ struct RestoreCommand: AsyncParsableCommand {
     var waitSeconds: Double = 0
     @Option(name: .long, help: "Optional existing .photoslibrary. Quit Photos first; keep this library selected.")
     var photosLibrary: String?
-    @Flag(name: .long, help: "Explicitly retry uncertain prior Photos imports; duplicate checking stays enabled.")
+    @Flag(name: .long, help: "Retry uncertain Photos imports. Photos may ask whether to import duplicates.")
     var retryUncertainImports = false
 
     static let configuration = CommandConfiguration(
