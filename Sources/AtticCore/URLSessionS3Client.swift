@@ -15,7 +15,7 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
     private let pathStyle: Bool
     private let signer: AWSSigner
     private let headerSigner: S3V4HeaderSigner
-    private let session: URLSession
+    let session: URLSession
     private let multipartThreshold: Int
     private let multipartPreferredPartSize: Int
     private let storageClass: String?
@@ -236,7 +236,7 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         value.addingPercentEncoding(withAllowedCharacters: Self.unreservedQueryChars) ?? value
     }
 
-    private func makeRequest(key: String, method: String) throws -> URLRequest {
+    func makeRequest(key: String, method: String) throws -> URLRequest {
         // S3 keys produced by ``S3Paths`` are already percent-encoded —
         // PhotoKit cloud identifiers contain `:`, `/`, `+`, `=` which must
         // not be re-interpreted as path structure. `appendingPathComponent`
@@ -296,7 +296,7 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         }
     }
 
-    private func signRequest(
+    func signRequest(
         _ request: inout URLRequest,
         payloadHash: String = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     ) {
@@ -461,7 +461,7 @@ public struct URLSessionS3Client: S3Providing, @unchecked Sendable {
         return hasher.finalize().hexDigest()
     }
 
-    private func checkResponse(_ response: URLResponse, data: Data, key: String) throws {
+    func checkResponse(_ response: URLResponse, data: Data, key: String) throws {
         guard let http = response as? HTTPURLResponse else {
             throw S3ClientError.unexpectedResponse("Not an HTTP response")
         }
