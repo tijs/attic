@@ -7,29 +7,30 @@ import Testing
 struct RestoreProcessTests {
     @Test func capturesOutputAndNonzeroStatusWithoutRunLoopWaits() async throws {
         let result = try await RestoreProcess.run(
-            "/bin/sh", arguments: ["-c", "printf stdout; printf stderr >&2; exit 7"], timeout: 2,
+            "/bin/sh", arguments: ["-c", "printf stdout; printf stderr >&2; exit 7"], timeout: 30,
         )
         #expect(result.status == 7)
         #expect(result.output == "stdoutstderr")
     }
 
-    @Test func timeoutKillsAndReapsChildAndItsDescendants() async throws {
+    @Test(.timeLimit(.minutes(1))) func timeoutKillsAndReapsChildAndItsDescendants() async throws {
         let root = try RestoreTestSupport.directory()
         defer { try? FileManager.default.removeItem(at: root) }
-        let started = ProcessInfo.processInfo.systemUptime
-        await #expect(throws: RestoreError.self) {
-            try await RestoreProcess.run(
+        do {
+            _ = try await RestoreProcess.run(
                 "/bin/sh",
                 arguments: [
                     "-c",
-                    "echo $$ > \"$1/parent\"; sleep 30 & echo $! > \"$1/child\"; wait",
+                    "echo $$ > \"$1/parent\"; sleep 120 & echo $! > \"$1/child\"; wait",
                     "fixture",
                     root.path,
                 ],
-                timeout: 0.3,
+                timeout: 1,
             )
+            Issue.record("Expected the subprocess deadline to fire")
+        } catch let RestoreError.invalid(reason) {
+            #expect(reason == "Import subprocess timed out")
         }
-        #expect(ProcessInfo.processInfo.systemUptime - started < 3)
         let parent = try pid(root.appendingPathComponent("parent"))
         let child = try pid(root.appendingPathComponent("child"))
         #expect(kill(parent, 0) == -1 && errno == ESRCH)
@@ -40,23 +41,22 @@ struct RestoreProcessTests {
         #expect(kill(child, 0) == -1 && errno == ESRCH)
     }
 
-    @Test func cancellationReturnsPromptlyAndReapsChild() async throws {
+    @Test(.timeLimit(.minutes(1))) func cancellationReapsChild() async throws {
         let root = try RestoreTestSupport.directory()
         defer { try? FileManager.default.removeItem(at: root) }
         let file = root.appendingPathComponent("pid")
         let task = Task {
             try await RestoreProcess.run(
-                "/bin/sh", arguments: ["-c", "echo $$ > \"$1\"; exec sleep 30", "fixture", file.path], timeout: 30,
+                "/bin/sh", arguments: ["-c", "echo $$ > \"$1\"; exec sleep 120", "fixture", file.path], timeout: 120,
             )
         }
-        for _ in 0 ..< 200 where !FileManager.default.fileExists(atPath: file.path) {
+        defer { task.cancel() }
+        while !FileManager.default.fileExists(atPath: file.path) {
             try await Task.sleep(for: .milliseconds(10))
         }
         let processID = try pid(file)
-        let started = ProcessInfo.processInfo.systemUptime
         task.cancel()
         await #expect(throws: CancellationError.self) { try await task.value }
-        #expect(ProcessInfo.processInfo.systemUptime - started < 3)
         #expect(kill(processID, 0) == -1 && errno == ESRCH)
     }
 

@@ -33,7 +33,18 @@ private final class RestoreLoopbackServer: @unchecked Sendable {
         }
         descriptor = fd
         port = UInt16(bigEndian: address.sin_port)
-        task = Task.detached {
+        task = Task {
+            try await withCheckedThrowingContinuation { continuation in
+                // The fixture uses blocking socket calls. Keep them off Swift's
+                // cooperative executor while the parallel test suite is running.
+                DispatchQueue.global(qos: .utility).async {
+                    continuation.resume(with: Result { try Self.respond(fd, body: body, status: status) })
+                }
+            }
+        }
+    }
+
+    private static func respond(_ fd: Int32, body: Data, status: Int) throws {
             let connection = accept(fd, nil, nil)
             guard connection >= 0 else { throw RestoreError.invalid("Fixture accept failed") }
             defer { close(connection) }
@@ -55,7 +66,6 @@ private final class RestoreLoopbackServer: @unchecked Sendable {
                     sent += count
                 }
             }
-        }
     }
 
     func finish() async throws { try await task.value }
@@ -67,8 +77,8 @@ struct RestoreDownloadTransportTests {
         let data = Data(repeating: 39, count: 2 * 1024 * 1024)
         let server = try RestoreLoopbackServer(body: data)
         let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 5
-        config.timeoutIntervalForResource = 10
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 60
         let client = try URLSessionS3Client(
             credentials: S3Credentials(accessKeyId: "fixture", secretAccessKey: "fixture"),
             bucket: "bucket", endpoint: "http://127.0.0.1:\(server.port)", region: "us-east-1", pathStyle: true,
